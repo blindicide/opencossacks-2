@@ -75,6 +75,12 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.name = std::string(w[1]);
         } else if (key == "BUILDING") {
             d.building = true;
+        } else if (key == "GEOMETRY") {
+            d.radius1 = intAt(w, 1, "радиус 1");
+            d.radius2 = intAt(w, 2, "радиус 2");
+            d.step = intAt(w, 3, "шаг");
+        } else if (key == "UNITRADIUS") {
+            d.unitRadius = intAt(w, 1, "радиус");
         } else if (key == "USERLC" && w.size() >= 3) {
             UnitSpriteFile f;
             f.id = intAt(w, 1, "номер");

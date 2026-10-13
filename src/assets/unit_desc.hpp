@@ -33,11 +33,15 @@ struct UnitAnimation {
 
 // Описание типа юнита (.md): пока — то, что нужно для вывода.
 // Ключевые слова оригинала — классы MD<КЛЮЧ> с разбором по строке; здесь
-// читаются NAME, BUILDING, USERLC, SETANMPARAM и строки анимаций,
+// читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, USERLC, SETANMPARAM и строки анимаций,
 // остальное пропускается.
 struct UnitDesc {
     std::string name;
     bool building = false;
+    // GEOMETRY r1 r2 шаг (FUN_018af490): за кадр ходьбы юнит смещается на шаг/16
+    // мировых единиц (таблицы cos·шаг >> 8 в единицах 1/16).
+    int radius1 = 0, radius2 = 0, step = 0;
+    int unitRadius = 0; // UNITRADIUS
     std::vector<UnitSpriteFile> files;
     std::vector<UnitAnimation> animations;
 

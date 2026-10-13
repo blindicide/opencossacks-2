@@ -45,6 +45,7 @@ target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 add_library(oc2_world STATIC
     src/world/terrain_mesh.cpp
     src/world/unit_catalog.cpp
+    src/world/world.cpp
 )
 target_include_directories(oc2_world PUBLIC src)
 target_link_libraries(oc2_world PUBLIC oc2_assets)

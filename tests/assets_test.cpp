@@ -21,6 +21,7 @@
 #include "assets/unit_desc.hpp"
 #include "assets/xml_tree.hpp"
 #include "check.hpp"
+#include "world/world.hpp"
 
 #include <bzlib.h>
 
@@ -657,8 +658,9 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
                                        "@UATTACK2 9 6 3 1\r\n"
-                                       "/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
+                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
+    CHECK(d.radius2 == 10 && d.step == 40 && d.unitRadius == 8);
     CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);
     CHECK(d.file(0)->path == "UnitsG17\\Dom");
     CHECK(d.animations.size() == 3); // после [END] не читается
@@ -695,6 +697,32 @@ TEST_CASE("Карта .m3d: юниты UNI3") {
     const MapUnit& u = map.units()[0];
     CHECK(u.player == 7 && u.id == 693 && u.x == 11939 && u.y == 14758 && u.life == 5000);
     CHECK(u.direction == 176 && u.flags == 3 && u.type == "SelFraDom4_3(SFR)");
+}
+
+TEST_CASE("Мир: таблицы направлений и ходьба") {
+    using namespace oc2::world;
+    // Значения таблиц оригинала (DAT_0216a818 / DAT_0216a610).
+    CHECK(cos256(0) == 256 && cos256(16) == 236 && cos256(32) == 181 && cos256(48) == 97 && cos256(64) == 0);
+    CHECK(cos256(80) == -97 && cos256(128) == -256 && sin256(16) == 97 && sin256(64) == 256);
+    CHECK(directionOf(10, 0) == 0 && directionOf(0, 10) == 64 && directionOf(-10, 0) == 128 && directionOf(0, -5) == 192);
+
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nGEOMETRY 1 10 40\nUSERLC 0 G SHADOW 0 0\n"
+                                             "@REST 9 0 0 3\n@MOTION_L 9 0 4 7\n");
+    const UnitDesc house = UnitDesc::parse("NAME H\nBUILDING\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
+    World w;
+    const std::size_t p = w.addUnit(peasant, 0, 100, 100, 0);
+    const std::size_t h = w.addUnit(house, 7, 500, 500, 0);
+    CHECK(w.units()[p].animation == peasant.animation("@REST"));
+    w.orderMove(h, 0, 0);
+    CHECK(!w.units()[h].moving); // здания не ходят
+    w.orderMove(p, 110, 100); // 10 единиц = 160 в 1/16; шаг 40 → 4 шага
+    w.step();
+    CHECK(w.units()[p].moving && w.units()[p].x16 == 1600 + 40 && w.units()[p].animation == peasant.animation("@MOTION_L"));
+    for (int i = 0; i < 3; ++i) w.step();
+    CHECK(w.units()[p].x16 == 1760 && !w.units()[p].moving);
+    w.step();
+    CHECK(w.units()[p].animation == peasant.animation("@REST"));
+    CHECK(w.units()[h].frame == 0); // кадры зданий не идут
 }
 
 int main() { return oc2::test::runAll(); }
