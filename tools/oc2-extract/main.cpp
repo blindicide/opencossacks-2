@@ -16,6 +16,7 @@
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
+#include "assets/map3d.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
 #include "core/version.hpp"
@@ -35,8 +36,10 @@ void usage() {
                 "      кадры в PNG\n"
                 "  oc2-extract image <файл.jpg|.tga|.bmp> <файл.png>\n"
                 "      перевести изображение в PNG\n"
+                "  oc2-extract map <файл.m3d> <файл.png>\n"
+                "      разделы карты и вид рельефа сверху (тени по высотам)\n"
                 "  oc2-extract check <папка игры> [--render]\n"
-                "      прочитать все .g2d, .g16, .g17, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
+                "      прочитать все .g2d, .g16, .g17, .m3d, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
 }
 
@@ -83,9 +86,32 @@ int extractG16(const fs::path& file, const fs::path& outDir) {
     return 0;
 }
 
+int extractMap(const fs::path& file, const fs::path& png) {
+    const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(file));
+    std::printf("%s: сетка %d×%d\n", file.string().c_str(), map.vertsInLine(), map.rows());
+    for (const auto& s : map.sections()) std::printf("  %-4s %10zu байт\n", s.tag.c_str(), s.size);
+    // Освещение как у вершин в FUN_01555110: нормаль по соседям, свет сверху-слева.
+    oc2::assets::Image img(std::uint32_t(map.vertsInLine()), std::uint32_t(map.rows()));
+    for (int y = 0; y < map.rows(); ++y)
+        for (int x = 0; x < map.vertsInLine(); ++x) {
+            auto h = [&](int xx, int yy) {
+                xx = std::clamp(xx, 0, map.vertsInLine() - 1);
+                yy = std::clamp(yy, 0, map.rows() - 1);
+                return int(map.height(xx, yy));
+            };
+            const int dx = h(x + 1, y) - h(x - 1, y), dy = h(x, y + 1) - h(x, y - 1);
+            const int v = std::clamp(160 + (dy - dx) * 2, 40, 255);
+            std::uint8_t* p = img.pixel(std::uint32_t(x), std::uint32_t(y));
+            p[0] = p[1] = p[2] = std::uint8_t(v);
+            p[3] = 255;
+        }
+    oc2::assets::writePng(png, img);
+    return 0;
+}
+
 int check(const fs::path& root, bool render) {
     const auto start = std::chrono::steady_clock::now();
-    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0, pictures = 0;
+    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0, pictures = 0, maps = 0;
     std::uintmax_t bytes = 0;
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
@@ -93,11 +119,17 @@ int check(const fs::path& root, bool render) {
         const bool isXml = hasExtension(entry.path(), ".xml");
         const bool isPicture = hasExtension(entry.path(), ".jpg") || hasExtension(entry.path(), ".tga") ||
                                hasExtension(entry.path(), ".bmp");
-        if (!isG16 && !isXml && !isPicture && !hasExtension(entry.path(), ".g2d")) continue;
+        const bool isMap = hasExtension(entry.path(), ".m3d");
+        if (!isG16 && !isXml && !isPicture && !isMap && !hasExtension(entry.path(), ".g2d")) continue;
         ++files;
         try {
             auto data = readFile(entry.path());
             bytes += data.size();
+            if (isMap) {
+                (void)oc2::assets::Map3d::parse(data);
+                ++maps;
+                continue;
+            }
             if (isPicture) {
                 (void)oc2::assets::decodeImage(data);
                 ++pictures;
@@ -129,7 +161,7 @@ int check(const fs::path& root, bool render) {
     if (render) std::printf(", кадров: %zu", frames);
     oc2::assets::TextTable texts;
     texts.loadGame(root);
-    std::printf(", XML: %zu, изображений: %zu, строк текста: %zu", xmlFiles, pictures, texts.size());
+    std::printf(", XML: %zu, изображений: %zu, карт: %zu, строк текста: %zu", xmlFiles, pictures, maps, texts.size());
     std::printf(", время: %.1f с\n", seconds);
     return failed == 0 ? 0 : 1;
 }
@@ -155,6 +187,7 @@ int main(int argc, char** argv) {
             return extractG2d(args[1], args[2], pages, frames);
         }
         if (args.size() >= 3 && args[0] == "g16") return extractG16(args[1], args[2]);
+        if (args.size() >= 3 && args[0] == "map") return extractMap(args[1], args[2]);
         if (args.size() >= 3 && args[0] == "image") {
             oc2::assets::writePng(args[2], oc2::assets::decodeImage(readFile(args[1])));
             return 0;

@@ -13,6 +13,7 @@
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
+#include "assets/map3d.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
@@ -524,6 +525,70 @@ TEST_CASE("Изображения: BMP и отказ на мусоре") {
     CHECK(img.pixel(0, 0)[0] == 255 && img.pixel(0, 0)[2] == 0 && img.pixel(0, 0)[3] == 255);
     CHECK(img.pixel(1, 0)[2] == 255 && img.pixel(1, 0)[0] == 0);
     CHECK_THROWS_AS(decodeImage(Bytes{1, 2, 3, 4}), FormatError);
+}
+
+namespace {
+
+void appendSection(Bytes& out, const char* tag, const Bytes& data) {
+    out.insert(out.end(), tag, tag + 4);
+    const auto size = std::uint32_t(data.size() + 4);
+    for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(size >> (8 * i)));
+    out.insert(out.end(), data.begin(), data.end());
+}
+
+// Карта с сеткой 3×2 (N = 2): высоты 0..5, фактуры 10..15, TIL2 — 20..25 и веса 30..35.
+Bytes tinyMap() {
+    Bytes m{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
+    Bytes surf, tile, til2;
+    for (int i = 0; i < 6; ++i) {
+        const auto h = std::int16_t(i * 100 - 200);
+        surf.push_back(std::uint8_t(h & 0xFF));
+        surf.push_back(std::uint8_t((h >> 8) & 0xFF));
+        tile.push_back(std::uint8_t(10 + i));
+    }
+    for (int i = 0; i < 6; ++i) til2.push_back(std::uint8_t(20 + i));
+    for (int i = 0; i < 6; ++i) til2.push_back(std::uint8_t(30 + i));
+    appendSection(m, "VIE2", Bytes(8, 0));
+    appendSection(m, "SURF", surf);
+    appendSection(m, "TILE", tile);
+    appendSection(m, "TIL2", til2);
+    m.insert(m.end(), {0xFF, 0xFF, 0xFF, 0xFF, 1, 2, 3}); // мусор в конце, как у части карт
+    return m;
+}
+
+} // namespace
+
+TEST_CASE("Карта .m3d: разделы и сетка") {
+    const Map3d map = Map3d::parse(tinyMap());
+    CHECK(map.sections().size() == 4);
+    CHECK(map.vertsInLine() == 3 && map.rows() == 2);
+    CHECK(map.height(0, 0) == -200 && map.height(2, 1) == 300);
+    CHECK(map.facture(1, 1) == 14);
+    CHECK(map.facture2(2, 0) == 22 && map.blend2(0, 1) == 33);
+    CHECK(map.worldX(2) == 64.0f);
+    CHECK(map.worldY(0, 1) == 32.0f && map.worldY(1, 1) == 16.0f); // нечётный столбец выше на 16
+}
+
+TEST_CASE("Карта .m3d: сжатая и повреждённая") {
+    const Bytes raw = tinyMap();
+    // Блок метода 1 (bzip2) со стандартным заголовком.
+    Bytes packed(raw.size() * 2 + 600);
+    unsigned int packedSize = unsigned(packed.size());
+    CHECK(BZ2_bzBuffToBuffCompress(reinterpret_cast<char*>(packed.data()), &packedSize,
+                                   const_cast<char*>(reinterpret_cast<const char*>(raw.data())),
+                                   unsigned(raw.size()), 9, 0, 0) == BZ_OK);
+    Bytes file{1};
+    for (int i = 0; i < 4; ++i) file.push_back(std::uint8_t(packedSize >> (8 * i)));
+    for (int i = 0; i < 4; ++i) file.push_back(std::uint8_t(raw.size() >> (8 * i)));
+    file.insert(file.end(), packed.begin(), packed.begin() + packedSize);
+    CHECK(Map3d::parse(file).height(1, 0) == -100);
+
+    Bytes noSurf{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
+    appendSection(noSurf, "TILE", Bytes(6, 0));
+    CHECK_THROWS_AS(Map3d::parse(noSurf), FormatError);
+    Bytes badSize{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
+    appendSection(badSize, "SURF", Bytes(10, 0)); // 5 значений — не (N + 1)·N
+    CHECK_THROWS_AS(Map3d::parse(badSize), FormatError);
 }
 
 int main() { return oc2::test::runAll(); }

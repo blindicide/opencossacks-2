@@ -30,6 +30,7 @@ add_library(oc2_assets STATIC
     src/assets/g2d.cpp
     src/assets/game_paths.cpp
     src/assets/image_decode.cpp
+    src/assets/map3d.cpp
     src/assets/png.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
