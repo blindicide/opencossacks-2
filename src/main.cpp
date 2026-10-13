@@ -64,6 +64,7 @@ const char* kHelp =
     "  --dialog <файл.xml>   открыть любое окно *.DialogsSystem.xml (путь относительно --data)\n"
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
+    "  --build <тип>         с --map: крестьяне игрока 0 закладывают рядом здание <тип> и строят (для проверок)\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
@@ -112,6 +113,7 @@ struct Options {
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
     std::optional<int> gather;
+    std::string build;
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
@@ -171,6 +173,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--build" && hasValue) {
+            o.build = argv[++i];
         } else if (a == "--gather" && hasValue) {
             o.gather = int(std::strtol(argv[++i], nullptr, 10));
         } else if (a == "--frame" && hasValue) {
@@ -302,6 +306,94 @@ struct MapView {
         return true;
     }
     bool showLocks = false; // L — показать закрытые клетки
+
+    // Панель строительства (своя раскладка — оригинал рисует её кодом): значки BIGICON
+    // членов [FIXED_PRODUCE] выбранного производителя на сетке 12 столбцов, место
+    // значка — столбец и строка из файла нации.
+    struct PanelButton {
+        const oc2::assets::UnitDesc* desc;
+        float x, y, size;
+    };
+    std::vector<PanelButton> panel(VkExtent2D e) const {
+        std::vector<PanelButton> out;
+        const std::vector<oc2::assets::ProduceItem>* items = nullptr;
+        for (const auto& u : world.units()) {
+            if (!u.selected || u.player != player || !u.alive() || u.underConstruction) continue;
+            const auto& list = units->produces(units->typeOf(u.desc));
+            if (!list.empty()) {
+                items = &list;
+                break;
+            }
+        }
+        if (!items) return out;
+        int rows = 1;
+        for (const auto& it : *items) rows = std::max(rows, it.row + 1);
+        const float cell = std::floor(48.0f * std::max(0.5f, float(e.height) / 768.0f));
+        const float x0 = float(e.width) - 12.0f * cell - 8.0f, y0 = float(e.height) - float(rows) * cell - 8.0f;
+        for (const auto& it : *items)
+            if (const oc2::assets::UnitDesc* d = units->find(it.member))
+                out.push_back({d, x0 + float(it.column) * cell, y0 + float(it.row) * cell, cell});
+        return out;
+    }
+
+    void drawPanel(oc2::render::SpriteRenderer& sprites, VkExtent2D e) const {
+        const std::vector<PanelButton> buttons = panel(e);
+        if (buttons.empty()) return;
+        float x0 = 1e9f, y0 = 1e9f, x1 = 0.0f, y1 = 0.0f;
+        for (const auto& b : buttons) {
+            x0 = std::min(x0, b.x), y0 = std::min(y0, b.y);
+            x1 = std::max(x1, b.x + b.size), y1 = std::max(y1, b.y + b.size);
+        }
+        sprites.fillRect(x0 - 4.0f, y0 - 4.0f, x1 - x0 + 8.0f, y1 - y0 + 8.0f, 0xC0201810);
+        for (const auto& b : buttons) {
+            const oc2::render::GpId id = images->id(b.desc->bigIconFile);
+            const auto frame = std::size_t(b.desc->bigIconFrame);
+            if (!images->valid(id) || frame >= images->frameCount(id)) {
+                sprites.fillRect(b.x + 1.0f, b.y + 1.0f, b.size - 2.0f, b.size - 2.0f, 0xFF504030);
+                continue;
+            }
+            const float w = float(images->frameWidth(id, frame)), h = float(images->frameHeight(id, frame));
+            const float scale = (b.size - 2.0f) / std::max({w, h, 1.0f});
+            const bool can = world.affordable(*b.desc, player);
+            images->draw(id, frame, b.x + 1.0f, b.y + 1.0f, can ? 0xFFFFFFFF : 0xFF707070, scale);
+            if (placing == b.desc) {
+                const std::uint32_t c = 0xFFFFD040;
+                sprites.fillRect(b.x, b.y, b.size, 2.0f, c);
+                sprites.fillRect(b.x, b.y + b.size - 2.0f, b.size, 2.0f, c);
+                sprites.fillRect(b.x, b.y, 2.0f, b.size, c);
+                sprites.fillRect(b.x + b.size - 2.0f, b.y, 2.0f, b.size, c);
+            }
+        }
+    }
+
+    // Выбор места здания: призрак под курсором, зелёный — можно, красный — нельзя.
+    const oc2::assets::UnitDesc* placing = nullptr;
+    void drawPlacement(float mx, float my) {
+        if (!placing) return;
+        const auto [x, y] = screenToWorld(mx, my);
+        const bool ok = world.canPlace(*placing, x, y) && world.affordable(*placing, player);
+        objects->drawGhost(*placing, x, y, camera, ok ? 0xB080FF80 : 0xB0FF6060);
+    }
+
+    // Нажатие на панели; true — поглощено.
+    bool panelClick(const oc2::platform::Window::Click& c, VkExtent2D e) {
+        for (const auto& b : panel(e)) {
+            if (c.x < b.x || c.y < b.y || c.x >= b.x + b.size || c.y >= b.y + b.size) continue;
+            if (c.button == 1 && b.desc->building) placing = b.desc;
+            return true;
+        }
+        return false;
+    }
+
+    // Заложить выбранное здание в точке экрана; выбранные крестьяне идут строить.
+    void place(float sx, float sy) {
+        const auto [x, y] = screenToWorld(sx, sy);
+        const auto b = world.placeBuilding(*placing, player, x, y);
+        if (!b) return; // место занято или не хватает ресурсов — выбор остаётся
+        placing = nullptr;
+        for (std::size_t i = 0; i < world.units().size(); ++i)
+            if (world.units()[i].selected && world.units()[i].player == player) world.orderBuild(i, *b);
+    }
     int player = 0;         // за кого играем: приказы слушают только его юниты
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
@@ -543,8 +635,14 @@ struct MapView {
 
     // Левая кнопка — начало рамки; правая — идти в точку. Группа сохраняет строй:
     // каждый идёт со своим смещением от центра группы.
-    void handleClick(const oc2::platform::Window::Click& c) {
+    void handleClick(const oc2::platform::Window::Click& c, VkExtent2D e) {
         auto& us = world.units();
+        if (panelClick(c, e)) return;
+        if (placing) {
+            if (c.button == 1) place(c.x, c.y);
+            else placing = nullptr; // правая кнопка — отмена
+            return;
+        }
         if (c.button == 1) {
             dragStart = std::array<float, 2>{c.x, c.y};
         } else if (c.button == 3) {
@@ -559,6 +657,16 @@ struct MapView {
                 return;
             }
             const auto [tx, ty] = screenToWorld(c.x, c.y);
+            // Правая кнопка у своей стройки — достраивать.
+            for (std::size_t b = 0; b < us.size(); ++b) {
+                if (!us[b].underConstruction || us[b].player != player) continue;
+                const int dx = us[b].x() - tx, dy = us[b].y() - ty;
+                if (dx * dx + dy * dy > 250 * 250) continue;
+                bool any = false;
+                for (std::size_t i = 0; i < us.size(); ++i)
+                    if (us[i].selected && us[i].player == player && world.orderBuild(i, b)) any = true;
+                if (any) return;
+            }
             // Правая кнопка у дерева или камня — добывать (кто умеет; остальные идут туда).
             if (auto s = world.sourceNear(tx, ty, 48)) {
                 bool any = false;
@@ -762,6 +870,26 @@ int main(int argc, char** argv) {
                         mapView->world.orderMove(i, (*opts->move)[1] + int(us[i].x() - cx / n),
                                                  (*opts->move)[2] + int(us[i].y() - cy / n));
             }
+            if (!opts->build.empty()) {
+                auto& w = mapView->world;
+                const oc2::assets::UnitDesc* d = mapView->units->find(opts->build);
+                long cx = 0, cy = 0, n = 0;
+                for (auto& u : w.units())
+                    if (u.player == 0 && u.desc->peasant) u.selected = true, cx += u.x(), cy += u.y(), ++n;
+                std::optional<std::size_t> b;
+                // Свободное место — по спирали от центра крестьян.
+                for (int r = 200; d && n && !b && r < 3000; r += 100)
+                    for (int a = 0; a < 16 && !b; ++a)
+                        b = w.placeBuilding(*d, 0, int(cx / n + r * std::cos(a * 0.3927)), int(cy / n + r * std::sin(a * 0.3927)));
+                if (b) {
+                    for (std::size_t i = 0; i < w.units().size(); ++i)
+                        if (w.units()[i].selected) w.orderBuild(i, *b);
+                    mapView->lookAt(float(w.units()[*b].x()), float(w.units()[*b].y()), vulkan.extent());
+                    std::printf("стройка: %s в (%d,%d)\n", opts->build.c_str(), w.units()[*b].x(), w.units()[*b].y());
+                } else {
+                    std::printf("стройка: %s не заложить\n", opts->build.c_str());
+                }
+            }
             if (opts->gather) {
                 auto& w = mapView->world;
                 int ordered = 0;
@@ -801,7 +929,10 @@ int main(int argc, char** argv) {
                 window.pressedKeys.end()) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
                 // текущее окно, из главного — выход.
-                if (mapView && screen) {
+                if (mapView && mapView->placing) {
+                    mapView->placing = nullptr; // отмена выбора места
+                    window.pressedKeys.clear();
+                } else if (mapView && screen) {
                     if (screen->menus->empty()) break; // игра открыта ключом --map, меню нет
                     mapView.reset();
                     window.pressedKeys.clear();
@@ -888,7 +1019,7 @@ int main(int argc, char** argv) {
                 if (!resultOpen) {
                     for (const auto& click : window.clicks)
                         if (!overHud && !(click.button == 1 && mapView->minimapClick(click.x, click.y, e)))
-                            mapView->handleClick(click);
+                            mapView->handleClick(click, e);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
                 if (!mapView->ended) mapView->advance(dt);
@@ -904,9 +1035,11 @@ int main(int argc, char** argv) {
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
                                        mapView->effects.get());
+                mapView->drawPlacement(window.mouseX, window.mouseY);
                 mapView->drawLocks(sprites, e);
                 mapView->drawDragBox(sprites, window);
                 mapView->drawMinimap(sprites, e);
+                mapView->drawPanel(sprites, e);
                 screen->updateHud(mapView->world, mapView->player);
                 if (hud) hud->draw(screen->hudView);
                 if (resultOpen) {
@@ -934,6 +1067,11 @@ int main(int argc, char** argv) {
             sprites.flush(cmd);
             vulkan.endFrame();
         }
+        if (mapView && !opts->build.empty())
+            for (const auto& u : mapView->world.units())
+                if (u.player == 0 && u.building())
+                    std::printf("здание %s: стадия %d из %d, жизнь %d\n", u.desc->name.c_str(), u.stage,
+                                u.desc->buildStages, u.life);
         if (mapView && opts->gather) {
             const auto& r = mapView->world.resources[std::size_t(*opts->gather & 7)];
             std::printf("ресурсы игрока %d: дерево %d, золото %d, камень %d, еда %d, железо %d, уголь %d\n",

@@ -168,8 +168,10 @@ public:
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};
 
-private:
+    // Анимация покоя (#STANDLO у зданий).
     static const assets::UnitAnimation* idleAnimation(const assets::UnitDesc& desc);
+
+private:
     static const assets::UnitAnimation* moveAnimation(const assets::UnitDesc& desc);
     static const assets::UnitAnimation* attackAnimation(const assets::UnitDesc& desc, int weapon);
     static const assets::UnitAnimation* namedAnimation(const assets::UnitDesc& desc, const std::string& name);

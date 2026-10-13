@@ -35,6 +35,9 @@ public:
 
     std::size_t staticCount() const { return items_.size(); }
 
+    // Призрак здания при выборе места: покой (#STANDLO) в точке (x, y), цвет — множитель ARGB.
+    void drawGhost(const assets::UnitDesc& desc, int x, int y, const MapCamera& camera, std::uint32_t color);
+
     // Точка земли под юнитом в пикселях проекции (X = x, Y = y/2 − z).
     float groundX(const world::Unit& u) const { return float(u.x()); }
     float groundY(const world::Unit& u) const { return float((u.y() >> 1) - map_.heightAt(u.x(), u.y())); }
@@ -54,7 +57,7 @@ private:
     void appendFrame(const assets::UnitDesc& desc, const assets::UnitAnimation& anim, std::size_t layer, int direction,
                      int x, int y, int lift, int sortY, std::vector<Item>& out);
     GpId gpFor(const assets::UnitSpriteFile& file);
-    void drawItem(const Item& it, const MapCamera& camera, float right, float bottom);
+    void drawItem(const Item& it, const MapCamera& camera, float right, float bottom, std::uint32_t color = 0xFFFFFFFF);
 
     SpriteRenderer& renderer_;
     GpImages& images_;

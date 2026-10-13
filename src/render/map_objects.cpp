@@ -157,10 +157,19 @@ std::uint32_t playerColor(int player) {
     return kColors[player & 7];
 }
 
-void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, float bottom) {
+void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, float bottom, std::uint32_t color) {
     if (it.x > right || it.y > bottom || it.x + it.w < camera.x || it.y + it.h < camera.y) return;
-    images_.draw(it.gp, it.frame, (it.x - camera.x) * camera.zoom, (it.y - camera.y) * camera.zoom, 0xFFFFFFFF,
+    images_.draw(it.gp, it.frame, (it.x - camera.x) * camera.zoom, (it.y - camera.y) * camera.zoom, color,
                  camera.zoom, it.mirror);
+}
+
+void MapObjects::drawGhost(const assets::UnitDesc& desc, int x, int y, const MapCamera& camera, std::uint32_t color) {
+    const assets::UnitAnimation* anim = world::World::idleAnimation(desc);
+    if (!anim) return;
+    std::vector<Item> items;
+    for (std::size_t layer = 0; layer < anim->frames.size(); ++layer)
+        appendFrame(desc, *anim, layer, 0, x, y, 0, y, items);
+    for (const Item& it : items) drawItem(it, camera, 1e9f, 1e9f, color);
 }
 
 void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world,
