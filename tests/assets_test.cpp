@@ -16,6 +16,7 @@
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
 #include "assets/mission_list.hpp"
+#include "assets/mission_options.hpp"
 #include "assets/sprite_list.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
@@ -804,6 +805,22 @@ TEST_CASE("Мир: карта непроходимости и путь A*") {
     LockMap big(64, 64);
     big.addBuilding(house, 320, 320); // угол: (320 − 32) / 16 = 18, (320 − 32) / 16 = 18
     CHECK(big.locked(20, 21) && !big.locked(19, 21));
+}
+
+TEST_CASE("Настройки миссии MOPT: команды и передача юнитов") {
+    const MissionOptions o = MissionOptions::parse(
+        "<>\n <MaxPlayers>3</MaxPlayers>\n <Players>\n  <DisableTeams>false</DisableTeams>\n"
+        "  <Player0>\n   <DisableInSingle>false</DisableInSingle>\n   <Nation>FRANCE</Nation>\n"
+        "   <AutoTransferUnitsToNearestTeam>true</AutoTransferUnitsToNearestTeam>\n   <Team>Team1</Team>\n  </Player0>\n"
+        "  <Player1>\n   <DisableInSingle>false</DisableInSingle>\n   <Team>Team2</Team>\n  </Player1>\n"
+        "  <Player2>\n   <DisableInSingle>true</DisableInSingle>\n"
+        "   <AutoTransferUnitsToNearestTeam>true</AutoTransferUnitsToNearestTeam>\n   <Team>Team1</Team>\n  </Player2>\n"
+        " </Players>\n</>\n");
+    CHECK(o.maxPlayers == 3 && o.players[0].nation == "FRANCE");
+    const auto t = o.teams();
+    CHECK(t[0] == t[2] && t[0] != t[1] && t[3] == 3 && t[7] == 7);
+    CHECK(o.singleOwner(2) == 0 && o.singleOwner(1) == 1 && o.singleOwner(5) == 5);
+    CHECK(MissionOptions::parse("").teams()[4] == 4);
 }
 
 int main() { return oc2::test::runAll(); }

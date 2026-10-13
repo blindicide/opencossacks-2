@@ -30,6 +30,14 @@ std::array<int, 8> Map3d::startResources(int player) const {
     return r;
 }
 
+std::string Map3d::missionOptionsXml() const {
+    const MapSection* s = section("MOPT");
+    if (!s || s->size < 4) return {};
+    const auto bytes = sectionData(*s);
+    const auto len = std::min<std::size_t>(ByteReader(bytes).read<std::uint32_t>(0), bytes.size() - 4);
+    return std::string(reinterpret_cast<const char*>(bytes.data()) + 4, len);
+}
+
 Image Map3d::preview() const {
     constexpr std::uint32_t kW = 256, kH = 240;
     const MapSection* v = section("VIE2");

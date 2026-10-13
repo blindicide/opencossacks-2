@@ -32,6 +32,7 @@ add_library(oc2_assets STATIC
     src/assets/image_decode.cpp
     src/assets/map3d.cpp
     src/assets/mission_list.cpp
+    src/assets/mission_options.cpp
     src/assets/png.cpp
     src/assets/sprite_list.cpp
     src/assets/text_encoding.cpp

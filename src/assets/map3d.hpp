@@ -82,6 +82,9 @@ public:
     // ресурсов номер = ID кнопки). Нули, если раздела нет.
     std::array<int, 8> startResources(int player) const;
 
+    // Настройки миссии (раздел MOPT): u32 длина и XML в Windows-1251. Пусто, если нет.
+    std::string missionOptionsXml() const;
+
     // Мини-карта из раздела VIE2: 256×240 точек ARGB4444 (альфа не используется).
     // Пустое изображение, если раздела нет или размер другой.
     Image preview() const;

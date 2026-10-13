@@ -29,6 +29,7 @@
 #include "render/gp_images.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "assets/mission_options.hpp"
 #include "render/map_objects.hpp"
 #include "world/unit_catalog.hpp"
 #include "world/world.hpp"
@@ -306,10 +307,18 @@ struct MapView {
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
         world.setLockMap(oc2::world::LockMap::fromTerrain(map));
+        // Команды и одиночная игра: юниты отключённых игроков отходят союзнику (MOPT).
+        oc2::assets::MissionOptions mission;
+        try {
+            mission = oc2::assets::MissionOptions::parse(map.missionOptionsXml());
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "настройки миссии (MOPT): %s\n", e.what());
+        }
+        world.team = mission.teams();
         std::size_t missing = 0;
         for (const oc2::assets::MapUnit& u : map.units()) {
             if (const oc2::assets::UnitDesc* desc = units->find(u.type))
-                world.addUnit(*desc, u.player, u.x, u.y, u.direction);
+                world.addUnit(*desc, mission.singleOwner(u.player), u.x, u.y, u.direction);
             else
                 ++missing;
         }
@@ -424,7 +433,7 @@ struct MapView {
             dragStart = std::array<float, 2>{c.x, c.y};
         } else if (c.button == 3) {
             // Правая кнопка на враге — атаковать его.
-            if (auto t = pick(c.x, c.y); t && oc2::world::World::enemies(player, us[*t].player)) {
+            if (auto t = pick(c.x, c.y); t && world.enemies(player, us[*t].player)) {
                 for (std::size_t i = 0; i < us.size(); ++i)
                     if (us[i].selected && us[i].player == player) world.orderAttack(i, *t);
                 return;
