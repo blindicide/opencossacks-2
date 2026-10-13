@@ -46,6 +46,8 @@ opencossacks-2/
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   ├── xml_tree.*      — разбор XML-диалекта игры (диалоги, настройки, состояния шейдеров)
+│   │   ├── text_table.*    — тексты интерфейса «#КЛЮЧ текст» в порядке загрузки оригинала
+│   │   ├── text_encoding.* — Windows-1251 → UTF-8
 │   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
@@ -76,6 +78,7 @@ opencossacks-2/
 - `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; кадр — между `beginFrame()` и `endFrame()`, `submitNow()` выполняет команды загрузки, `requestScreenshot()` сохраняет кадр в PNG.
 - `oc2::render::SpriteRenderer` (`src/render/sprite_renderer.hpp`): `createTexture()` загружает изображение, `drawTriangles()` ставит треугольники в очередь, `flush()` записывает их в кадр.
 - `oc2::assets::parseXml()` (`src/assets/xml_tree.hpp`): дерево `XmlNode` с удобными `intValue()`, `boolValue()`, `hexValue()` и др.
+- `oc2::assets::TextTable` (`src/assets/text_table.hpp`): `loadGame()` читает тексты игры, `lookup("#КЛЮЧ")` возвращает строку в UTF-8.
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
 
