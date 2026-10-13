@@ -29,7 +29,11 @@ std::string gamePath(std::string name) {
 }
 
 WidgetKind kindOf(std::string_view type) {
-    if (type == "DialogsDesk" || type.empty()) return WidgetKind::Desk;
+    if (type == "DialogsDesk" || type == "ListDesk" || type == "TabDesk" || type.empty()) return WidgetKind::Desk;
+    if (type == "GP_TextButton") return WidgetKind::GPTextButton;
+    if (type == "CheckBox") return WidgetKind::CheckBox;
+    if (type == "ColoredBar") return WidgetKind::ColoredBar;
+    if (type == "ComboBox") return WidgetKind::ComboBox;
     if (type == "BitPicture") return WidgetKind::BitPicture;
     if (type == "GPPicture") return WidgetKind::GPPicture;
     if (type == "TextButton") return WidgetKind::TextButton;
@@ -147,6 +151,46 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
         }
         break;
     }
+    case WidgetKind::GPTextButton: {
+        w.text = message();
+        w.fontActive = font("ActiveFont");
+        w.fontPassive = font("PassiveFont");
+        w.fontDisabled = font("DisabledFont");
+        const std::string file = node.value("FileID").value_or("");
+        if (!file.empty()) {
+            w.gp = ctx_.images.id(file);
+            w.hasGp = true;
+        }
+        w.sprite = int(node.intValue("Sprite").value_or(-1));
+        w.spriteNormal = int(node.intValue("Sprite1").value_or(-1));
+        w.align = node.boolValue("Center").value_or(false) ? Align::Center : Align::Left;
+        w.fontDx = int(node.intValue("FontDx").value_or(0));
+        w.fontDy = int(node.intValue("FontDy").value_or(0));
+        break;
+    }
+    case WidgetKind::CheckBox: {
+        w.text = message();
+        w.fontActive = font("FontActive");
+        w.fontPassive = font("FontPassive");
+        const std::string file = node.value("GP_File").value_or("");
+        if (!file.empty()) {
+            w.gp = ctx_.images.id(file);
+            w.hasGp = true;
+        }
+        w.checked = node.boolValue("State").value_or(false);
+        w.central = node.boolValue("Central").value_or(false);
+        w.spriteOver[0] = int(node.intValue("SpriteOver").value_or(-1));
+        w.spriteActive = int(node.intValue("SpriteActive").value_or(-1));
+        w.spritePassive[0] = int(node.intValue("SpritePassive").value_or(-1));
+        break;
+    }
+    case WidgetKind::ColoredBar:
+        w.barStyle = int(node.intValue("Style").value_or(0));
+        break;
+    case WidgetKind::ComboBox:
+        // Строки списка заполняет код игры (действия вроде cva_CampDiff); пустой
+        // ComboBox оригинал не рисует (FUN_0104fef0).
+        break;
     case WidgetKind::Other:
         if (std::find(unsupported_.begin(), unsupported_.end(), w.type) == unsupported_.end()) {
             unsupported_.push_back(w.type);
@@ -170,6 +214,7 @@ Widget* Dialog::updateHover(float vx, float vy) {
         if (!w.visible) return;
         // Панели с действиями (cva_M_ModalDesk) — не кнопки: их действия покадровые.
         const bool clickable = w.kind == WidgetKind::VitButton || w.kind == WidgetKind::TextButton ||
+                               w.kind == WidgetKind::GPTextButton || w.kind == WidgetKind::CheckBox ||
                                (w.kind != WidgetKind::Desk && !w.actions.empty());
         if (clickable && w.enabled && vx >= float(w.absX) && vx < float(w.absX + w.drawnW) && vy >= float(w.absY) &&
             vy < float(w.absY + w.drawnH))
@@ -215,6 +260,24 @@ void Dialog::drawWidget(Widget& w, int parentX, int parentY, const View& view) {
         break;
     case WidgetKind::TextButton: drawTextButton(w, view); break;
     case WidgetKind::VitButton: drawVitButton(w, view); break;
+    case WidgetKind::GPTextButton: drawGpTextButton(w, view); break;
+    case WidgetKind::CheckBox: drawCheckBox(w, view); break;
+    case WidgetKind::ColoredBar: {
+        // FUN_0104c950 (color = 255): заливка или рамка цветом элемента.
+        const float x = view.x(float(w.absX)), y = view.y(float(w.absY));
+        const float bw = float(w.width) * view.scale, bh = float(w.height) * view.scale;
+        if (w.barStyle == 0) {
+            ctx_.renderer.fillRect(x, y, bw, bh, w.color);
+        } else {
+            const float t = std::max(1.0f, view.scale);
+            ctx_.renderer.fillRect(x, y, bw, t, w.color);
+            ctx_.renderer.fillRect(x, y + bh - t, bw, t, w.color);
+            ctx_.renderer.fillRect(x, y, t, bh, w.color);
+            ctx_.renderer.fillRect(x + bw - t, y, t, bh, w.color);
+        }
+        break;
+    }
+    case WidgetKind::ComboBox:
     case WidgetKind::Desk:
     case WidgetKind::Other: break;
     }
@@ -246,6 +309,52 @@ void Dialog::drawTextButton(Widget& w, const View& view) {
     w.drawnW = size.width;
     w.drawnH = size.height;
     ctx_.text.draw(*font, w.text, x, w.absY, limit, w.align == Align::Center ? Align::Center : Align::Left, view);
+}
+
+// FUN_01040d80: размер — по кадру Sprite (или Sprite1), под курсором — Sprite, иначе Sprite1.
+void Dialog::drawGpTextButton(Widget& w, const View& view) {
+    if (!w.hasGp) return;
+    const int sizeSprite = w.sprite >= 0 ? w.sprite : w.spriteNormal;
+    if (sizeSprite < 0) return;
+    w.drawnW = int(ctx_.images.frameWidth(w.gp, std::size_t(sizeSprite)));
+    w.drawnH = int(ctx_.images.frameHeight(w.gp, std::size_t(sizeSprite)));
+    const bool over = w.hover && w.enabled;
+    const int s = over ? w.sprite : w.spriteNormal;
+    // Недоступная кнопка темнее (FUN_00ff67e0 с 0xE6).
+    const std::uint32_t tint = w.enabled ? 0xFFFFFFFF : 0xFFE6E6E6;
+    if (s >= 0) ctx_.images.draw(w.gp, std::size_t(s), view.x(float(w.absX)), view.y(float(w.absY)), tint, view.scale);
+
+    const Font* font = !w.enabled ? (w.fontDisabled ? w.fontDisabled : w.fontPassive)
+                                  : (over && w.fontActive ? w.fontActive : w.fontPassive);
+    if (!font || w.text.empty()) return;
+    const int width = w.drawnW;
+    const TextSize size = ctx_.text.measure(*font, w.text, width, w.align);
+    const int y1 = w.absY, y2 = w.absY + w.drawnH;
+    ctx_.text.draw(*font, w.text, w.absX + w.fontDx, ((y1 + y2) - size.height) / 2 + w.fontDy, width, w.align,
+                   view);
+}
+
+// FUN_0104b2b0 (обычный вид, Central = false): флажок, справа — подпись.
+void Dialog::drawCheckBox(Widget& w, const View& view) {
+    if (!w.hasGp) return;
+    const bool over = w.hover;
+    const float x = view.x(float(w.absX)), y = view.y(float(w.absY));
+    if (!w.checked) {
+        const int s = over ? w.spriteOver[0] : w.spritePassive[0];
+        if (s >= 0) ctx_.images.draw(w.gp, std::size_t(s), x, y, 0xFFFFFFFF, view.scale);
+    } else if (w.spriteActive >= 0) {
+        ctx_.images.draw(w.gp, std::size_t(w.spriteActive), x, y, 0xFFFFFFFF, view.scale);
+    }
+    const int boxW = w.spriteOver[0] >= 0 ? int(ctx_.images.frameWidth(w.gp, std::size_t(w.spriteOver[0]))) : 0;
+    const int boxH = w.spriteActive >= 0 ? int(ctx_.images.frameHeight(w.gp, std::size_t(w.spriteActive))) : w.height;
+    const Font* font = over && w.fontActive ? w.fontActive : w.fontPassive;
+    int textW = 0;
+    if (font && !w.text.empty()) {
+        textW = ctx_.text.measure(*font, w.text, 100000, Align::Left).width;
+        ctx_.text.draw(*font, w.text, w.absX + boxW, w.absY + 4, 100000, Align::Left, view);
+    }
+    w.drawnW = boxW + textW;
+    w.drawnH = boxH;
 }
 
 // VitButton::_Draw (0xcdbc28).

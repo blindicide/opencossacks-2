@@ -27,7 +27,18 @@ struct UiContext {
     std::filesystem::path dataRoot;
 };
 
-enum class WidgetKind { Desk, BitPicture, GPPicture, TextButton, VitButton, Other };
+enum class WidgetKind {
+    Desk, // DialogsDesk и панели со списками (ListDesk, TabDesk) — пока только как контейнеры
+    BitPicture,
+    GPPicture,
+    TextButton,
+    VitButton,
+    GPTextButton,
+    CheckBox,
+    ColoredBar,
+    ComboBox,
+    Other
+};
 
 // Элемент окна из *.DialogsSystem.xml. Координаты x, y — относительно родителя,
 // как в данных; абсолютные (виртуальные 1024×768) считаются при выводе.
@@ -51,6 +62,7 @@ struct Widget {
     std::string text;
     const Font* fontPassive = nullptr;
     const Font* fontActive = nullptr;
+    const Font* fontDisabled = nullptr;
     Align align = Align::Left;
     int maxWidth = 0; // TextButton: MaxWidth
     int fontDx = 0, fontDy = 0;
@@ -59,6 +71,17 @@ struct Widget {
     render::GpId gp = 0;
     bool hasGp = false;
     int sprite = 0;
+
+    // GP_TextButton: Sprite — под курсором, Sprite1 — обычный.
+    int spriteNormal = -1;
+
+    // CheckBox
+    bool checked = false;
+    bool central = false;
+    int spriteActive = -1; // отмеченный; spriteOver[0] и spritePassive[0] — под курсором и обычный
+
+    // ColoredBar: Style 0 — заливка, иначе рамка.
+    int barStyle = 0;
 
     // VitButton
     int state = 0;
@@ -111,6 +134,8 @@ private:
     void drawWidget(Widget& w, int parentX, int parentY, const View& view);
     void drawVitButton(Widget& w, const View& view);
     void drawTextButton(Widget& w, const View& view);
+    void drawGpTextButton(Widget& w, const View& view);
+    void drawCheckBox(Widget& w, const View& view);
     int gpHeight(const Widget& w, int sprite);
 
     UiContext& ctx_;
