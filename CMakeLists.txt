@@ -30,6 +30,7 @@ add_library(oc2_assets STATIC
     src/assets/g2d.cpp
     src/assets/game_paths.cpp
     src/assets/png.cpp
+    src/assets/xml_tree.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
 target_link_libraries(oc2_assets PRIVATE bz2)
