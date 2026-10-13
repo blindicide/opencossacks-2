@@ -8,6 +8,20 @@
 
 namespace oc2::assets {
 
+// Спрайт-объект карты из раздела TRE2 (FUN_00f98f10): дерево, камень, стена…
+// kind — две буквы списка: «AG» деревья (Treelist), «ST» камни (stonlist),
+// «HO» ямы (holelist), «CO» составные объекты (complex), «LW» стены (walls),
+// «PS» и «SA» — ещё два списка (meat, Animations; соответствие не проверено).
+struct MapObject {
+    char kind[2] = {};
+    int x = 0, y = 0;     // мировые координаты
+    int type = 0;         // номер в списке
+    int flags = 0;        // старшие 4 бита — признаки, младшие 12 — параметр
+    bool hasExtra = false; // за записью шли 64 байта данных объекта (пока не разбираются)
+
+    bool is(const char (&k)[3]) const { return kind[0] == k[0] && kind[1] == k[1]; }
+};
+
 // Раздел карты: четыре буквы метки и данные.
 struct MapSection {
     std::string tag;
@@ -19,7 +33,8 @@ struct MapSection {
 // заголовка и разделы «метка, u32 размер (считая сам u32), данные».
 // Порядок разбора разделов — FUN_00fa0bf0. Пока читается рельеф:
 //  SURF — высоты вершин (int16), TILE — фактура вершины,
-//  TIL2 — вторая фактура и вес её смешивания (по байту на вершину).
+//  TIL2 — вторая фактура и вес её смешивания (по байту на вершину),
+//  TRE2 — спрайт-объекты (деревья, камни, стены).
 // Сетка вершин — vertsInLine × rows (513 × 512 для обычной карты): номер
 // вершины = x + y·vertsInLine; мировые координаты: X = x·32, Y = y·32, у нечётных
 // столбцов Y меньше на 16 (FUN_00dfc3d0, FUN_00dfc430).
@@ -43,6 +58,12 @@ public:
     std::uint8_t blend2(int x, int y) const { return blend2_.empty() ? 0 : blend2_[index(x, y)]; }
     bool hasFacture2() const { return !facture2_.empty(); }
 
+    // Высота поверхности в мировой точке (x, y) — интерполяция по треугольникам
+    // сетки, как FUN_00ed4600 (точка прижимается к краям карты).
+    int heightAt(int x, int y) const;
+
+    const std::vector<MapObject>& objects() const { return objects_; }
+
     float worldX(int x) const { return float(x * kCell); }
     float worldY(int x, int y) const { return float(y * kCell - ((x & 1) ? kCell / 2 : 0)); }
 
@@ -59,6 +80,7 @@ private:
     int vertsInLine_ = 0, rows_ = 0;
     std::vector<std::int16_t> heights_;
     std::vector<std::uint8_t> facture_, facture2_, blend2_;
+    std::vector<MapObject> objects_;
 };
 
 } // namespace oc2::assets

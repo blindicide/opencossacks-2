@@ -1,6 +1,7 @@
 // Проверки чтения форматов на синтетических данных: файлы игры не нужны.
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "assets/sprite_list.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
@@ -589,6 +591,61 @@ TEST_CASE("Карта .m3d: сжатая и повреждённая") {
     Bytes badSize{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
     appendSection(badSize, "SURF", Bytes(10, 0)); // 5 значений — не (N + 1)·N
     CHECK_THROWS_AS(Map3d::parse(badSize), FormatError);
+}
+
+TEST_CASE("Карта .m3d: объекты TRE2 и высота в точке") {
+    // Сетка 17×16, высота вершины = 2·(мировой Y) — плоскость, интерполяция обязана её повторять.
+    const int n = 16, w = n + 1;
+    Bytes m{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
+    Bytes surf;
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < w; ++x) {
+            const auto h = std::int16_t(2 * (y * 32 - ((x & 1) ? 16 : 0)));
+            surf.push_back(std::uint8_t(h & 0xFF));
+            surf.push_back(std::uint8_t((h >> 8) & 0xFF));
+        }
+    appendSection(m, "SURF", surf);
+    Bytes tre{2, 0, 0, 0};
+    const auto rec = [&](const char* kind, int x, int y, int type, int flags, bool extra) {
+        tre.push_back(std::uint8_t(kind[0]));
+        tre.push_back(std::uint8_t(kind[1]));
+        for (int v : {x, y})
+            for (int i = 0; i < 4; ++i) tre.push_back(std::uint8_t(v >> (8 * i)));
+        for (int v : {type, flags})
+            for (int i = 0; i < 2; ++i) tre.push_back(std::uint8_t(v >> (8 * i)));
+        tre.push_back(extra ? 1 : 0);
+        if (extra) tre.insert(tre.end(), 64, 0xAB);
+    };
+    rec("AG", 100, 200, 364, 0x4000, false);
+    rec("LW", 300, 50, 7, 0, true);
+    Bytes bad = m;
+    appendSection(m, "TRE2", tre);
+    tre[0] = 3; // объектов заявлено больше, чем записано
+    appendSection(bad, "TRE2", tre);
+    const Map3d map = Map3d::parse(m);
+    CHECK(map.objects().size() == 2);
+    CHECK(map.objects()[0].is("AG") && map.objects()[0].x == 100 && map.objects()[0].y == 200);
+    CHECK(map.objects()[0].type == 364 && map.objects()[0].flags == 0x4000 && !map.objects()[0].hasExtra);
+    CHECK(map.objects()[1].is("LW") && map.objects()[1].type == 7 && map.objects()[1].hasExtra);
+    for (int x : {40, 50, 64, 77, 95, 130})
+        for (int y : {40, 61, 100, 133}) CHECK(std::abs(map.heightAt(x, y) - 2 * y) <= 1);
+    CHECK(map.heightAt(-100, 100) == map.heightAt(0, 100)); // прижатие к краю
+    CHECK_THROWS_AS(Map3d::parse(bad), FormatError);
+}
+
+TEST_CASE("Список спрайтов .lst") {
+    const SpriteList trees = SpriteList::parse("TREES 4\r\nD00 190 230  20 \r\n// комментарий\r\n"
+                                               "@P 5 6 7\r\nD02 1 2 3\r\nD03 9 9 9\r\n");
+    CHECK(trees.gpName == "TREES" && !trees.complex);
+    // Комментарий входит в счёт четырёх строк, последняя строка за пределами счёта.
+    CHECK(trees.entries.size() == 4);
+    CHECK(trees.entries[0].id == "D00" && trees.entries[0].dx == 190 && trees.entries[0].dy == 230);
+    CHECK(trees.entries[0].radius == 20 && trees.entries[0].frame == 0);
+    CHECK(trees.entries[1].id == "PF" && trees.entries[2].id == "PB" && trees.entries[2].dx == -5);
+    CHECK(trees.entries[1].frame == 1 && trees.entries[2].frame == 1 && trees.entries[3].frame == 2);
+    CHECK(SpriteList::parse("COMPLEX 105\n//x\n").complex);
+    CHECK_THROWS_AS(SpriteList::parse(""), FormatError);
+    CHECK_THROWS_AS(SpriteList::parse("TREES 1\nD00 1 x 3\n"), FormatError);
 }
 
 int main() { return oc2::test::runAll(); }

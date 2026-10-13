@@ -32,6 +32,7 @@ add_library(oc2_assets STATIC
     src/assets/image_decode.cpp
     src/assets/map3d.cpp
     src/assets/png.cpp
+    src/assets/sprite_list.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
     src/assets/xml_tree.cpp
@@ -54,6 +55,7 @@ add_executable(opencossacks2
     src/render/sprite_sheet.cpp
     src/render/gp_images.cpp
     src/render/terrain_renderer.cpp
+    src/render/map_objects.cpp
     src/ui/fonts.cpp
     src/ui/rich_text.cpp
     src/ui/dialogs.cpp
