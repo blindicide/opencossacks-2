@@ -29,8 +29,12 @@ public:
     std::vector<const char*> requiredInstanceExtensions() const;
     VkSurfaceKHR createSurface(VkInstance instance) const;
 
+    void setTitle(const std::string& title);
+
     // Взводится при изменении размера; сбрасывается вызывающим кодом.
     bool resized = false;
+    // Клавиши (SDL_Keycode), нажатые с прошлого вызова pumpEvents().
+    std::vector<std::uint32_t> pressedKeys;
 
 private:
     SDL_Window* window_ = nullptr;

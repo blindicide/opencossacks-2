@@ -2,11 +2,14 @@
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
+#include "assets/game_paths.hpp"
 #include "assets/g2d.hpp"
 #include "check.hpp"
 
@@ -288,6 +291,25 @@ TEST_CASE("g2d: повреждённые файлы") {
     shortPage.pageData.resize(10);
     G2dFile f = G2dFile::parse(shortPage.build());
     CHECK_THROWS_AS(f.decodePage(0), FormatError);
+}
+
+TEST_CASE("Пути: поиск файла без учёта регистра") {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "oc2_paths_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "UnitsG17");
+    std::ofstream(root / "UnitsG17" / "FrnPopU.g2d") << "x";
+
+    auto exact = findCaseInsensitive(root, "UnitsG17/FrnPopU.g2d");
+    auto lower = findCaseInsensitive(root, "unitsg17\\frnpopu.G2D");
+    // В Windows регистр и так не важен, и путь возвращается в написании запроса,
+    // поэтому сравниваются сами файлы, а не строки путей.
+    const fs::path expected = root / "UnitsG17" / "FrnPopU.g2d";
+    CHECK(exact && fs::equivalent(*exact, expected));
+    CHECK(lower && fs::equivalent(*lower, expected));
+    CHECK(!findCaseInsensitive(root, "UnitsG17/нет.g2d"));
+    CHECK(!findCaseInsensitive(root, "Нет/FrnPopU.g2d"));
+    fs::remove_all(root);
 }
 
 int main() { return oc2::test::runAll(); }

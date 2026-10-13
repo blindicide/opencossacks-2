@@ -35,13 +35,14 @@ opencossacks-2/
 │   └── Packaging.cmake     — пакеты CPack: .deb и .rpm (Linux), .zip (Windows)
 ├── packaging/linux/        — ярлык .desktop
 ├── src/
-│   ├── main.cpp            — точка входа: ключи --version и --frames N, главный цикл
+│   ├── main.cpp            — точка входа: ключи (--help), главный цикл, просмотр спрайтов
 │   ├── core/version.hpp    — единственный источник версии и названия продукта
 │   ├── assets/             — чтение форматов игры (библиотека oc2_assets, без графики)
 │   │   ├── byte_reader.hpp — чтение little-endian с проверкой границ, FormatError
 │   │   ├── compression.*   — распаковка FLZ и блоков со стандартным заголовком
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
+│   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
 │   └── render/
@@ -69,6 +70,7 @@ opencossacks-2/
 - `oc2::assets::unpackBlock()` / `flzDecompress()` (`src/assets/compression.hpp`): распаковка сжатых блоков движка (метод 4, FLZ).
 - `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; кадр — между `beginFrame()` и `endFrame()`, `submitNow()` выполняет команды загрузки, `requestScreenshot()` сохраняет кадр в PNG.
 - `oc2::render::SpriteRenderer` (`src/render/sprite_renderer.hpp`): `createTexture()` загружает изображение, `drawTriangles()` ставит треугольники в очередь, `flush()` записывает их в кадр.
+- `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
 
 - `tools/oc2-extract/main.cpp`: утилита `oc2-extract` — `g2d <файл> <папка>` выгружает страницы и кадры в PNG, `check <папка игры>` читает все `.g2d` и сообщает об ошибках.
@@ -83,6 +85,7 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
 ./build/linux/Debug/opencossacks2 --screenshot shot.png   # один кадр в PNG
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
 ./build/linux/Debug/oc2-extract g2d <файл.g2d> out/       # страницы и кадры в PNG

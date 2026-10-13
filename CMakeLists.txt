@@ -22,6 +22,7 @@ include(cmake/Dependencies.cmake)
 add_library(oc2_assets STATIC
     src/assets/compression.cpp
     src/assets/g2d.cpp
+    src/assets/game_paths.cpp
     src/assets/png.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)

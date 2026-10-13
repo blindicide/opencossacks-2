@@ -25,9 +25,13 @@ Window::~Window() {
 }
 
 bool Window::pumpEvents() {
+    pressedKeys.clear();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
+        case SDL_EVENT_KEY_DOWN:
+            pressedKeys.push_back(e.key.key);
+            break;
         case SDL_EVENT_QUIT:
         case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
             return false;
@@ -47,6 +51,8 @@ void Window::drawableSize(std::uint32_t& width, std::uint32_t& height) const {
     width = static_cast<std::uint32_t>(w);
     height = static_cast<std::uint32_t>(h);
 }
+
+void Window::setTitle(const std::string& title) { SDL_SetWindowTitle(window_, title.c_str()); }
 
 bool Window::minimized() const {
     return (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
