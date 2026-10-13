@@ -12,6 +12,7 @@
 #include "assets/game_paths.hpp"
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
+#include "assets/image_decode.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
@@ -502,6 +503,25 @@ TEST_CASE("Таблица текстов") {
     CHECK(t.lookup("#NOPE") == "#NOPE");
     CHECK(t.lookup("Plain text") == "Plain text");
     CHECK(t.size() == 2);
+}
+
+TEST_CASE("Изображения: BMP и отказ на мусоре") {
+    // BMP 2×1, 24 бита: пиксели хранятся как B, G, R, строки дополнены до 4 байт.
+    Bytes bmp{'B', 'M'};
+    put<std::uint32_t>(bmp, 2, 14 + 40 + 8);
+    put<std::uint32_t>(bmp, 10, 14 + 40);
+    put<std::uint32_t>(bmp, 14, 40);
+    put<std::int32_t>(bmp, 18, 2);
+    put<std::int32_t>(bmp, 22, 1);
+    put<std::uint16_t>(bmp, 26, 1);
+    put<std::uint16_t>(bmp, 28, 24);
+    bmp.resize(14 + 40);
+    bmp.insert(bmp.end(), {0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0, 0}); // красный, синий
+    Image img = decodeImage(bmp);
+    CHECK(img.width == 2 && img.height == 1);
+    CHECK(img.pixel(0, 0)[0] == 255 && img.pixel(0, 0)[2] == 0 && img.pixel(0, 0)[3] == 255);
+    CHECK(img.pixel(1, 0)[2] == 255 && img.pixel(1, 0)[0] == 0);
+    CHECK_THROWS_AS(decodeImage(Bytes{1, 2, 3, 4}), FormatError);
 }
 
 int main() { return oc2::test::runAll(); }
