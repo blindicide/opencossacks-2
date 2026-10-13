@@ -56,6 +56,13 @@ bool equalsNoCase(std::string_view a, std::string_view b) {
 
 } // namespace
 
+int UnitDesc::resourceId(std::string_view name) {
+    static constexpr std::string_view kNames[kResources] = {"WOOD", "GOLD", "STONE", "FOOD", "IRON", "COAL"};
+    for (int i = 0; i < kResources; ++i)
+        if (equalsNoCase(name, kNames[i])) return i;
+    return -1;
+}
+
 const UnitSpriteFile* UnitDesc::file(int id) const {
     for (const UnitSpriteFile& f : files)
         if (f.id == id) return &f;
@@ -112,6 +119,19 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                     d.attackMax[i] = intAt(w, 3, "макс");
                 }
             }
+        } else if (key == "PORTION") {
+            const int n = intAt(w, 1, "число ресурсов");
+            for (int i = 0; i < n && 3 + 2 * std::size_t(i) < w.size(); ++i) {
+                const int r = resourceId(w[2 + 2 * std::size_t(i)]);
+                if (r >= 0) d.portion[std::size_t(r)] = intAt(w, 3 + 2 * std::size_t(i), "количество");
+            }
+        } else if (key == "TAKERESSTAGES" && w.size() >= 4) {
+            const int r = resourceId(w[1]);
+            if (r >= 0) d.workCycles[std::size_t(r)] = intAt(w, 3, "циклы");
+        } else if (key == "RESOURCEBASE") {
+            const int n = intAt(w, 1, "число ресурсов");
+            for (int i = 0; i < n && 2 + std::size_t(i) < w.size(); ++i)
+                if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.resourceBase |= std::uint8_t(1u << r);
         } else if (key == "ROTATE") {
             d.rotate = std::max(1, intAt(w, 1, "поворот"));
         } else if (key == "UNITRADIUS") {

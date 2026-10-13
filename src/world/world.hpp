@@ -5,8 +5,11 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "assets/map3d.hpp"
+#include "assets/sprite_list.hpp"
 #include "assets/unit_desc.hpp"
 #include "world/lock_map.hpp"
 
@@ -46,6 +49,14 @@ struct Unit {
     int repathIn = 0;                  // шаги до пересчёта пути к цели
     bool dying = false, dead = false;
 
+    // Добыча ресурса.
+    enum class Gather : std::uint8_t { None, ToSource, Working, ToBase };
+    Gather gather = Gather::None;
+    std::size_t source = 0;  // номер источника в World::sources
+    int carry = 0;           // сколько несёт
+    int workLeft = 0;        // циклов работы до полной ноши
+    std::optional<std::size_t> base; // куда несёт
+
     bool alive() const { return !dying && !dead; }
     int x() const { return x16 >> 4; }
     int y() const { return y16 >> 4; }
@@ -76,6 +87,26 @@ public:
     void orderMove(std::size_t unit, int x, int y);
     // Приказ атаковать юнит target.
     void orderAttack(std::size_t unit, std::size_t target);
+
+    // Источники ресурсов (деревья и т. п.): ресурс 0..5, сколько за единицу работы,
+    // радиус работы. Не истощаются (упрощение).
+    struct Source {
+        int x = 0, y = 0;
+        int resource = 0;
+        int perWork = 0;
+        int radius = 0;
+    };
+    std::vector<Source> sources;
+    // Ближайший источник к мировой точке в пределах maxDistance.
+    std::optional<std::size_t> sourceNear(int x, int y, int maxDistance) const;
+    // Приказ добывать: идти к источнику, работать TAKERESSTAGES циклов анимации
+    // ATTACKn, нести PORTION к ближайшему своему зданию с RESOURCEBASE, повторять.
+    // Может только тот, у кого есть PORTION этого ресурса.
+    bool orderGather(std::size_t unit, std::size_t source);
+    // Источники из объектов карты вида kind («AG», «ST»): номер объекта → ID в списке
+    // .lst → строка [SOURCES] файла .rsr. Возвращает число добавленных.
+    std::size_t addSources(const assets::Map3d& map, const char (&kind)[3], const assets::SpriteList& list,
+                           const std::unordered_map<std::string, assets::SpriteSource>& table);
 
     // Команды игроков (из настроек миссии MOPT): одна команда — союзники.
     // По умолчанию у каждого своя. Нейтральный 7 ни с кем не воюет.
@@ -130,6 +161,10 @@ private:
     void hit(Unit& target, int damage);
     void emitSounds(const Unit& u);
     void thinkAi(std::size_t index);
+    void updateGather(std::size_t index);
+    std::optional<std::size_t> nearestBase(const Unit& u, int resource) const;
+    static const assets::UnitAnimation* workAnimation(const assets::UnitDesc& d, int resource);
+    static const assets::UnitAnimation* carryAnimation(const assets::UnitDesc& d, int resource);
     void separate();
     std::vector<std::pair<std::int64_t, std::uint32_t>> cells_; // для separate(): клетка → юнит
 

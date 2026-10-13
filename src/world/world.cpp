@@ -82,6 +82,7 @@ void World::orderMove(std::size_t index, int x, int y) {
     Unit& u = units_.at(index);
     if (!u.alive()) return;
     u.target.reset();
+    u.gather = Unit::Gather::None;
     pathTo(u, x, y);
 }
 
@@ -90,6 +91,125 @@ void World::orderAttack(std::size_t index, std::size_t target) {
     if (!u.alive() || u.building() || target >= units_.size() || target == index) return;
     u.target = target;
     u.repathIn = 0;
+    u.gather = Unit::Gather::None;
+}
+
+std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) const {
+    std::optional<std::size_t> best;
+    long long bestD = (long long)maxDistance * maxDistance;
+    for (std::size_t i = 0; i < sources.size(); ++i) {
+        const long long dx = sources[i].x - x, dy = sources[i].y - y;
+        if (dx * dx + dy * dy <= bestD) {
+            bestD = dx * dx + dy * dy;
+            best = i;
+        }
+    }
+    return best;
+}
+
+bool World::orderGather(std::size_t index, std::size_t source) {
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.building() || source >= sources.size()) return false;
+    if (u.desc->portion[std::size_t(sources[source].resource)] <= 0) return false;
+    u.target.reset();
+    u.attacking = false;
+    if (u.gather == Unit::Gather::None || u.source != source) u.carry = 0;
+    u.source = source;
+    u.gather = Unit::Gather::ToSource;
+    u.moving = false;
+    return true;
+}
+
+// Анимации добычи по ресурсу: дерево — ATTACK1/MOTION_L1 (комментарий «добыча дерева»
+// в .md крестьян), еда — 3, камень и руды — 6 (звук KRI_STONE у ATTACK6). Соответствие
+// выведено из описаний крестьян, не из кода оригинала.
+std::size_t World::addSources(const assets::Map3d& map, const char (&kind)[3], const assets::SpriteList& list,
+                              const std::unordered_map<std::string, assets::SpriteSource>& table) {
+    std::size_t added = 0;
+    for (const assets::MapObject& o : map.objects()) {
+        if (!o.is(kind) || o.type < 0 || std::size_t(o.type) >= list.entries.size()) continue;
+        const auto it = table.find(list.entries[std::size_t(o.type)].id);
+        if (it == table.end()) continue;
+        const int res = assets::UnitDesc::resourceId(it->second.resource);
+        if (res < 0) continue; // NONE, REMOVE
+        sources.push_back({o.x, o.y, res, it->second.perWork, it->second.radius});
+        ++added;
+    }
+    return added;
+}
+
+const assets::UnitAnimation* World::workAnimation(const assets::UnitDesc& d, int resource) {
+    static constexpr int kSuffix[6] = {1, 6, 6, 3, 6, 6};
+    if (const auto* a = attackAnimation(d, kSuffix[resource % 6])) return a;
+    return namedAnimation(d, "WORK");
+}
+
+const assets::UnitAnimation* World::carryAnimation(const assets::UnitDesc& d, int resource) {
+    static constexpr int kSuffix[6] = {1, 6, 6, 3, 6, 6};
+    if (const auto* a = namedAnimation(d, "MOTION_L" + std::to_string(kSuffix[resource % 6]))) return a;
+    return moveAnimation(d);
+}
+
+std::optional<std::size_t> World::nearestBase(const Unit& u, int resource) const {
+    std::optional<std::size_t> best;
+    long long bestD = -1;
+    for (std::size_t i = 0; i < units_.size(); ++i) {
+        const Unit& b = units_[i];
+        if (!b.building() || b.player != u.player || !(b.desc->resourceBase & (1u << resource))) continue;
+        const long long dx = b.x() - u.x(), dy = b.y() - u.y();
+        if (bestD < 0 || dx * dx + dy * dy < bestD) {
+            bestD = dx * dx + dy * dy;
+            best = i;
+        }
+    }
+    return best;
+}
+
+void World::updateGather(std::size_t index) {
+    Unit& u = units_[index];
+    if (u.gather == Unit::Gather::None || u.target) return;
+    const Source& src = sources[u.source];
+    const auto res = std::size_t(src.resource);
+    const int reach = src.radius + 24;
+    const int dx = src.x - u.x(), dy = src.y - u.y();
+    switch (u.gather) {
+    case Unit::Gather::ToSource:
+        if (u.moving) return;
+        if (dx * dx + dy * dy <= reach * reach) {
+            u.gather = Unit::Gather::Working;
+            u.workLeft = std::max(1, u.desc->workCycles[res]);
+            u.direction = directionOf(dx, dy);
+            u.animation = workAnimation(*u.desc, src.resource);
+            u.frame = 0;
+        } else {
+            pathTo(u, src.x, src.y);
+            if (!u.moving) u.gather = Unit::Gather::None; // не дойти
+        }
+        return;
+    case Unit::Gather::Working:
+        return; // циклы считаются при смене кадров
+    case Unit::Gather::ToBase: {
+        if (u.moving) return;
+        if (!u.base || !units_[*u.base].alive()) u.base = nearestBase(u, src.resource);
+        if (!u.base) {
+            u.gather = Unit::Gather::None; // нести некуда — стоит с ношей
+            return;
+        }
+        const Unit& b = units_[*u.base];
+        const int bx = b.x() - u.x(), by = b.y() - u.y();
+        if (bx * bx + by * by <= 320 * 320) { // у здания: сдать
+            resources[std::size_t(u.player & 7)][res] += u.carry;
+            u.carry = 0;
+            u.gather = Unit::Gather::ToSource;
+            pathTo(u, src.x, src.y);
+        } else {
+            pathTo(u, b.x(), b.y());
+            if (!u.moving) u.gather = Unit::Gather::None;
+        }
+        return;
+    }
+    case Unit::Gather::None: return;
+    }
 }
 
 void World::pathTo(Unit& u, int x, int y) {
@@ -339,6 +459,22 @@ void World::step() {
         if ((steps_ + index) % 125 == 0) thinkAi(index); // раз в 5 с, вразнобой
         updateCombat(index);
         if (u.attacking) continue;
+        updateGather(index);
+        if (u.gather == Unit::Gather::Working) {
+            const int frames = int(u.animation->frames.size());
+            if (++u.frame >= frames) {
+                u.frame = 0;
+                if (--u.workLeft <= 0) {
+                    const int r = sources[u.source].resource;
+                    u.carry = u.desc->portion[std::size_t(r)];
+                    u.gather = Unit::Gather::ToBase;
+                    u.base.reset();
+                    updateGather(index);
+                }
+            }
+            emitSounds(u);
+            continue;
+        }
         if (u.moving) {
             const int dx = u.targetX16 - u.x16, dy = u.targetY16 - u.y16;
             // Смещение за шаг: (cos·шаг >> 8, sin·шаг >> 8) в единицах 1/16 (FUN_018af490, FUN_00f370e0).
@@ -366,7 +502,10 @@ void World::step() {
                 }
             }
         }
-        setAnimation(u, u.moving ? moveAnimation(*u.desc) : idleAnimation(*u.desc));
+        const bool carrying = u.carry > 0 && u.gather == Unit::Gather::ToBase;
+        setAnimation(u, u.moving ? (carrying ? carryAnimation(*u.desc, sources[u.source].resource)
+                                             : moveAnimation(*u.desc))
+                                 : idleAnimation(*u.desc));
         // Один кадр за шаг при GameSpeed = 256 (OneObject::SetNextFrame).
         if (u.animation && !u.animation->frames.empty()) {
             u.frame = (u.frame + 1) % int(u.animation->frames.size());

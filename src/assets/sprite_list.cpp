@@ -83,4 +83,27 @@ SpriteList SpriteList::parse(std::string_view text) {
     return list;
 }
 
+std::unordered_map<std::string, SpriteSource> SpriteList::parseSources(std::string_view rsr) {
+    std::unordered_map<std::string, SpriteSource> out;
+    std::size_t pos = 0;
+    bool inSources = false;
+    while (pos < rsr.size()) {
+        std::size_t end = rsr.find('\n', pos);
+        if (end == std::string_view::npos) end = rsr.size();
+        Tokens line(rsr.substr(pos, end - pos));
+        pos = end + 1;
+        std::string id;
+        if (!line.word(id) || id.rfind("//", 0) == 0) continue;
+        if (id[0] == '[') {
+            inSources = id == "[SOURCES]";
+            continue;
+        }
+        if (!inSources) continue;
+        SpriteSource src;
+        if (!line.word(src.resource) || !line.number(src.perWork) || !line.number(src.radius)) continue;
+        out.emplace(std::move(id), std::move(src));
+    }
+    return out;
+}
+
 } // namespace oc2::assets

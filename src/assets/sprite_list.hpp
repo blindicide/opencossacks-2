@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace oc2::assets {
@@ -22,6 +23,13 @@ struct SpriteListEntry {
     int frame = 0; // кадр в изображении GP
 };
 
+// Раздел [SOURCES] файла .rsr: какой ресурс даёт объект и сколько за единицу работы.
+struct SpriteSource {
+    std::string resource; // WOOD, GOLD, STONE, FOOD, NONE, REMOVE
+    int perWork = 0;
+    int radius = 0;       // радиус работы
+};
+
 struct SpriteList {
     std::string gpName;
     bool complex = false;
@@ -30,6 +38,8 @@ struct SpriteList {
     // Текст файла в Windows-1251 (имена — латиница). Бросает FormatError, если
     // нет заголовка.
     static SpriteList parse(std::string_view text);
+    // [SOURCES] из .rsr: ID объекта → источник.
+    static std::unordered_map<std::string, SpriteSource> parseSources(std::string_view rsr);
 };
 
 } // namespace oc2::assets

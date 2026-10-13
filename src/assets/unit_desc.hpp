@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -61,6 +62,14 @@ struct UnitDesc {
     std::array<int, kWeapons> attackPause{};   // ATTACK_PAUSE w шаги перезарядки
     int searchEnemyRadius = 0;                 // SEARCH_ENEMY_RADIUS
     std::array<std::string, kWeapons> weaponName; // WEAPON w ИМЯ — снаряд/эффект из weapon.nds
+
+    // Добыча. Ресурсы: 0 WOOD, 1 GOLD, 2 STONE, 3 FOOD, 4 IRON, 5 COAL (порядок
+    // RESOURCEBASE и первых чисел TAKERESSTAGES).
+    static constexpr int kResources = 6;
+    static int resourceId(std::string_view name); // −1 — неизвестный
+    std::array<int, kResources> portion{};     // PORTION n РЕС кол-во … — сколько несёт за ходку
+    std::array<int, kResources> workCycles{};  // TAKERESSTAGES РЕС id циклы x — циклов работы на ходку
+    std::uint8_t resourceBase = 0;             // RESOURCEBASE n РЕС… — какие ресурсы принимает (биты)
 
     // Звуки: «SOUND кадр #АНИМАЦИЯ ГРУППА» — на кадре анимации (номер в animations).
     struct Sound {

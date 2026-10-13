@@ -679,12 +679,15 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
                                        "@UATTACK2 9 6 3 1\r\n"
+                                       "PORTION 2 WOOD 100 FOOD 50\r\nTAKERESSTAGES WOOD 0 5 2\r\nRESOURCEBASE 2 WOOD FOOD\r\n"
                                        "SOUND 2 #REST ARMY\r\nSELECT_SOUND SEL\r\nORDER_SOUND ORD\r\nGEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nDAMAGE 1 100\r\nATTACK_RADIUS 1 0 900\r\n"
                                        "ATTACK_PAUSE 1 800\r\nSEARCH_ENEMY_RADIUS 900\r\nLOCKPOINTS 2 4 31 5 32\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
     CHECK(d.radius2 == 10 && d.step == 40 && d.unitRadius == 8);
     CHECK(d.life == 300 && d.damage[1] == 100 && d.attackMax[1] == 900 && d.attackPause[1] == 800 &&
           d.searchEnemyRadius == 900);
+    CHECK(d.portion[0] == 100 && d.portion[3] == 50 && d.workCycles[0] == 5 && d.resourceBase == 0b1001);
+    CHECK(UnitDesc::resourceId("coal") == 5 && UnitDesc::resourceId("X") == -1);
     CHECK(d.sounds.size() == 1 && d.sounds[0].frame == 2 && d.animations[d.sounds[0].animation].name == "#REST" &&
           d.sounds[0].group == "ARMY" && d.selectSound == "SEL" && d.orderSound == "ORD");
     CHECK(d.lockPoints.size() == 2 && d.lockPoints[1].first == 5 && d.lockPoints[1].second == 32);
@@ -759,6 +762,38 @@ TEST_CASE("Мир: таблицы направлений и ходьба") {
     CHECK(w.units()[t].x16 == 16000 && (w.units()[t].direction == 16 || w.units()[t].direction == 240));
     for (int i = 0; i < 8; ++i) w.step();
     CHECK(std::abs(w.units()[t].direction - 128) <= 2 && w.units()[t].x16 < 16000); // на развороте чуть сносит
+}
+
+TEST_CASE("Мир: добыча — работа, ноша, сдача в здание") {
+    using namespace oc2::world;
+    const auto table = SpriteList::parseSources("[WORKTRANSFORM]\r\nD00 X\r\n[SOURCES]\r\n//ObjectID\tResource\r\n"
+                                                "D00     WOOD\t10      30\r\nST1 STONE 10 30\r\nZ NONE 0 0\r\n[END]\r\nQ GOLD 1 1\r\n");
+    CHECK(table.size() == 3 && table.at("D00").resource == "WOOD" && table.at("D00").perWork == 10 &&
+          table.at("D00").radius == 30 && !table.count("Q"));
+
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n"
+                                             "@MOTION_L1 9 0 4 6\n#ATTACK1 9 1 0 0 0 1 0 2\n"
+                                             "PORTION 1 WOOD 20\nTAKERESSTAGES WOOD 0 2 1\n");
+    const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n");
+    const UnitDesc store = UnitDesc::parse("NAME H\nBUILDING\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\nRESOURCEBASE 1 WOOD\n");
+    World w;
+    const std::size_t p = w.addUnit(peasant, 0, 100, 100, 0);
+    const std::size_t s = w.addUnit(soldier, 0, 100, 200, 0);
+    w.addUnit(store, 0, 800, 100, 0);
+    w.sources.push_back({150, 100, 0, 10, 30});
+    CHECK(w.sourceNear(140, 110, 48) == std::optional<std::size_t>(0) && !w.sourceNear(400, 400, 48));
+    CHECK(!w.orderGather(s, 0)); // без PORTION не добывает
+    CHECK(w.orderGather(p, 0));
+    w.step(); // в радиусе работы — сразу за работу
+    CHECK(w.units()[p].gather == Unit::Gather::Working && w.units()[p].animation == peasant.animation("#ATTACK1"));
+    for (int i = 0; i < 6; ++i) w.step(); // два цикла по три кадра
+    CHECK(w.units()[p].gather == Unit::Gather::ToBase && w.units()[p].carry == 20);
+    w.step();
+    CHECK(w.units()[p].animation == peasant.animation("@MOTION_L1")); // несёт
+    for (int i = 0; i < 400 && w.resources[0][0] == 0; ++i) w.step();
+    CHECK(w.resources[0][0] == 20 && w.units()[p].carry == 0 && w.units()[p].gather == Unit::Gather::ToSource);
+    w.orderMove(p, 100, 100);
+    CHECK(w.units()[p].gather == Unit::Gather::None);
 }
 
 TEST_CASE("Список миссий Missions.txt и выборки") {

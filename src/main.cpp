@@ -32,6 +32,7 @@
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
 #include "assets/mission_options.hpp"
+#include "assets/sprite_list.hpp"
 #include "render/map_objects.hpp"
 #include "world/unit_catalog.hpp"
 #include "world/world.hpp"
@@ -63,6 +64,7 @@ const char* kHelp =
     "  --dialog <файл.xml>   открыть любое окно *.DialogsSystem.xml (путь относительно --data)\n"
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
+    "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
@@ -109,6 +111,7 @@ struct Options {
     std::optional<std::array<float, 2>> mouse;
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
+    std::optional<int> gather;
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
@@ -168,6 +171,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--gather" && hasValue) {
+            o.gather = int(std::strtol(argv[++i], nullptr, 10));
         } else if (a == "--frame" && hasValue) {
             o.startFrame = std::strtol(argv[++i], nullptr, 10);
         } else {
@@ -386,10 +391,33 @@ struct MapView {
                 ++missing;
         }
         if (missing) std::printf("юниты карты: не найдено типов для %zu из %zu\n", missing, map.units().size());
+        // Источники ресурсов: деревья (Treelist) и камни с рудами (stonlist), раздел [SOURCES] их .rsr.
+        struct SourceKind {
+            const char kind[3];
+            const char* list;
+            const char* rsr;
+        };
+        for (const SourceKind& k : {SourceKind{"AG", "Treelist.lst", "treelist.rsr"},
+                                    SourceKind{"ST", "stonlist.LST", "stonlist.rsr"}}) {
+            const auto lst = oc2::assets::findCaseInsensitive(data, k.list);
+            const auto rsr = oc2::assets::findCaseInsensitive(data, k.rsr);
+            if (!lst || !rsr) continue;
+            try {
+                const auto text = [](const fs::path& p) {
+                    const std::vector<std::uint8_t> b = readFile(p);
+                    return std::string(b.begin(), b.end());
+                };
+                world.addSources(map, k.kind, oc2::assets::SpriteList::parse(text(*lst)),
+                                 oc2::assets::SpriteList::parseSources(text(*rsr)));
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "%s: %s\n", k.list, e.what());
+            }
+        }
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
-        std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu\n", path->string().c_str(),
-                    map.vertsInLine(), map.rows(), mesh.size() / 3, objects->staticCount(), world.units().size());
+        std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu, источников ресурсов %zu\n",
+                    path->string().c_str(), map.vertsInLine(), map.rows(), mesh.size() / 3, objects->staticCount(),
+                    world.units().size(), world.sources.size());
     }
 
     void centerOn(VkExtent2D e) {
@@ -531,6 +559,13 @@ struct MapView {
                 return;
             }
             const auto [tx, ty] = screenToWorld(c.x, c.y);
+            // Правая кнопка у дерева или камня — добывать (кто умеет; остальные идут туда).
+            if (auto s = world.sourceNear(tx, ty, 48)) {
+                bool any = false;
+                for (std::size_t i = 0; i < us.size(); ++i)
+                    if (us[i].selected && us[i].player == player && world.orderGather(i, *s)) any = true;
+                if (any) return;
+            }
             long cx = 0, cy = 0, n = 0;
             for (const auto& u : us)
                 if (u.selected && u.player == player) cx += u.x(), cy += u.y(), ++n;
@@ -727,6 +762,16 @@ int main(int argc, char** argv) {
                         mapView->world.orderMove(i, (*opts->move)[1] + int(us[i].x() - cx / n),
                                                  (*opts->move)[2] + int(us[i].y() - cy / n));
             }
+            if (opts->gather) {
+                auto& w = mapView->world;
+                int ordered = 0;
+                for (std::size_t i = 0; i < w.units().size(); ++i) {
+                    const auto& u = w.units()[i];
+                    if (u.player != *opts->gather) continue;
+                    if (auto s = w.sourceNear(u.x(), u.y(), 3000); s && w.orderGather(i, *s)) ++ordered;
+                }
+                std::printf("добыча: послано %d\n", ordered);
+            }
         } else if (opts->sprite.empty() && !opts->dataDir.empty()) {
             screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
         } else if (!opts->sprite.empty()) {
@@ -888,6 +933,11 @@ int main(int argc, char** argv) {
             }
             sprites.flush(cmd);
             vulkan.endFrame();
+        }
+        if (mapView && opts->gather) {
+            const auto& r = mapView->world.resources[std::size_t(*opts->gather & 7)];
+            std::printf("ресурсы игрока %d: дерево %d, золото %d, камень %d, еда %d, железо %d, уголь %d\n",
+                        *opts->gather, r[0], r[1], r[2], r[3], r[4], r[5]);
         }
     } catch (const std::exception& e) {
         showError(e.what());
