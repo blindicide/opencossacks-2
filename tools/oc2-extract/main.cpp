@@ -39,6 +39,8 @@ void usage() {
                 "      перевести изображение в PNG\n"
                 "  oc2-extract map <файл.m3d> <файл.png>\n"
                 "      разделы карты и вид рельефа сверху (тени по высотам)\n"
+                "  oc2-extract section <файл.m3d> <метка> <папка>\n"
+                "      сырые данные разделов карты с этой меткой (<метка>_<номер>.bin)\n"
                 "  oc2-extract check <папка игры> [--render]\n"
                 "      прочитать все .g2d, .g16, .g17, .m3d, .md, .nds, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
@@ -85,6 +87,23 @@ int extractG16(const fs::path& file, const fs::path& outDir) {
         oc2::assets::writePng(outDir / (stem + "_frame" + std::to_string(i) + ".png"), g16.decodeFrame(i));
     }
     return 0;
+}
+
+int extractSection(const fs::path& file, const std::string& tag, const fs::path& dir) {
+    const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(file));
+    fs::create_directories(dir);
+    int n = 0;
+    for (const auto& s : map.sections()) {
+        if (s.tag != tag) continue;
+        const auto data = map.sectionData(s);
+        const fs::path out = dir / (tag + "_" + std::to_string(n++) + ".bin");
+        std::FILE* f = std::fopen(out.string().c_str(), "wb");
+        if (!f) throw std::runtime_error("не открыть " + out.string());
+        std::fwrite(data.data(), 1, data.size(), f);
+        std::fclose(f);
+        std::printf("%s: %zu байт\n", out.string().c_str(), data.size());
+    }
+    return n ? 0 : 1;
 }
 
 int extractMap(const fs::path& file, const fs::path& png) {
@@ -199,6 +218,7 @@ int main(int argc, char** argv) {
             return extractG2d(args[1], args[2], pages, frames);
         }
         if (args.size() >= 3 && args[0] == "g16") return extractG16(args[1], args[2]);
+        if (args.size() >= 4 && args[0] == "section") return extractSection(args[1], args[2], args[3]);
         if (args.size() >= 3 && args[0] == "map") return extractMap(args[1], args[2]);
         if (args.size() >= 3 && args[0] == "image") {
             oc2::assets::writePng(args[2], oc2::assets::decodeImage(readFile(args[1])));
