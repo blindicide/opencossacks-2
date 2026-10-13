@@ -6,7 +6,16 @@ set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/blindicide/opencossacks-2")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Открытая реимплементация «Казаки II: Битва за Европу»")
 set(CPACK_PACKAGE_DESCRIPTION
     "Движок на C++20 и Vulkan. Требует данные игры из легальной копии (например, GOG).")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+# Предварительный выпуск: 0.1.0-alpha.1 в .zip, 0.1.0~alpha.1 в .deb (сортируется раньше 0.1.0),
+# в .rpm — версия 0.1.0 и выпуск 0.alpha.1 (дефис в версии RPM запрещён).
+if(OC2_PRERELEASE)
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-${OC2_PRERELEASE}")
+    set(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}~${OC2_PRERELEASE}")
+    set(CPACK_RPM_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_RPM_PACKAGE_RELEASE "0.${OC2_PRERELEASE}")
+else()
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+endif()
 set(CPACK_STRIP_FILES ON)
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE")
 

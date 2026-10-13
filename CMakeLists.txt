@@ -3,6 +3,11 @@ cmake_minimum_required(VERSION 3.24)
 # Версия берётся из единственного источника — src/core/version.hpp.
 file(STRINGS src/core/version.hpp _ver REGEX "kVersion = \"[^\"]+\"")
 string(REGEX REPLACE ".*kVersion = \"([0-9]+\\.[0-9]+\\.[0-9]+)[^\"]*\".*" "\\1" OC2_VERSION "${_ver}")
+# Метка предварительного выпуска (alpha.1 и т. п.), если есть.
+set(OC2_PRERELEASE "")
+if(_ver MATCHES "kVersion = \"[0-9.]+-([^\"]+)\"")
+    set(OC2_PRERELEASE "${CMAKE_MATCH_1}")
+endif()
 
 project(opencossacks2 VERSION ${OC2_VERSION} LANGUAGES C CXX)
 
