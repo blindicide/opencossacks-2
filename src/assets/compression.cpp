@@ -248,11 +248,11 @@ std::vector<std::uint8_t> lzo1xDecompress(std::span<const std::uint8_t> src, std
                 ip += 2;
                 copyMatch(distance, t + 2);
             } else if (t >= 16) {
-                std::size_t far = (t & 8) << 11;
+                std::size_t farBase = (t & 8) << 11; // не «far»: в windows.h это макрос
                 t &= 7;
                 if (t == 0) t = longLength(7);
                 need(2);
-                std::size_t distance = far + (src[ip] >> 2) + (std::size_t(src[ip + 1]) << 6);
+                std::size_t distance = farBase + (src[ip] >> 2) + (std::size_t(src[ip + 1]) << 6);
                 ip += 2;
                 if (distance == 0) { // маркер конца потока
                     out.resize(op);
