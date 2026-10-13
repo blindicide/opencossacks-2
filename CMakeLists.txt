@@ -35,3 +35,12 @@ else()
     # Vulkan-структуры инициализируются как {VK_STRUCTURE_TYPE_...}, остальное — нулями намеренно.
     target_compile_options(opencossacks2 PRIVATE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
 endif()
+
+# Установка и пакеты. Пакеты содержат только наш движок: данные игры
+# пользователь берёт из своей легальной копии.
+include(GNUInstallDirs)
+install(TARGETS opencossacks2 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(UNIX AND NOT APPLE)
+    install(FILES packaging/linux/opencossacks2.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+endif()
+include(cmake/Packaging.cmake)

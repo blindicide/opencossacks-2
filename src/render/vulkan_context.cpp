@@ -17,6 +17,7 @@ void check(VkResult r, const char* what) {
         throw std::runtime_error(std::string(what) + ": ошибка Vulkan " + std::to_string(r));
 }
 
+#ifndef NDEBUG
 constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 
 bool layerAvailable(const char* name) {
@@ -27,6 +28,7 @@ bool layerAvailable(const char* name) {
     return std::any_of(layers.begin(), layers.end(),
                        [&](const VkLayerProperties& l) { return std::strcmp(l.layerName, name) == 0; });
 }
+#endif
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT,

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenCossacks 2
+Name[ru]=OpenCossacks 2
+GenericName=Real-time strategy
+GenericName[ru]=Стратегия в реальном времени
+Comment=Open reimplementation of Cossacks II: Battle for Europe
+Comment[ru]=Открытая реимплементация «Казаки II: Битва за Европу»
+Exec=opencossacks2
+Terminal=false
+Categories=Game;StrategyGame;

@@ -26,7 +26,10 @@ opencossacks-2/
 ├── docs/                   — заметки о форматах и поведении движка
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
-├── cmake/Dependencies.cmake — загрузка зависимостей: SDL3, volk, Vulkan-Headers
+├── cmake/
+│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers
+│   └── Packaging.cmake     — пакеты CPack: .deb и .rpm (Linux), .zip (Windows)
+├── packaging/linux/        — ярлык .desktop
 ├── src/
 │   ├── main.cpp            — точка входа: ключи --version и --frames N, главный цикл
 │   ├── core/version.hpp    — единственный источник версии и названия продукта
@@ -54,6 +57,13 @@ cmake --preset linux
 cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
+```
+
+## Пакеты
+
+```sh
+cmake --build --preset linux-release
+cd build/linux && cpack -G DEB -C Release   # .rpm требует rpmbuild (собирается в CI)
 ```
 
 ## Запуск анализа в Ghidra
