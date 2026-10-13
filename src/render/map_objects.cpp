@@ -114,8 +114,9 @@ void MapObjects::addUnits(const assets::Map3d& map, world::UnitCatalog& units) {
             const std::size_t perDirection = total / std::size_t(rotations);
             if (perDirection == 0 || std::size_t(fr.frame) >= perDirection) continue;
             // Направления: в файле rotations спрайтов от «к зрителю» (юг) до «от зрителя»
-            // (север), вторая половина круга — их отражение. Отсчёт направления 0..255
-            // от востока по часовой стрелке (юг = 64) — предположение, не сверено с оригиналом.
+            // (север), вторая половина круга — их отражение. Направление 0..255 — от востока
+            // по часовой стрелке (юг = 64): так устроены таблицы cos/sin оригинала
+            // (DAT_0216a818/DAT_0216a610, FUN_018af490). Сторона отражения не сверена.
             int sprite = 0;
             bool mirror = false;
             if (rotations > 1) {

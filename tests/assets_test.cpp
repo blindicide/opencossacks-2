@@ -656,11 +656,14 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "#REST 9 2 0 5 4 7\r\n"
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
+                                       "@UATTACK2 9 6 3 1\r\n"
                                        "/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
     CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);
     CHECK(d.file(0)->path == "UnitsG17\\Dom");
-    CHECK(d.animations.size() == 2); // после [END] не читается
+    CHECK(d.animations.size() == 3); // после [END] не читается
+    const UnitAnimation* back = d.animation("@UATTACK2");
+    CHECK(back && back->frames.size() == 3 && back->frames[0].frame == 3 && back->frames[2].frame == 1);
     const UnitAnimation* rest = d.animation("#rest");
     CHECK(rest && rest->rotations == 9 && rest->frames.size() == 2 && rest->dx == 0);
     CHECK(rest->frames[1].file == 4 && rest->frames[1].frame == 7);

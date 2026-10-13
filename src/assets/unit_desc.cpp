@@ -102,7 +102,12 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                 const int file = intAt(w, 2, "файл");
                 const int first = intAt(w, 3, "первый кадр");
                 const int last = intAt(w, 4, "последний кадр");
-                for (int f = first; f <= last; ++f) a.frames.push_back({file, f});
+                // Диапазон бывает и убывающим («@UATTACK2 9 6 45 0» — кадры 45…0).
+                const int step = first <= last ? 1 : -1;
+                for (int f = first;; f += step) {
+                    a.frames.push_back({file, f});
+                    if (f == last) break;
+                }
             }
             d.animations.push_back(std::move(a));
         }
