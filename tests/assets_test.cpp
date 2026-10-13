@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "assets/audio_decode.hpp"
+#include "assets/ai_script.hpp"
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
 #include "assets/game_paths.hpp"
@@ -1069,6 +1070,32 @@ TEST_CASE("Оружие weapon.nds: члены, дети, звуки") {
     const Weapon* w = list.find("shotfogstart");
     CHECK(w && w->animation == "#POINT" && w->children.size() == 2 && w->children[1] == "SHOTFOGFOG2");
     CHECK(w->sound == "SHOT_SLABIY_STVOL" && list.find("SHOTFOGFOG1")->animation == "#SHOTFOG" && !list.find("OLD"));
+}
+
+TEST_CASE("Сценарий ИИ: папки, цепочки условий, действия") {
+    const XmlNode root = parseXml(
+        "<>\n <Units>\n  <D>\n   <UnitID>UnitPar(RU)</UnitID>\n  </D>\n </Units>\n <Folders>\n  <AI_Folder>\n"
+        "   <FolderCondition>\n    <Condition>\n     <GamingTime>\n      <OpType>more equal</OpType>\n"
+        "      <Time>60</Time>\n      <Condition>\n       <CurResources>\n        <ResType>FOOD</ResType>\n"
+        "        <OpType>less</OpType>\n        <Value>500</Value>\n       </CurResources>\n      </Condition>\n"
+        "     </GamingTime>\n    </Condition>\n   </FolderCondition>\n   <Rules>\n    <AI_Trigger>\n     <Action>\n"
+        "      <Build>\n       <UnitType>BldRin(RU)</UnitType>\n       <MaxAmount>2</MaxAmount>\n"
+        "       <Requirements>\n        <NearTrees>true</NearTrees>\n        <MaxPeasants>4</MaxPeasants>\n"
+        "       </Requirements>\n      </Build>\n      <BuyResource>\n       <ResTypeToBuy>FOOD</ResTypeToBuy>\n"
+        "       <Amount>300</Amount>\n      </BuyResource>\n     </Action>\n    </AI_Trigger>\n   </Rules>\n"
+        "  </AI_Folder>\n </Folders>\n</>\n");
+    const AiScript s = AiScript::parse(root);
+    CHECK(s.nationCode() == "RU" && s.folders.size() == 1);
+    const AiFolder& f = s.folders[0];
+    CHECK(f.condition.size() == 2 && f.condition[0].kind == AiCondition::Kind::GamingTime && f.condition[0].value == 60);
+    CHECK(f.condition[1].kind == AiCondition::Kind::Resources && f.condition[1].resource == 3 &&
+          f.condition[1].op == AiOp::Less && f.condition[1].value == 500);
+    CHECK(f.rules.size() == 1 && f.rules[0].actions.size() == 2);
+    const AiAction& b = f.rules[0].actions[0];
+    CHECK(b.kind == AiAction::Kind::Build && b.maxAmount == 2 && b.nearTrees && b.maxPeasants == 4);
+    const AiAction& buy = f.rules[0].actions[1];
+    CHECK(buy.kind == AiAction::Kind::BuyResource && buy.resource == 3 && buy.sellResource == -1 && buy.amount == 300);
+    CHECK(aiCompare(5, AiOp::MoreEqual, 5) && !aiCompare(5, AiOp::Less, 5) && aiDifficultyLevel("hard") == 2);
 }
 
 int main() { return oc2::test::runAll(); }

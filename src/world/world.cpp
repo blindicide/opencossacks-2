@@ -153,6 +153,7 @@ void World::nextStage(std::size_t index) {
     if (b.stage == stages) {
         b.underConstruction = false;
         b.life = b.desc->life;
+        ++producedCount[std::size_t(b.player & 7)][b.desc];
         b.animation = idleAnimation(*b.desc);
         if (lock_.width() > 0) {
             lock_.setPoints(*b.desc, b.x(), b.y(), b.desc->buildLockPoints, false);
@@ -231,6 +232,7 @@ void World::updateProduction(std::size_t index) {
     if (born.size() >= 2) direction = directionOf(born[1].first - born[0].first, born[1].second - born[0].second);
     if (!b.desc->bornSound.empty()) soundEvents.push_back({b.desc->bornSound, b.x(), b.y()});
     const std::size_t u = addUnit(desc, player, x, y, direction); // b больше не трогаем: вектор мог переехать
+    ++producedCount[std::size_t(player & 7)][&desc];
     if (born.size() >= 2) orderMove(u, cx * LockMap::kCell + born[1].first, cy * LockMap::kCell + born[1].second);
 }
 
@@ -583,6 +585,7 @@ void World::hit(Unit& t, int damage) {
     t.life -= damage;
     if (t.life > 0) return;
     t.life = 0;
+    ++lostCount[std::size_t(t.player & 7)][t.desc];
     t.dying = true;
     t.moving = false;
     t.attacking = false;
@@ -686,6 +689,7 @@ void World::thinkAi(std::size_t index) {
     Unit& u = units_[index];
     if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam) return;
     if (u.target || u.moving || u.attacking || u.desc->step <= 0) return;
+    if (u.desc->peasant) return; // крестьянами распоряжается стратегический ИИ, в атаку их не шлют
     long long best = (long long)kAiRadius * kAiRadius;
     std::optional<std::size_t> target;
     for (std::size_t j = 0; j < units_.size(); ++j) {

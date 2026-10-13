@@ -219,6 +219,9 @@ public:
 
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};
+    // Счётчики игроков по типам для стратегического ИИ: сколько готово произведено
+    // (юниты из зданий и достроенные здания) и сколько погибло.
+    std::array<std::unordered_map<const assets::UnitDesc*, int>, 8> producedCount, lostCount;
 
     // Анимация покоя (#STANDLO у зданий).
     static const assets::UnitAnimation* idleAnimation(const assets::UnitDesc& desc);

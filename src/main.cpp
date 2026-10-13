@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,6 +36,7 @@
 #include "assets/mission_options.hpp"
 #include "assets/sprite_list.hpp"
 #include "render/map_objects.hpp"
+#include "world/strategic_ai.hpp"
 #include "world/unit_catalog.hpp"
 #include "world/world.hpp"
 #include "render/terrain_renderer.hpp"
@@ -72,6 +74,8 @@ const char* kHelp =
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (в игре — пикселей окна; для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
+    "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
+    "  --simulate <с>        с --map: до первого кадра прожить <с> секунд игры и вывести итоги ИИ (для проверок)\n"
     "  --mute                без звука и музыки\n"
     "  --win                 с --map: враги погибают сразу (проверка окна итога)\n"
     "  --version             версия\n"
@@ -119,6 +123,8 @@ struct Options {
     std::string build;
     std::string produce;
     bool mine = false;
+    bool aiSelf = false;
+    int simulate = 0; // секунд
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
@@ -178,6 +184,10 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--ai-self") {
+            o.aiSelf = true;
+        } else if (a == "--simulate" && hasValue) {
+            o.simulate = int(std::strtol(argv[++i], nullptr, 10));
         } else if (a == "--mine") {
             o.mine = true;
         } else if (a == "--produce" && hasValue) {
@@ -263,6 +273,7 @@ struct MapView {
     std::unique_ptr<oc2::render::GpImages> ownImages; // если общих изображений меню нет
     oc2::render::GpImages* images = nullptr;
     std::unique_ptr<oc2::world::UnitCatalog> units;
+    std::vector<std::unique_ptr<oc2::world::StrategicAi>> ais;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
     std::unique_ptr<oc2::render::Effects> effects;
@@ -594,11 +605,35 @@ struct MapView {
                 std::fprintf(stderr, "%s: %s\n", k.list, e.what());
             }
         }
+        startAi(data, false);
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
         std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu, источников ресурсов %zu\n",
                     path->string().c_str(), map.vertsInLine(), map.rows(), mesh.size() / 3, objects->staticCount(),
                     world.units().size(), world.sources.size());
+    }
+
+    // Стратегический ИИ игрокам 0..6 с юнитами (кроме нашего, если не self), по сценарию их нации.
+    void startAi(const fs::path& data, bool self) {
+        ais.clear();
+        for (int p = 0; p < 7; ++p) {
+            if (p == player && !self) continue;
+            const std::string code = oc2::world::playerNation(world, *units, p);
+            if (code.empty()) continue;
+            if (auto script = oc2::world::loadAiScript(data, code)) {
+                ais.push_back(std::make_unique<oc2::world::StrategicAi>(world, *units, p, std::move(*script), 1,
+                                                                        0x9E3779B9u * std::uint32_t(p + 1)));
+                std::printf("ИИ игрока %d: нация %s\n", p, code.c_str());
+            } else {
+                std::printf("ИИ игрока %d: нет сценария для нации %s\n", p, code.c_str());
+            }
+        }
+    }
+
+    // Шаг мира и раздумья ИИ.
+    void stepWorld() {
+        world.step();
+        for (auto& ai : ais) ai->update();
     }
 
     void centerOn(VkExtent2D e) {
@@ -679,7 +714,7 @@ struct MapView {
     void advance(double dt) {
         stepTime += dt;
         for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
-            world.step();
+            stepWorld();
             effects->step();
             for (const auto& shot : world.shotEvents)
                 if (auto sound = effects->spawn(shot.weapon, shot.x, shot.y, shot.direction))
@@ -1061,6 +1096,34 @@ int main(int argc, char** argv) {
                     std::printf("шахта %s (%d,%d): послано %d\n", w.units()[*best].desc->name.c_str(), w.units()[*best].x(),
                                 w.units()[*best].y(), sent);
                     mapView->lookAt(float(w.units()[*best].x()), float(w.units()[*best].y()), vulkan.extent());
+                }
+            }
+            if (opts->aiSelf) mapView->startAi(opts->dataDir, true);
+            if (opts->simulate > 0) {
+                const auto steps = std::uint64_t(opts->simulate) * 25;
+                for (std::uint64_t k = 0; k < steps; ++k) {
+                    mapView->stepWorld();
+                    mapView->world.soundEvents.clear();
+                    mapView->world.shotEvents.clear();
+                }
+                const auto& w = mapView->world;
+                for (const auto& ai : mapView->ais) {
+                    const int p = ai->player();
+                    std::map<std::string, std::pair<int, int>> kinds; // тип → (готово, строится)
+                    std::size_t queued = 0;
+                    for (const auto& u : w.units())
+                        if (u.player == p && u.alive()) {
+                            auto& k = kinds[u.desc->name];
+                            ++(u.underConstruction ? k.second : k.first);
+                            queued += u.queue.size();
+                        }
+                    const auto& r = w.resources[std::size_t(p)];
+                    std::printf("игрок %d через %d с: население %d/%d; дерево %d, золото %d, камень %d, еда %d, железо %d, уголь %d; в очередях %zu\n",
+                                p, opts->simulate, w.population(p), w.populationLimit(p), r[0], r[1], r[2], r[3], r[4], r[5],
+                                queued);
+                    for (const auto& [name, n] : kinds)
+                        std::printf("  %s: %d%s\n", name.c_str(), n.first,
+                                    n.second ? (" (+" + std::to_string(n.second) + " строится)").c_str() : "");
                 }
             }
             if (opts->gather) {

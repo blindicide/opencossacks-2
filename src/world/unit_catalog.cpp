@@ -1,5 +1,6 @@
 #include "world/unit_catalog.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <exception>
@@ -7,6 +8,8 @@
 #include <iterator>
 #include <optional>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include "assets/game_paths.hpp"
 
@@ -28,17 +31,28 @@ bool isNationFile(const std::filesystem::path& p) {
 } // namespace
 
 UnitCatalog::UnitCatalog(std::filesystem::path dataRoot) : root_(std::move(dataRoot)) {
+    // Порядок: сначала файлы наций, затем sectorNN.nds кампании — в них переопределения
+    // для отдельных миссий (у ратуши — постройки вместо крестьян); при повторе типа
+    // остаётся первое, так что общие правила наций не подменяются кампанейскими.
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(root_, ec)) {
-        if (!entry.is_regular_file() || !isNationFile(entry.path())) continue;
-        const std::string text = readText(entry.path());
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::directory_iterator(root_, ec))
+        if (entry.is_regular_file() && isNationFile(entry.path())) files.push_back(entry.path());
+    const auto rank = [](const std::filesystem::path& p) {
+        std::string name = p.filename().string();
+        for (char& c : name) c = char(std::tolower(static_cast<unsigned char>(c)));
+        return std::make_pair(name.starts_with("sector") ? 1 : 0, name);
+    };
+    std::sort(files.begin(), files.end(), [&](const auto& a, const auto& b) { return rank(a) < rank(b); });
+    for (const auto& file : files) {
+        const std::string text = readText(file);
         for (auto& [type, md] : assets::parseNationMembers(text))
             mdNames_.emplace(std::move(type), std::move(md)); // при повторе остаётся первое
         try {
             for (auto& [producer, items] : assets::parseNationProduce(text))
                 if (!produce_.count(producer)) produce_.emplace(std::move(producer), std::move(items));
         } catch (const std::exception& e) {
-            std::fprintf(stderr, "%s: %s\n", entry.path().string().c_str(), e.what());
+            std::fprintf(stderr, "%s: %s\n", file.string().c_str(), e.what());
         }
     }
 }
