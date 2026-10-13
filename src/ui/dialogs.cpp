@@ -37,7 +37,7 @@ WidgetKind kindOf(std::string_view type) {
     if (type == "BitPicture") return WidgetKind::BitPicture;
     if (type == "GPPicture") return WidgetKind::GPPicture;
     if (type == "TextButton") return WidgetKind::TextButton;
-    if (type == "VitButton") return WidgetKind::VitButton;
+    if (type == "VitButton" || type == "TabButton") return WidgetKind::VitButton; // TabButton — VitButton с группой
     return WidgetKind::Other;
 }
 
@@ -201,6 +201,8 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
         break;
     }
 
+    if (w.type == "TabButton") w.group = node.value("Group").value_or("");
+    if (w.type == "TabDesk") w.group = node.value("ParentDialogID").value_or("");
     if (w.type == "ListDesk") {
         w.marginX = int(node.intValue("marginX").value_or(0));
         w.marginY = int(node.intValue("marginY").value_or(0));

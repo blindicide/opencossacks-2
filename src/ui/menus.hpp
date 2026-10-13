@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "assets/mission_list.hpp"
 #include "ui/dialogs.hpp"
 
 namespace oc2::ui {
@@ -33,15 +34,11 @@ public:
     // Своя у каждого открытого меню: при открытии — «Main», при возврате — прежняя.
     const std::string& modalDesk() const { return stack_.back().modalDesk; }
 
-    // Карты одиночных сражений из Missions\SingleMiss.txt: ключ «#Skirmish18» —
-    // и название в текстах, и имя файлов Missions/Skirmish/Skirmish18.m3d и .txt.
-    struct SkirmishMap {
-        std::string key;  // «#Skirmish18»
-        std::string map;  // путь к .m3d относительно данных
-        std::string description; // путь к .txt
-    };
-    const std::vector<SkirmishMap>& skirmishMaps() const { return skirmishMaps_; }
-    std::size_t selectedSkirmish = 0;
+    // Миссии (Missions\Missions.txt) и выборки для списков меню сражений:
+    // va_LD_Skirmish — SingleMiss.txt, va_LD_Battle — SingleBatl.txt.
+    const assets::MissionList& missions() const { return missions_; }
+    // Выбранная миссия (номер в missions()); по умолчанию — первая из SingleMiss.txt.
+    std::optional<std::size_t> selectedMission;
 
     // Запрос начать игру (cva_MM_SinglStart): путь карты относительно данных.
     // Возвращается один раз.
@@ -60,8 +57,12 @@ private:
         std::string modalDesk;
     };
     std::vector<Open> stack_;
-    std::vector<SkirmishMap> skirmishMaps_;
-    std::size_t shownDescription_ = std::size_t(-1); // какое описание уже загружено в панель
+    const std::vector<std::size_t>* listFor(const Widget& list) const;
+
+    assets::MissionList missions_;
+    std::vector<std::size_t> skirmish_, battles_;
+    std::optional<std::size_t> shownDescription_; // какое описание уже показано
+    std::map<std::string, std::string> activeTab_; // меню → группа нажатой вкладки
     std::optional<std::string> startRequest_;
 };
 

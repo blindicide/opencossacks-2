@@ -48,6 +48,7 @@ opencossacks-2/
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   ├── image_decode.*  — JPG, PNG, TGA, BMP через stb_image
+│   │   ├── mission_list.*  — миссии Missions\Missions.txt и выборки SingleMiss.txt / SingleBatl.txt
 │   │   ├── map3d.*         — карты .m3d: разделы, высоты (SURF), фактуры (TILE, TIL2), объекты (TRE2), юниты (UNI3)
 │   │   ├── sprite_list.*   — списки спрайт-объектов .lst (Treelist, stonlist, walls…): имя GP, привязка кадров
 │   │   ├── unit_desc.*     — описания юнитов .md (USERLC, SETANMPARAM, анимации) и члены наций .nds

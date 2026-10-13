@@ -105,6 +105,8 @@ struct Widget {
     int marginX = 0, marginY = 0;
     int currentElement = -1;
     int scrollY = 0;
+    // TabButton: Group; TabDesk: ParentDialogID — вкладка видна, когда нажата кнопка её группы.
+    std::string group;
     // У строки списка — её номер (−1 у прочих элементов).
     int listIndex = -1;
 

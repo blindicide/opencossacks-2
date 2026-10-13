@@ -15,6 +15,7 @@
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "assets/mission_list.hpp"
 #include "assets/sprite_list.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
@@ -723,6 +724,20 @@ TEST_CASE("Мир: таблицы направлений и ходьба") {
     w.step();
     CHECK(w.units()[p].animation == peasant.animation("@REST"));
     CHECK(w.units()[h].frame == 0); // кадры зданий не идут
+}
+
+TEST_CASE("Список миссий Missions.txt и выборки") {
+    const MissionList list = MissionList::parse("#TUTORIAL\r\nTutorial\r\n-\r\nMissions\\Campains\\27x.m3d\r\n-\r\n0\r\n"
+                                                "#Skirmish18\r\n#Skirmish18_TXT\r\n-\r\nMissions\\Skirmish\\Skirmish18.m3d\r\n"
+                                                "Missions\\Skirmish\\Skirmish18.txt\r\n2\r\nInterf3\\maps\\s18.jpg 700 330\r\n"
+                                                "91 305 847 229");
+    CHECK(list.missions.size() == 2);
+    const Mission* s18 = list.find("#Skirmish18");
+    CHECK(s18 && s18->nameKey == "#Skirmish18_TXT" && s18->map == "Missions\\Skirmish\\Skirmish18.m3d");
+    CHECK(s18->extra.size() == 2 && s18->extra[1] == "91 305 847 229");
+    const auto sel = list.selection("2\r\n#Skirmish18\r\n#Unknown\r\n");
+    CHECK(sel.size() == 1 && sel[0] == 1);
+    CHECK_THROWS_AS(MissionList::parse("#A\nB\n-\nm\nd\nx\n"), FormatError);
 }
 
 int main() { return oc2::test::runAll(); }

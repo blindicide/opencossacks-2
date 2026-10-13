@@ -45,18 +45,21 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
             std::fprintf(stderr, "MainMenu.xml: %s\n", e.what());
         }
     }
-    // SingleMiss.txt: число, затем строки «#КлючКарты» (ключ — ещё и текст названия).
-    if (auto path = assets::findCaseInsensitive(ctx_.dataRoot, "Missions/SingleMiss.txt")) {
+    // Missions.txt и выборки (FUN_00fd1570 и загрузчик сражений FUN около SingleBatl.txt).
+    auto readText = [&](const char* name) -> std::optional<std::string> {
+        auto path = assets::findCaseInsensitive(ctx_.dataRoot, name);
+        if (!path) return std::nullopt;
         std::ifstream in(*path, std::ios::binary);
-        std::string line;
-        while (std::getline(in, line)) {
-            line = trim(line);
-            if (line.size() > 1 && line[0] == '#') {
-                const std::string base = "Missions/Skirmish/" + line.substr(1);
-                skirmishMaps_.push_back({line, base + ".m3d", base + ".txt"});
-            }
-        }
+        return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    };
+    try {
+        if (auto text = readText("Missions/Missions.txt")) missions_ = assets::MissionList::parse(*text);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Missions.txt: %s\n", e.what());
     }
+    if (auto text = readText("Missions/SingleMiss.txt")) skirmish_ = missions_.selection(*text);
+    if (auto text = readText("Missions/SingleBatl.txt")) battles_ = missions_.selection(*text);
+    if (!skirmish_.empty()) selectedMission = skirmish_.front();
 }
 
 bool Menus::open(const std::string& name) {
@@ -86,39 +89,46 @@ Dialog& Menus::current() {
 void Menus::update() {
     if (stack_.empty()) return;
     Dialog& dialog = current();
+    // Вкладки: нажатая кнопка (State 1) задаёт видимую TabDesk своей группы.
+    std::string& tab = activeTab_[currentName()];
+    if (tab.empty())
+        dialog.forEach([&](Widget& w) {
+            if (w.type == "TabButton" && w.state == 1 && tab.empty()) tab = w.group;
+        });
+    dialog.forEach([&](Widget& w) {
+        if (w.type == "TabDesk") w.visible = w.group == tab;
+        if (w.type == "TabButton") w.state = w.group == tab ? 1 : 0;
+    });
     dialog.forEach([&](Widget& w) {
         for (const Widget::Action& a : w.actions) {
-            // FUN_013d6530: список карт сражений — названия из текстов по ключам SingleMiss.txt.
-            if (a.type == "va_LD_Skirmish" && w.children.size() != skirmishMaps_.size()) {
+            // FUN_013d6530: списки карт — названия по ключам миссий («#Skirmish18_TXT»).
+            if (const std::vector<std::size_t>* items = listFor(w); items && w.children.size() != items->size()) {
                 std::vector<std::string> names;
-                for (const SkirmishMap& m : skirmishMaps_) {
-                    // Название — «#Skirmish18_TXT» (Missions\Text\Skirbatlnames.txt).
-                    const std::string nameKey = m.key + "_TXT";
-                    names.push_back(assets::utf8ToCp1251(ctx_.texts.lookup(ctx_.texts.contains(nameKey) ? nameKey : m.key)));
-                }
-                if (w.currentElement < 0) w.currentElement = int(selectedSkirmish);
+                for (std::size_t m : *items) names.push_back(assets::utf8ToCp1251(ctx_.texts.lookup(missions_.missions[m].nameKey)));
+                for (std::size_t i = 0; i < items->size(); ++i)
+                    if (selectedMission == (*items)[i]) w.currentElement = int(i);
                 dialog.setListItems(w, names);
             }
-            // FUN_013d7350: описание выбранной карты — текст её .txt с разметкой.
-            if (a.type == "va_MissDescription" && shownDescription_ != selectedSkirmish &&
-                selectedSkirmish < skirmishMaps_.size()) {
-                shownDescription_ = selectedSkirmish;
+            // FUN_013d7350: описание выбранной миссии — текст её .txt с разметкой.
+            if (a.type == "va_MissDescription" && shownDescription_ != selectedMission && selectedMission) {
+                shownDescription_ = selectedMission;
                 w.text.clear();
-                if (auto path = assets::findCaseInsensitive(ctx_.dataRoot, skirmishMaps_[selectedSkirmish].description)) {
+                if (auto path = assets::findCaseInsensitive(ctx_.dataRoot,
+                                                            gamePath(missions_.missions[*selectedMission].description))) {
                     std::ifstream in(*path, std::ios::binary);
                     w.text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
                 }
             }
-            // FUN_013eccd0: панель видна, только когда открыта модальная панель с её именем.
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
             // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки
             // состава игроков и команд оригинала ещё не перенесены.
-            if (a.type == "cva_MM_SinglStart") w.enabled = selectedSkirmish < skirmishMaps_.size();
+            if (a.type == "cva_MM_SinglStart") w.enabled = selectedMission.has_value();
         }
     });
 }
 
 void Menus::click(Widget& w) {
+    if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
         if (a.type == "cva_MM_Start" || a.type == "cva_MM_SinStart" || a.type == "cva_MM_MultiEnter") {
             // FUN_013d83e0. Проверка профиля игрока у cva_MM_SinStart (меню AddProfile)
@@ -129,8 +139,8 @@ void Menus::click(Widget& w) {
         if (a.type == "va_ListItem") { // FUN_013d4bb0
             if (Widget* list = current().listOf(w)) {
                 Dialog::selectListItem(*list, w.listIndex);
-                for (const Widget::Action& la : list->actions)
-                    if (la.type == "va_LD_Skirmish") selectedSkirmish = std::size_t(w.listIndex);
+                if (const std::vector<std::size_t>* items = listFor(*list); items && std::size_t(w.listIndex) < items->size())
+                    selectedMission = (*items)[std::size_t(w.listIndex)];
             }
             continue;
         }
@@ -141,10 +151,10 @@ void Menus::click(Widget& w) {
             // FUN_013d94c0: начать игру на выбранной карте (без выбора оригинал создаёт
             // случайную карту — генератора пока нет). Выбора карты в меню ещё нет:
             // берётся selectedSkirmish из списка SingleMiss.txt.
-            if (selectedSkirmish < skirmishMaps_.size())
-                startRequest_ = skirmishMaps_[selectedSkirmish].map;
+            if (selectedMission)
+                startRequest_ = gamePath(missions_.missions[*selectedMission].map);
             else
-                std::fprintf(stderr, "нет списка карт Missions/SingleMiss.txt\n");
+                std::fprintf(stderr, "не выбрана карта (нет Missions/Missions.txt?)\n");
             return;
         }
         if (a.type == "cva_MM_Close") { // FUN_013d8510
@@ -157,6 +167,15 @@ void Menus::click(Widget& w) {
         }
         std::printf("действие %s (%s) пока не реализовано\n", a.type.c_str(), a.name.c_str());
     }
+}
+
+const std::vector<std::size_t>* Menus::listFor(const Widget& list) const {
+    if (!list.listElement) return nullptr;
+    for (const Widget::Action& a : list.actions) {
+        if (a.type == "va_LD_Skirmish") return &skirmish_;
+        if (a.type == "va_LD_Battle") return &battles_;
+    }
+    return nullptr;
 }
 
 } // namespace oc2::ui
