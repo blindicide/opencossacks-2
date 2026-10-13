@@ -243,6 +243,7 @@ struct MapView {
     std::unique_ptr<oc2::world::UnitCatalog> units;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
+    std::unique_ptr<oc2::render::Effects> effects;
     bool showLocks = false; // L — показать закрытые клетки
     int player = 0;         // за кого играем: приказы слушают только его юниты
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
@@ -313,6 +314,7 @@ struct MapView {
         }
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
+        effects = std::make_unique<oc2::render::Effects>(data);
         world.setLockMap(oc2::world::LockMap::fromTerrain(map));
         // Команды и одиночная игра: юниты отключённых игроков отходят союзнику (MOPT).
         oc2::assets::MissionOptions mission;
@@ -414,6 +416,11 @@ struct MapView {
         stepTime += dt;
         for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
             world.step();
+            effects->step();
+            for (const auto& shot : world.shotEvents)
+                if (auto sound = effects->spawn(shot.weapon, shot.x, shot.y, shot.direction))
+                    world.soundEvents.push_back({*sound, shot.x, shot.y});
+            world.shotEvents.clear();
             stepTime -= oc2::world::kStepSeconds;
         }
         if (stepTime > oc2::world::kStepSeconds) stepTime = 0.0;
@@ -747,7 +754,8 @@ int main(int argc, char** argv) {
                 mapView->advance(dt);
                 mapView->playSounds(sounds.get(), e);
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
-                mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
+                mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
+                                       mapView->effects.get());
                 mapView->drawLocks(sprites, e);
                 mapView->drawDragBox(sprites, window);
                 screen->updateHud(mapView->world, mapView->player);

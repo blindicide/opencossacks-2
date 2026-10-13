@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "assets/map3d.hpp"
+#include "render/effects.hpp"
 #include "render/gp_images.hpp"
 #include "render/sprite_renderer.hpp"
 #include "render/terrain_renderer.hpp"
@@ -24,8 +25,9 @@ public:
     MapObjects(SpriteRenderer& renderer, GpImages& images, const std::filesystem::path& dataRoot,
                const assets::Map3d& map);
 
-    // Ставит в очередь спрайтов видимые объекты и юниты world (рисовать после рельефа).
-    void draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world);
+    // Ставит в очередь спрайтов видимые объекты, юниты world и эффекты (рисовать после рельефа).
+    void draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world,
+              const Effects* effects = nullptr);
 
     std::size_t staticCount() const { return items_.size(); }
 
@@ -44,6 +46,9 @@ private:
     };
 
     void appendUnit(const world::Unit& u, std::vector<Item>& out);
+    // Кадр анимации описания desc в мировой точке; layer — номер кадра анимации.
+    void appendFrame(const assets::UnitDesc& desc, const assets::UnitAnimation& anim, std::size_t layer, int direction,
+                     int x, int y, int lift, int sortY, std::vector<Item>& out);
     GpId gpFor(const assets::UnitSpriteFile& file);
     void drawItem(const Item& it, const MapCamera& camera, float right, float bottom);
 

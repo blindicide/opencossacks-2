@@ -32,7 +32,8 @@ struct UnitAnimation {
     int dx = 0, dy = 0;
 };
 
-// Описание типа юнита (.md): пока — то, что нужно для вывода.
+// Описание типа юнита (.md): пока — то, что нужно для вывода. Тем же разбором читается
+// WEAPON.ADS (файлы и анимации эффектов оружия).
 // Ключевые слова оригинала — классы MD<КЛЮЧ> с разбором по строке; здесь
 // читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, LOCKPOINTS, USERLC, SETANMPARAM, LIFE, DAMAGE,
 // ATTACK_RADIUS, ATTACK_PAUSE, SEARCH_ENEMY_RADIUS, SOUND, SELECT_SOUND, ORDER_SOUND и строки анимаций,
@@ -58,6 +59,7 @@ struct UnitDesc {
     std::array<int, kWeapons> attackMax{};
     std::array<int, kWeapons> attackPause{};   // ATTACK_PAUSE w шаги перезарядки
     int searchEnemyRadius = 0;                 // SEARCH_ENEMY_RADIUS
+    std::array<std::string, kWeapons> weaponName; // WEAPON w ИМЯ — снаряд/эффект из weapon.nds
 
     // Звуки: «SOUND кадр #АНИМАЦИЯ ГРУППА» — на кадре анимации (номер в animations).
     struct Sound {

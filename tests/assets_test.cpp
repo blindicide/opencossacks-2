@@ -23,6 +23,7 @@
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
 #include "assets/unit_desc.hpp"
+#include "assets/weapon_list.hpp"
 #include "assets/xml_tree.hpp"
 #include "check.hpp"
 #include "world/world.hpp"
@@ -847,6 +848,17 @@ TEST_CASE("Звук: WAV, перевод в стерео, список Sounds.xm
     const SoundGroup* g = list.find("interf_navel");
     CHECK(g && g->variants.size() == 1 && g->minPause == 2.0f && g->variants[0].volume == 0.5f);
     CHECK(g->variants[0].file == "SOUND\\INTERFACE\\A.WAV" && !list.find("NONE"));
+}
+
+TEST_CASE("Оружие weapon.nds: члены, дети, звуки") {
+    const WeaponList list = WeaponList::parse(
+        "[MEMBERS]\r\n//NAME #Animation damage radius\r\nSHOTFOGSTART #POINT 0 0 NONE NO_GRAVITY STAND 1 1\r\n"
+        "SHOTFOGFOG1 #SHOTFOG 0 0 NONE NO_GRAVITY STAND 1 1\r\n/OLD #X 1 1\r\n"
+        "[CHILDWEAPON]\r\nSHOTFOGSTART 1 1 0 2 SHOTFOGFOG1 SHOTFOGFOG2\r\n"
+        "[SOUND]\r\nSHOTFOGSTART SHOT_SLABIY_STVOL //комментарий\r\n[END]\r\n");
+    const Weapon* w = list.find("shotfogstart");
+    CHECK(w && w->animation == "#POINT" && w->children.size() == 2 && w->children[1] == "SHOTFOGFOG2");
+    CHECK(w->sound == "SHOT_SLABIY_STVOL" && list.find("SHOTFOGFOG1")->animation == "#SHOTFOG" && !list.find("OLD"));
 }
 
 int main() { return oc2::test::runAll(); }

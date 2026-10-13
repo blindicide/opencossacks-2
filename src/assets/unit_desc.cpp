@@ -90,6 +90,9 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.step = intAt(w, 3, "шаг");
         } else if (key == "SOUND" && w.size() >= 4) {
             pendingSounds.push_back({intAt(w, 1, "кадр"), std::string(w[2]), std::string(w[3])});
+        } else if (key == "WEAPON" && w.size() >= 3) {
+            const int weapon = intAt(w, 1, "оружие");
+            if (weapon >= 0 && weapon < UnitDesc::kWeapons) d.weaponName[std::size_t(weapon)] = std::string(w[2]);
         } else if (key == "SELECT_SOUND" && w.size() >= 2) {
             d.selectSound = std::string(w[1]);
         } else if (key == "ORDER_SOUND" && w.size() >= 2) {
@@ -115,9 +118,11 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             UnitSpriteFile f;
             f.id = intAt(w, 1, "номер");
             f.path = std::string(w[2]);
-            if (w.size() >= 6 && equalsNoCase(w[3], "SHADOW")) {
-                f.dx = intAt(w, 4, "dx");
-                f.dy = intAt(w, 5, "dy");
+            // «SHADOW dx dy» у юнитов, «NONE dx dy» (режим прозрачности) в WEAPON.ADS.
+            if (w.size() >= 6) {
+                int v = 0;
+                if (toInt(w[4], v)) f.dx = v;
+                if (toInt(w[5], v)) f.dy = v;
             }
             d.files.push_back(std::move(f));
         } else if (key == "SETANMPARAM") {

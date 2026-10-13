@@ -40,6 +40,7 @@ add_library(oc2_assets STATIC
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
     src/assets/unit_desc.cpp
+    src/assets/weapon_list.cpp
     src/assets/xml_tree.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
@@ -66,6 +67,7 @@ add_executable(opencossacks2
     src/render/gp_images.cpp
     src/render/terrain_renderer.cpp
     src/render/map_objects.cpp
+    src/render/effects.cpp
     src/ui/fonts.cpp
     src/ui/rich_text.cpp
     src/ui/dialogs.cpp

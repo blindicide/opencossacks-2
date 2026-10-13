@@ -89,49 +89,54 @@ GpId MapObjects::gpFor(const assets::UnitSpriteFile& file) {
     return it->second;
 }
 
+void MapObjects::appendFrame(const assets::UnitDesc& desc, const assets::UnitAnimation& anim, std::size_t layer,
+                             int direction, int x, int y, int lift, int sortY, std::vector<Item>& out) {
+    const assets::UnitAnimFrame& fr = anim.frames[layer];
+    const assets::UnitSpriteFile* file = desc.file(fr.file);
+    if (!file) return;
+    const GpId gp = gpFor(*file);
+    const std::size_t total = images_.frameCount(gp);
+    // 255 поворотов (эффекты WEAPON.ADS) — один спрайт на все направления.
+    const int rotations = anim.rotations >= 255 ? 1 : std::max(anim.rotations, 1);
+    const std::size_t perDirection = total / std::size_t(rotations);
+    if (perDirection == 0 || fr.frame < 0 || std::size_t(fr.frame) >= perDirection) return;
+    // В файле rotations направлений от юга (к зрителю) до севера, вторая половина
+    // круга — их отражение (сторона отражения сверена по строю на Skirmish18: направление 32 — к юго-востоку).
+    int sprite = 0;
+    bool mirror = false;
+    if (rotations > 1) {
+        const int sectors = 2 * (rotations - 1);
+        const int sector = (((direction - 64 + 256) % 256) * sectors + 128) / 256 % sectors;
+        sprite = sector <= rotations - 1 ? sector : sectors - sector;
+        mirror = sector > rotations - 1;
+    }
+    Item item;
+    item.gp = gp;
+    item.frame = std::uint32_t(std::size_t(sprite) * perDirection + std::size_t(fr.frame));
+    item.w = float(images_.frameWidth(gp, item.frame));
+    item.h = float(images_.frameHeight(gp, item.frame));
+    const int ox = anim.dx + file->dx, oy = anim.dy + file->dy;
+    item.x = float(mirror ? x - int(item.w) - ox : x + ox);
+    item.y = float((y >> 1) + oy - map_.heightAt(x, y) - lift);
+    item.sortY = sortY;
+    item.mirror = mirror;
+    out.push_back(item);
+}
+
 void MapObjects::appendUnit(const world::Unit& u, std::vector<Item>& out) {
     const assets::UnitAnimation* anim = u.animation;
     if (!u.desc || !anim || anim->frames.empty()) return;
     // У зданий кадры анимации — слои одной картинки (у дома: низ с тенью и
     // верх), у остальных — кадры во времени.
-    std::size_t first = std::size_t(u.frame) % anim->frames.size(), count = 1;
     if (u.building()) {
-        first = 0;
-        count = anim->frames.size();
-    }
-    const int z = map_.heightAt(u.x(), u.y());
-    for (std::size_t layer = first; layer < first + count; ++layer) {
-        const assets::UnitAnimFrame& fr = anim->frames[layer];
-        const assets::UnitSpriteFile* file = u.desc->file(fr.file);
-        if (!file) continue;
-        const GpId gp = gpFor(*file);
-        const std::size_t total = images_.frameCount(gp);
-        const int rotations = std::max(anim->rotations, 1);
-        const std::size_t perDirection = total / std::size_t(rotations);
-        if (perDirection == 0 || fr.frame < 0 || std::size_t(fr.frame) >= perDirection) continue;
-        // В файле rotations направлений от юга (к зрителю) до севера, вторая половина
-        // круга — их отражение (сторона отражения сверена по строю на Skirmish18: направление 32 — к юго-востоку).
-        int sprite = 0;
-        bool mirror = false;
-        if (rotations > 1) {
-            const int sectors = 2 * (rotations - 1);
-            const int sector = (((u.direction - 64 + 256) % 256) * sectors + 128) / 256 % sectors;
-            sprite = sector <= rotations - 1 ? sector : sectors - sector;
-            mirror = sector > rotations - 1;
+        for (std::size_t layer = 0; layer < anim->frames.size(); ++layer) {
+            // Нижний слой здания лежит на земле (LINESORT … GROUND) — под всеми спрайтами.
+            const int sortY = anim->frames.size() > 1 && layer == 0 ? std::numeric_limits<int>::min() : u.y();
+            appendFrame(*u.desc, *anim, layer, u.direction, u.x(), u.y(), 0, sortY, out);
         }
-        Item item;
-        item.gp = gp;
-        item.frame = std::uint32_t(std::size_t(sprite) * perDirection + std::size_t(fr.frame));
-        item.w = float(images_.frameWidth(gp, item.frame));
-        item.h = float(images_.frameHeight(gp, item.frame));
-        const int ox = anim->dx + file->dx, oy = anim->dy + file->dy;
-        item.x = float(mirror ? u.x() - int(item.w) - ox : u.x() + ox);
-        item.y = float((u.y() >> 1) + oy - z);
-        // Нижний слой здания лежит на земле (LINESORT … GROUND) — под всеми спрайтами.
-        item.sortY = u.building() && count > 1 && layer == 0 ? std::numeric_limits<int>::min() : u.y();
-        item.mirror = mirror;
-        out.push_back(item);
+        return;
     }
+    appendFrame(*u.desc, *anim, std::size_t(u.frame) % anim->frames.size(), u.direction, u.x(), u.y(), 0, u.y(), out);
 }
 
 void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, float bottom) {
@@ -140,11 +145,16 @@ void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, 
                  camera.zoom, it.mirror);
 }
 
-void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world) {
+void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world,
+                      const Effects* effects) {
     const float right = camera.x + screenWidth / camera.zoom;
     const float bottom = camera.y + screenHeight / camera.zoom;
     dynamic_.clear();
     for (const world::Unit& u : world.units()) appendUnit(u, dynamic_);
+    // Дым выстрелов — поверх стрелков (сортировка чуть ниже точки выстрела).
+    if (effects)
+        for (const Effects::Instance& e : effects->instances())
+            appendFrame(effects->ads(), *e.animation, std::size_t(e.frame), 0, e.x, e.y, e.lift, e.y + 48, dynamic_);
     std::stable_sort(dynamic_.begin(), dynamic_.end(), [](const Item& a, const Item& b) { return a.sortY < b.sortY; });
 
     // Слияние двух отсортированных списков; при равном Y юнит — поверх объекта.

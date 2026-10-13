@@ -95,6 +95,12 @@ public:
         int x, y;
     };
     std::vector<SoundEvent> soundEvents;
+    // Выстрелы за шаги: оружие из WEAPON w (weapon.nds) — дым, вспышка, звук выстрела.
+    struct ShotEvent {
+        std::string weapon;
+        int x, y, direction;
+    };
+    std::vector<ShotEvent> shotEvents;
 
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};

@@ -221,6 +221,8 @@ void World::step() {
                 u.damageDone = true;
                 const auto w = std::size_t(u.weapon);
                 u.reload[w] = u.desc->attackPause[w];
+                if (!u.desc->weaponName[w].empty())
+                    shotEvents.push_back({u.desc->weaponName[w], u.x(), u.y(), u.direction});
                 if (u.target && units_[*u.target].alive()) {
                     Unit& t = units_[*u.target];
                     const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
