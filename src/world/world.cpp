@@ -1,5 +1,6 @@
 #include "world/world.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -61,6 +62,7 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
     u.animation = idleAnimation(desc);
     // Чтобы стоящие рядом не шевелились в такт — разный начальный кадр покоя.
     if (u.animation && !desc.building) u.frame = int((units_.size() * 7) % u.animation->frames.size());
+    if (desc.building && lock_.width() > 0) lock_.addBuilding(desc, x, y);
     units_.push_back(u);
     return units_.size() - 1;
 }
@@ -68,8 +70,19 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
 void World::orderMove(std::size_t index, int x, int y) {
     Unit& u = units_.at(index);
     if (u.building() || !moveAnimation(*u.desc) || u.desc->step <= 0) return;
-    u.targetX16 = x * 16;
-    u.targetY16 = y * 16;
+    u.path.clear();
+    if (lock_.width() > 0)
+        u.path = findPath(lock_, u.x(), u.y(), x, y);
+    else
+        u.path = {{x, y}};
+    if (u.path.empty()) {
+        u.moving = false;
+        return;
+    }
+    std::reverse(u.path.begin(), u.path.end()); // берём с конца
+    u.targetX16 = u.path.back().first * 16;
+    u.targetY16 = u.path.back().second * 16;
+    u.path.pop_back();
     u.moving = true;
 }
 
@@ -84,7 +97,13 @@ void World::step() {
             if (dist <= double(u.desc->step)) {
                 u.x16 = u.targetX16;
                 u.y16 = u.targetY16;
-                u.moving = false;
+                if (u.path.empty()) {
+                    u.moving = false;
+                } else {
+                    u.targetX16 = u.path.back().first * 16;
+                    u.targetY16 = u.path.back().second * 16;
+                    u.path.pop_back();
+                }
             } else {
                 u.direction = directionOf(dx, dy);
                 u.x16 += (cos256(u.direction) * u.desc->step) >> 8;

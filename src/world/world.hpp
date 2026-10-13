@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "assets/unit_desc.hpp"
+#include "world/lock_map.hpp"
 
 namespace oc2::world {
 
@@ -28,7 +29,8 @@ struct Unit {
     const assets::UnitAnimation* animation = nullptr;
     int frame = 0;        // кадр текущей анимации
     bool moving = false;
-    int targetX16 = 0, targetY16 = 0;
+    int targetX16 = 0, targetY16 = 0;          // текущая точка пути
+    std::vector<std::pair<int, int>> path;     // следующие точки (мировые), в обратном порядке
     bool selected = false;
 
     int x() const { return x16 >> 4; }
@@ -37,9 +39,14 @@ struct Unit {
 };
 
 // Юниты мира и их шаг симуляции. Пока: проигрывание анимаций покоя и ходьбы,
-// движение к точке по прямой с мгновенным поворотом (без поиска пути и столкновений).
+// движение по пути A* с мгновенным поворотом (без столкновений юнитов).
 class World {
 public:
+    // Карта непроходимости (без неё юниты ходят по прямой). Здания, добавленные
+    // после, закрывают свои клетки.
+    void setLockMap(LockMap lockMap) { lock_ = std::move(lockMap); }
+    const LockMap& lockMap() const { return lock_; }
+
     // Добавляет юнит в мировой точке (x, y); возвращает его номер.
     std::size_t addUnit(const assets::UnitDesc& desc, int player, int x, int y, int direction);
 
@@ -60,6 +67,7 @@ private:
     void setAnimation(Unit& u, const assets::UnitAnimation* anim);
 
     std::vector<Unit> units_;
+    LockMap lock_;
     std::uint64_t steps_ = 0;
 };
 

@@ -33,9 +33,12 @@ std::vector<std::vector<std::string_view>> lines(std::string_view text) {
     return out;
 }
 
+// Как %d у sscanf оригинала: число в начале слова («73/14» в bldflag.md → 73).
 bool toInt(std::string_view w, int& out) {
-    const auto [end, ec] = std::from_chars(w.data(), w.data() + w.size(), out);
-    return ec == std::errc() && end == w.data() + w.size();
+    const char* b = w.data();
+    if (b < w.data() + w.size() && *b == '+') ++b;
+    const auto [end, ec] = std::from_chars(b, w.data() + w.size(), out);
+    return ec == std::errc() && end != b;
 }
 
 int intAt(const std::vector<std::string_view>& w, std::size_t i, std::string_view what) {
@@ -68,6 +71,7 @@ const UnitAnimation* UnitDesc::animation(std::string_view n) const {
 UnitDesc UnitDesc::parse(std::string_view text) {
     UnitDesc d;
     int anmDx = 0, anmDy = 0; // SETANMPARAM действует на следующие анимации (FUN_018dbab0)
+    bool sawAnmParam = false;
     for (const auto& w : lines(text)) {
         const std::string_view key = w[0];
         if (key == "[END]") break;
@@ -93,6 +97,16 @@ UnitDesc UnitDesc::parse(std::string_view text) {
         } else if (key == "SETANMPARAM") {
             anmDx = intAt(w, 1, "dx");
             anmDy = intAt(w, 2, "dy");
+            if (!sawAnmParam) {
+                d.pictureDx = anmDx;
+                d.pictureDy = anmDy;
+                sawAnmParam = true;
+            }
+        } else if (key == "LOCKPOINTS") {
+            const int n = intAt(w, 1, "число точек");
+            d.lockPoints.clear();
+            for (int i = 0; i < n; ++i)
+                d.lockPoints.emplace_back(intAt(w, 2 + 2 * std::size_t(i), "x"), intAt(w, 3 + 2 * std::size_t(i), "y"));
         } else if ((key[0] == '#' || key[0] == '@') && key.size() > 1) {
             UnitAnimation a;
             a.name = std::string(key);

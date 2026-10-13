@@ -61,6 +61,7 @@ const char* kHelp =
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
+    "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
     "  --version             версия\n"
     "\n"
     "С --data без --sprite показывается главное меню.\n"
@@ -102,7 +103,8 @@ struct Options {
     std::optional<std::array<float, 2>> mouse;
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
-    bool click = false; // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
+    bool click = false;
+    bool locks = false; // показать закрытые клетки с самого начала // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -143,6 +145,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--locks") {
+            o.locks = true;
         } else if (a == "--click") {
             o.click = true;
         } else if (a == "--move" && hasValue) {
@@ -229,6 +233,7 @@ struct MapView {
     std::unique_ptr<oc2::world::UnitCatalog> units;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
+    bool showLocks = false; // L — показать закрытые клетки
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
@@ -295,6 +300,7 @@ struct MapView {
         }
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
+        world.setLockMap(oc2::world::LockMap::fromTerrain(map));
         std::size_t missing = 0;
         for (const oc2::assets::MapUnit& u : map.units()) {
             if (const oc2::assets::UnitDesc* desc = units->find(u.type))
@@ -339,10 +345,28 @@ struct MapView {
         case SDLK_KP_PLUS: camera.zoom = std::min(camera.zoom * 2.0f, 4.0f); break;
         case SDLK_MINUS:
         case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
+        case SDLK_L: showLocks = !showLocks; return;
         default: return;
         }
         camera.x = cx - float(e.width) / camera.zoom / 2.0f;
         camera.y = cy - float(e.height) / camera.zoom / 2.0f;
+    }
+
+    // Закрытые клетки на экране (отладка, клавиша L): полупрозрачные красные квадраты.
+    void drawLocks(oc2::render::SpriteRenderer& sprites, VkExtent2D e) const {
+        if (!showLocks) return;
+        const auto& lm = world.lockMap();
+        constexpr int C = oc2::world::LockMap::kCell;
+        const int x0 = std::max(0, int(camera.x) / C - 1), x1 = int(camera.x + float(e.width) / camera.zoom) / C + 1;
+        const int y0 = std::max(0, int(camera.y * 2.0f) / C - 8), y1 = int((camera.y + float(e.height) / camera.zoom) * 2.0f) / C + 8;
+        for (int cy = y0; cy <= y1; ++cy)
+            for (int cx = x0; cx <= x1; ++cx) {
+                if (!lm.locked(cx, cy) || cx >= lm.width() || cy >= lm.height()) continue;
+                const int wx = cx * C, wy = cy * C;
+                const float sx = (float(wx) - camera.x) * camera.zoom;
+                const float sy = (float(wy / 2 - mapData->heightAt(wx + C / 2, wy + C / 2)) - camera.y) * camera.zoom;
+                sprites.fillRect(sx, sy, float(C) * camera.zoom, float(C / 2) * camera.zoom, 0x60FF2020);
+            }
     }
 
     // Шаги симуляции за прошедшее время (не больше 5 за кадр, чтобы не отставать бесконечно).
@@ -481,6 +505,7 @@ int main(int argc, char** argv) {
             if (opts->dataDir.empty()) throw std::runtime_error("для --map нужен --data");
             mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map);
             mapView->centerOn(vulkan.extent());
+            mapView->showLocks = opts->locks;
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
             if (opts->move) {
                 auto& us = mapView->world.units();
@@ -566,6 +591,7 @@ int main(int argc, char** argv) {
                 mapView->advance(dt);
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
+                mapView->drawLocks(sprites, e);
             } else if (screen) {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;

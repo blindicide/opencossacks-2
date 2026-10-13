@@ -45,6 +45,7 @@ target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 # Мир игры без графики: построение рельефа и (дальше) логика.
 add_library(oc2_world STATIC
     src/world/terrain_mesh.cpp
+    src/world/lock_map.cpp
     src/world/unit_catalog.cpp
     src/world/world.cpp
 )

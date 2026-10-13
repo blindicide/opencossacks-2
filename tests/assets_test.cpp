@@ -673,9 +673,11 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
                                        "@UATTACK2 9 6 3 1\r\n"
-                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
+                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nLOCKPOINTS 2 4 31 5 32\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
     CHECK(d.radius2 == 10 && d.step == 40 && d.unitRadius == 8);
+    CHECK(d.lockPoints.size() == 2 && d.lockPoints[1].first == 5 && d.lockPoints[1].second == 32);
+    CHECK(d.pictureDx == -275 && d.pictureDy == -235);
     CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);
     CHECK(d.file(0)->path == "UnitsG17\\Dom");
     CHECK(d.animations.size() == 3); // после [END] не читается
@@ -752,6 +754,30 @@ TEST_CASE("Список миссий Missions.txt и выборки") {
     const auto sel = list.selection("2\r\n#Skirmish18\r\n#Unknown\r\n");
     CHECK(sel.size() == 1 && sel[0] == 1);
     CHECK_THROWS_AS(MissionList::parse("#A\nB\n-\nm\nd\nx\n"), FormatError);
+}
+
+TEST_CASE("Мир: карта непроходимости и путь A*") {
+    using namespace oc2::world;
+    LockMap lm(20, 20);
+    for (int y = 0; y < 15; ++y) lm.setLocked(10, y); // стена с проходом внизу
+    CHECK(lm.locked(10, 3) && !lm.locked(9, 3) && lm.locked(-1, 0) && lm.locked(20, 0));
+    CHECK(!lm.lineOpen(5, 5, 15, 5) && lm.lineOpen(5, 17, 15, 17));
+    const auto path = findPath(lm, 5 * 16 + 8, 5 * 16 + 8, 15 * 16 + 8, 5 * 16 + 8);
+    CHECK(!path.empty());
+    CHECK(path.back() == std::make_pair(15 * 16 + 8, 5 * 16 + 8));
+    // Путь обходит стену снизу: есть точка ниже её конца.
+    bool below = false;
+    for (const auto& [x, y] : path) below = below || y / 16 >= 15;
+    CHECK(below);
+    // Цель в закрытой клетке — идём к ближайшей открытой.
+    const auto toWall = findPath(lm, 5 * 16, 18 * 16, 10 * 16 + 8, 3 * 16 + 8);
+    CHECK(!toWall.empty() && !lm.locked(toWall.back().first / 16, toWall.back().second / 16));
+
+    // Здание закрывает клетки LOCKPOINTS от угла картинки.
+    const UnitDesc house = UnitDesc::parse("NAME H\nBUILDING\nSETANMPARAM -32 -16 0 0\nLOCKPOINTS 1 2 3\n");
+    LockMap big(64, 64);
+    big.addBuilding(house, 320, 320); // угол: (320 − 32) / 16 = 18, (320 − 32) / 16 = 18
+    CHECK(big.locked(20, 21) && !big.locked(19, 21));
 }
 
 int main() { return oc2::test::runAll(); }

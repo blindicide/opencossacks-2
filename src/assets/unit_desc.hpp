@@ -33,7 +33,7 @@ struct UnitAnimation {
 
 // Описание типа юнита (.md): пока — то, что нужно для вывода.
 // Ключевые слова оригинала — классы MD<КЛЮЧ> с разбором по строке; здесь
-// читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, USERLC, SETANMPARAM и строки анимаций,
+// читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, LOCKPOINTS, USERLC, SETANMPARAM и строки анимаций,
 // остальное пропускается.
 struct UnitDesc {
     std::string name;
@@ -42,6 +42,10 @@ struct UnitDesc {
     // мировых единиц (таблицы cos·шаг >> 8 в единицах 1/16).
     int radius1 = 0, radius2 = 0, step = 0;
     int unitRadius = 0; // UNITRADIUS
+    // LOCKPOINTS n x1 y1 …: занятые зданием клетки 16×16 мировых единиц от угла
+    // картинки (OneObject::GetCornerXY: x + ax, y + 2·ay, где (ax, ay) — SETANMPARAM).
+    std::vector<std::pair<int, int>> lockPoints;
+    int pictureDx = 0, pictureDy = 0; // первый SETANMPARAM
     std::vector<UnitSpriteFile> files;
     std::vector<UnitAnimation> animations;
 
