@@ -3,6 +3,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "assets/unit_desc.hpp"
@@ -34,13 +36,29 @@ struct Unit {
     std::vector<std::pair<int, int>> path;     // следующие точки (мировые), в обратном порядке
     bool selected = false;
 
+    // Бой.
+    int life = 0;
+    std::optional<std::size_t> target; // номер юнита-цели
+    bool attacking = false;            // идёт анимация удара/выстрела
+    int weapon = -1;                   // оружие текущей атаки
+    bool damageDone = false;           // урон этой атаки уже нанесён
+    std::array<int, assets::UnitDesc::kWeapons> reload{}; // шаги до готовности оружия
+    int repathIn = 0;                  // шаги до пересчёта пути к цели
+    bool dying = false, dead = false;
+
+    bool alive() const { return !dying && !dead; }
     int x() const { return x16 >> 4; }
     int y() const { return y16 >> 4; }
     bool building() const { return desc && desc->building; }
 };
 
-// Юниты мира и их шаг симуляции. Пока: проигрывание анимаций покоя и ходьбы,
-// движение по пути A* с мгновенным поворотом (без столкновений юнитов).
+// Юниты мира и их шаг симуляции: анимации покоя и ходьбы, движение по пути A*
+// с мгновенным поворотом (без столкновений юнитов), бой.
+// Бой (упрощённо, по данным .md): оружие w годно, если у него есть урон, дальность
+// и анимация «ATTACKw» (у 0 — «ATTACK»); из годных и готовых, в чьём радиусе цель,
+// берётся самое дальнобойное. Урон — на середине анимации, затем перезарядка
+// ATTACK_PAUSE шагов. Убитый играет DEATH, затем лежит (DEATHLIE1). Юниты игроков
+// 0..6 сами ищут врага в SEARCH_ENEMY_RADIUS; игрок 7 — нейтральные (не воюют).
 class World {
 public:
     // Карта непроходимости (без неё юниты ходят по прямой). Здания, добавленные
@@ -54,8 +72,13 @@ public:
     std::vector<Unit>& units() { return units_; }
     const std::vector<Unit>& units() const { return units_; }
 
-    // Приказ идти в мировую точку (x, y). Здания не ходят.
+    // Приказ идти в мировую точку (x, y). Здания не ходят. Снимает цель.
     void orderMove(std::size_t unit, int x, int y);
+    // Приказ атаковать юнит target.
+    void orderAttack(std::size_t unit, std::size_t target);
+
+    // Враги ли игроки (нейтральный 7 ни с кем не воюет).
+    static bool enemies(int a, int b) { return a != b && a != 7 && b != 7; }
 
     // Один шаг симуляции (kStepSeconds при обычной скорости).
     void step();
@@ -68,7 +91,12 @@ public:
 private:
     static const assets::UnitAnimation* idleAnimation(const assets::UnitDesc& desc);
     static const assets::UnitAnimation* moveAnimation(const assets::UnitDesc& desc);
+    static const assets::UnitAnimation* attackAnimation(const assets::UnitDesc& desc, int weapon);
+    static const assets::UnitAnimation* namedAnimation(const assets::UnitDesc& desc, const std::string& name);
     void setAnimation(Unit& u, const assets::UnitAnimation* anim);
+    void pathTo(Unit& u, int x, int y);
+    void updateCombat(std::size_t index);
+    void hit(Unit& target, int damage);
 
     std::vector<Unit> units_;
     LockMap lock_;

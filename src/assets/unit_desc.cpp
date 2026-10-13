@@ -83,6 +83,21 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.radius1 = intAt(w, 1, "радиус 1");
             d.radius2 = intAt(w, 2, "радиус 2");
             d.step = intAt(w, 3, "шаг");
+        } else if (key == "LIFE") {
+            d.life = intAt(w, 1, "жизнь");
+        } else if (key == "SEARCH_ENEMY_RADIUS") {
+            d.searchEnemyRadius = intAt(w, 1, "радиус");
+        } else if (key == "DAMAGE" || key == "ATTACK_RADIUS" || key == "ATTACK_PAUSE") {
+            const int weapon = intAt(w, 1, "оружие");
+            if (weapon >= 0 && weapon < UnitDesc::kWeapons) {
+                const auto i = std::size_t(weapon);
+                if (key == "DAMAGE") d.damage[i] = intAt(w, 2, "урон");
+                if (key == "ATTACK_PAUSE") d.attackPause[i] = intAt(w, 2, "пауза");
+                if (key == "ATTACK_RADIUS") {
+                    d.attackMin[i] = intAt(w, 2, "мин");
+                    d.attackMax[i] = intAt(w, 3, "макс");
+                }
+            }
         } else if (key == "UNITRADIUS") {
             d.unitRadius = intAt(w, 1, "радиус");
         } else if (key == "USERLC" && w.size() >= 3) {

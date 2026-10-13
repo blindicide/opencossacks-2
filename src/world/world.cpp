@@ -46,6 +46,16 @@ const assets::UnitAnimation* World::moveAnimation(const assets::UnitDesc& desc) 
     return nullptr;
 }
 
+const assets::UnitAnimation* World::namedAnimation(const assets::UnitDesc& desc, const std::string& name) {
+    for (const char* prefix : {"@", "#"})
+        if (const assets::UnitAnimation* a = desc.animation(prefix + name); a && !a->frames.empty()) return a;
+    return nullptr;
+}
+
+const assets::UnitAnimation* World::attackAnimation(const assets::UnitDesc& desc, int weapon) {
+    return namedAnimation(desc, weapon == 0 ? std::string("ATTACK") : "ATTACK" + std::to_string(weapon));
+}
+
 void World::setAnimation(Unit& u, const assets::UnitAnimation* anim) {
     if (u.animation == anim) return;
     u.animation = anim;
@@ -62,6 +72,7 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
     u.animation = idleAnimation(desc);
     // Чтобы стоящие рядом не шевелились в такт — разный начальный кадр покоя.
     if (u.animation && !desc.building) u.frame = int((units_.size() * 7) % u.animation->frames.size());
+    u.life = desc.life;
     if (desc.building && lock_.width() > 0) lock_.addBuilding(desc, x, y);
     units_.push_back(u);
     return units_.size() - 1;
@@ -69,6 +80,19 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
 
 void World::orderMove(std::size_t index, int x, int y) {
     Unit& u = units_.at(index);
+    if (!u.alive()) return;
+    u.target.reset();
+    pathTo(u, x, y);
+}
+
+void World::orderAttack(std::size_t index, std::size_t target) {
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.building() || target >= units_.size() || target == index) return;
+    u.target = target;
+    u.repathIn = 0;
+}
+
+void World::pathTo(Unit& u, int x, int y) {
     if (u.building() || !moveAnimation(*u.desc) || u.desc->step <= 0) return;
     u.path.clear();
     if (lock_.width() > 0)
@@ -86,10 +110,122 @@ void World::orderMove(std::size_t index, int x, int y) {
     u.moving = true;
 }
 
+void World::hit(Unit& t, int damage) {
+    if (!t.alive()) return;
+    t.life -= damage;
+    if (t.life > 0) return;
+    t.life = 0;
+    t.dying = true;
+    t.moving = false;
+    t.attacking = false;
+    t.selected = false;
+    t.target.reset();
+    t.path.clear();
+    t.animation = namedAnimation(*t.desc, "DEATH");
+    t.frame = 0;
+    if (!t.animation) {
+        t.dying = false;
+        t.dead = true;
+        t.animation = namedAnimation(*t.desc, "DEATHLIE1");
+    }
+}
+
+void World::updateCombat(std::size_t index) {
+    Unit& u = units_[index];
+    const assets::UnitDesc& d = *u.desc;
+    if (u.target && !units_[*u.target].alive()) u.target.reset();
+
+    // Поиск врага рядом — раз в 10 шагов, у стоящих без дела.
+    if (!u.target && !u.moving && d.searchEnemyRadius > 0 && u.player != 7 && (steps_ + index) % 10 == 0) {
+        long long best = (long long)d.searchEnemyRadius * d.searchEnemyRadius;
+        for (std::size_t j = 0; j < units_.size(); ++j) {
+            const Unit& e = units_[j];
+            if (!e.alive() || e.building() || !enemies(u.player, e.player)) continue;
+            const long long dx = e.x() - u.x(), dy = e.y() - u.y();
+            if (dx * dx + dy * dy <= best) {
+                best = dx * dx + dy * dy;
+                u.target = j;
+            }
+        }
+    }
+    if (!u.target) return;
+    const Unit& t = units_[*u.target];
+    const int dx = t.x() - u.x(), dy = t.y() - u.y();
+    const int dist = int(std::lround(std::hypot(double(dx), double(dy))));
+
+    int chosen = -1;
+    bool inRange = false;
+    for (int w = 0; w < assets::UnitDesc::kWeapons; ++w) {
+        const auto i = std::size_t(w);
+        if (d.damage[i] <= 0 || d.attackMax[i] <= 0 || !attackAnimation(d, w)) continue;
+        if (dist < d.attackMin[i] || dist > d.attackMax[i]) continue;
+        inRange = true;
+        if (u.reload[i] > 0) continue;
+        if (chosen < 0 || d.attackMax[i] > d.attackMax[std::size_t(chosen)]) chosen = w;
+    }
+    if (chosen >= 0) {
+        u.direction = directionOf(dx, dy);
+        u.moving = false;
+        u.path.clear();
+        u.attacking = true;
+        u.weapon = chosen;
+        u.damageDone = false;
+        u.animation = attackAnimation(d, chosen);
+        u.frame = 0;
+        return;
+    }
+    if (inRange) { // ждём перезарядки лицом к цели
+        u.direction = directionOf(dx, dy);
+        u.moving = false;
+        u.path.clear();
+        return;
+    }
+    if (--u.repathIn <= 0) {
+        pathTo(u, t.x(), t.y());
+        u.repathIn = 25; // цель движется — путь пересчитывается раз в секунду
+    }
+}
+
 void World::step() {
     ++steps_;
-    for (Unit& u : units_) {
+    for (std::size_t index = 0; index < units_.size(); ++index) {
+        Unit& u = units_[index];
         if (u.building()) continue; // кадры зданий — слои, не время
+        for (int& r : u.reload)
+            if (r > 0) --r;
+        if (u.dead) continue; // лежит неподвижно
+        if (u.dying) {
+            if (++u.frame >= int(u.animation->frames.size())) {
+                u.dying = false;
+                u.dead = true;
+                u.animation = namedAnimation(*u.desc, "DEATHLIE1");
+                u.frame = 0;
+            }
+            continue;
+        }
+        if (u.attacking) {
+            const int frames = int(u.animation->frames.size());
+            ++u.frame;
+            if (!u.damageDone && u.frame >= frames / 2) {
+                u.damageDone = true;
+                const auto w = std::size_t(u.weapon);
+                u.reload[w] = u.desc->attackPause[w];
+                if (u.target && units_[*u.target].alive()) {
+                    Unit& t = units_[*u.target];
+                    const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
+                    // Цель успела уйти дальше полуторной дальности — промах.
+                    if (reach <= u.desc->attackMax[w] * 1.5) hit(t, u.desc->damage[w]);
+                }
+            }
+            if (u.frame >= frames) {
+                u.attacking = false;
+                u.animation = idleAnimation(*u.desc);
+                u.frame = 0;
+            }
+            continue;
+        }
+        updateCombat(index);
+        if (u.attacking) continue;
         if (u.moving) {
             const int dx = u.targetX16 - u.x16, dy = u.targetY16 - u.y16;
             // Смещение за шаг: (cos·шаг >> 8, sin·шаг >> 8) в единицах 1/16 (FUN_018af490, FUN_00f370e0).

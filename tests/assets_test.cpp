@@ -674,9 +674,12 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
                                        "@UATTACK2 9 6 3 1\r\n"
-                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nLOCKPOINTS 2 4 31 5 32\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
+                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nDAMAGE 1 100\r\nATTACK_RADIUS 1 0 900\r\n"
+                                       "ATTACK_PAUSE 1 800\r\nSEARCH_ENEMY_RADIUS 900\r\nLOCKPOINTS 2 4 31 5 32\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
     CHECK(d.radius2 == 10 && d.step == 40 && d.unitRadius == 8);
+    CHECK(d.life == 300 && d.damage[1] == 100 && d.attackMax[1] == 900 && d.attackPause[1] == 800 &&
+          d.searchEnemyRadius == 900);
     CHECK(d.lockPoints.size() == 2 && d.lockPoints[1].first == 5 && d.lockPoints[1].second == 32);
     CHECK(d.pictureDx == -275 && d.pictureDy == -235);
     CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);
@@ -755,6 +758,28 @@ TEST_CASE("Список миссий Missions.txt и выборки") {
     const auto sel = list.selection("2\r\n#Skirmish18\r\n#Unknown\r\n");
     CHECK(sel.size() == 1 && sel[0] == 1);
     CHECK_THROWS_AS(MissionList::parse("#A\nB\n-\nm\nd\nx\n"), FormatError);
+}
+
+TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
+    using namespace oc2::world;
+    const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\n"
+                                             "DAMAGE 1 60\nATTACK_RADIUS 1 0 300\nATTACK_PAUSE 1 20\n"
+                                             "SEARCH_ENEMY_RADIUS 400\n@DEATH 9 0 0 2\n#DEATHLIE1 9 1 0 9\n");
+    World w;
+    const std::size_t a = w.addUnit(shooter, 0, 100, 100, 0);
+    const std::size_t b = w.addUnit(shooter, 1, 300, 100, 0);
+    const std::size_t n = w.addUnit(shooter, 7, 150, 100, 0); // нейтральный — не цель
+    w.orderAttack(a, b);
+    w.step(); // a начинает стрелять (b дальше 200 — в радиусе 300)
+    CHECK(w.units()[a].attacking && w.units()[a].direction == 0);
+    for (int i = 0; i < 4; ++i) w.step(); // середина анимации — урон 60
+    CHECK(w.units()[b].life == 40 || w.units()[b].life == -20 || w.units()[b].life == 0);
+    for (int i = 0; i < 60 && w.units()[b].alive(); ++i) w.step();
+    CHECK(!w.units()[b].alive() && w.units()[n].alive() && w.units()[n].life == 100);
+    for (int i = 0; i < 10; ++i) w.step();
+    CHECK(w.units()[b].dead && w.units()[b].animation == shooter.animation("#DEATHLIE1"));
+    CHECK(!w.units()[a].target); // цель мертва — приказ снят
 }
 
 TEST_CASE("Мир: карта непроходимости и путь A*") {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,7 +34,8 @@ struct UnitAnimation {
 
 // Описание типа юнита (.md): пока — то, что нужно для вывода.
 // Ключевые слова оригинала — классы MD<КЛЮЧ> с разбором по строке; здесь
-// читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, LOCKPOINTS, USERLC, SETANMPARAM и строки анимаций,
+// читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, LOCKPOINTS, USERLC, SETANMPARAM, LIFE, DAMAGE,
+// ATTACK_RADIUS, ATTACK_PAUSE, SEARCH_ENEMY_RADIUS и строки анимаций,
 // остальное пропускается.
 struct UnitDesc {
     std::string name;
@@ -46,6 +48,16 @@ struct UnitDesc {
     // картинки (OneObject::GetCornerXY: x + ax, y + 2·ay, где (ax, ay) — SETANMPARAM).
     std::vector<std::pair<int, int>> lockPoints;
     int pictureDx = 0, pictureDy = 0; // первый SETANMPARAM
+
+    // Бой. Оружие 0..11 (0 — обычно рукопашное, 1 — выстрел), как поля типа в
+    // MDDAMAGE / MDATTACK_RADIUS / MDATTACK_PAUSE (FUN_018a0010, FUN_0188a7e0, FUN_01889cc0).
+    static constexpr int kWeapons = 12;
+    int life = 0;                              // LIFE
+    std::array<int, kWeapons> damage{};        // DAMAGE w урон
+    std::array<int, kWeapons> attackMin{};     // ATTACK_RADIUS w мин макс
+    std::array<int, kWeapons> attackMax{};
+    std::array<int, kWeapons> attackPause{};   // ATTACK_PAUSE w шаги перезарядки
+    int searchEnemyRadius = 0;                 // SEARCH_ENEMY_RADIUS
     std::vector<UnitSpriteFile> files;
     std::vector<UnitAnimation> animations;
 

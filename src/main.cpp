@@ -399,7 +399,7 @@ struct MapView {
         float bestDist = 1e9f;
         const auto& us = world.units();
         for (std::size_t i = 0; i < us.size(); ++i) {
-            if (us[i].building()) continue;
+            if (us[i].building() || !us[i].alive()) continue;
             const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(us[i]) - camera.y) * camera.zoom;
             const float dx = sx - gx, dy = sy - (gy - 22.0f * camera.zoom);
@@ -423,6 +423,12 @@ struct MapView {
         if (c.button == 1) {
             dragStart = std::array<float, 2>{c.x, c.y};
         } else if (c.button == 3) {
+            // Правая кнопка на враге — атаковать его.
+            if (auto t = pick(c.x, c.y); t && oc2::world::World::enemies(player, us[*t].player)) {
+                for (std::size_t i = 0; i < us.size(); ++i)
+                    if (us[i].selected && us[i].player == player) world.orderAttack(i, *t);
+                return;
+            }
             const auto [tx, ty] = screenToWorld(c.x, c.y);
             long cx = 0, cy = 0, n = 0;
             for (const auto& u : us)
@@ -452,7 +458,8 @@ struct MapView {
         for (auto& u : us) {
             const float gx = (objects->groundX(u) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(u) - camera.y) * camera.zoom;
-            u.selected = !u.building() && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 && gy <= y2;
+            u.selected = !u.building() && u.alive() && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 &&
+                         gy <= y2;
         }
     }
 

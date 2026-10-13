@@ -107,7 +107,7 @@ opencossacks-2/
 - `oc2::assets::SpriteList` (`src/assets/sprite_list.hpp`): `parse()` списка `.lst` — имя GP и для каждого объекта привязка (dx, dy), кадр = номер.
 - `oc2::assets::UnitDesc` (`src/assets/unit_desc.hpp`): `parse()` описания `.md`; `file(id)` — файл спрайтов USERLC, `animation("#STAND")` — кадры анимации; `parseNationMembers()` — раздел [MEMBERS] файла нации.
 - `oc2::world::UnitCatalog` (`src/world/unit_catalog.hpp`): `find("SelFraDom4_3(SFR)")` → описание типа.
-- `oc2::world::World` (`src/world/world.hpp`): `addUnit()`, `orderMove()` (путь A*), `step()` — шаг симуляции; `cos256()/sin256()` — таблицы направлений оригинала.
+- `oc2::world::World` (`src/world/world.hpp`): `addUnit()`, `orderMove()` (путь A*), `orderAttack()`, `step()` — шаг симуляции; `cos256()/sin256()` — таблицы направлений оригинала.
 - `oc2::world::LockMap` (`src/world/lock_map.hpp`): `fromTerrain()`, `addBuilding()`, `locked()`; `findPath()` — A* по 8 соседям со сглаживанием.
 - `oc2::render::MapObjects` (`src/render/map_objects.hpp`): неподвижные объекты карты и юниты мира, `draw()` сливает их по мировому Y и отсекает по экрану.
 - `oc2::world::buildTerrainMesh()` (`src/world/terrain_mesh.hpp`): треугольники рельефа построчно от дальних к ближним.
@@ -133,7 +133,8 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d   # карта
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 11939,14000 --screenshot village.png
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 13200,1700 --move 0,13000,1900 --frames 60 --screenshot walk.png
-# на карте: левая кнопка — выбрать юнит, правая — идти (группа сохраняет строй), Esc — в меню
+# на карте: левая кнопка — выбрать юнит (протяжка — рамкой), правая — идти (группа сохраняет строй) или атаковать врага, Esc — в меню
+./build/linux/Release/opencossacks2 --data <папка игры>/app --map Missions/Battles/Battle1.m3d --at 9000,12600 --move 0,9600,12900 --frames 900 --screenshot battle.png
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --menu SingleBattles --mouse 405,725 --click --frames 10 --screenshot start.png   # «Начать» без мыши
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
@@ -193,6 +194,7 @@ analyzeHeadless re/project engine \
 - Направление юнита 0..255: 0 — восток, по часовой стрелке (юг = 64), как в таблицах cos/sin оригинала (DAT_0216a818/DAT_0216a610). В файлах спрайтов 2·(повороты−1) направлений: от юга до севера, остальное — отражение.
 - Панель игры — `dialogs\respanel.DialogsSystem.xml`; пока видна только верхняя полоса: ресурсы (ID кнопки = номер ресурса, FUN_013da8a0) и население. Панель рисуется с масштабом по высоте 768 без полей.
 - Ключ `--dialog <файл.xml>` открывает любое окно (удобно разбирать интерфейс).
+- Бой упрощён: оружие w (DAMAGE/ATTACK_RADIUS/ATTACK_PAUSE и анимация ATTACKw) выбирается по дальности, урон — на середине анимации, без снарядов, морали, построений и союзов (все игроки 0..6 враждуют, 7 — нейтральные). Перезарядка ATTACK_PAUSE считается в шагах симуляции (предположение). Смерть — DEATH, затем DEATHLIE1.
 - Симуляция: один шаг = 40 мс (обычная скорость), кадр анимации за шаг; ходьба — шаг из GEOMETRY в единицах 1/16 за кадр. Путь — A* по карте непроходимости; столкновений юнитов и поворота с ограниченной скоростью (ROTATE) пока нет. Карта непроходимости своя (вода глубже 16, край карты, LOCKPOINTS зданий от угла GetCornerXY), клавиша L или ключ --locks её показывают.
 - Вода: как в оригинале (FUN_0168e650, BumpWater) — поверх земли ниже нуля облака `oblaka123g1.tga` с непрозрачностью (64 − 4·высота)/255, текстура привязана к экрану; имитация волн 256×256 заменена синусной рябью. Разделы SEA2/RIV1 к воде не относятся (SEA2 повторяет холмы — смысл не выяснен).
 - Составные объекты TRE2 («CO», `complex.lst`) пока не выводятся; цвет игрока на юнитах не накладывается.
