@@ -208,15 +208,25 @@ void World::updateUpkeep() {
             const int whole = upkeepAccum_[std::size_t(p)][r] / kStepsPerMinute;
             upkeepAccum_[std::size_t(p)][r] %= kStepsPerMinute;
             int& have = resources[std::size_t(p)][r];
+            if (r == 3) starving_[std::size_t(p)] = need[r] > 0 && have <= 0;
             have = std::max(0, have - whole);
         }
     }
+    if (steps_ % kStarveSteps == 0) starve();
+}
+
+void World::starve() {
+    for (Unit& u : units_)
+        if (u.alive() && !u.underConstruction && u.player >= 0 && u.player < 7 && starving_[std::size_t(u.player)] &&
+            u.desc->consumeResource == 3 && u.desc->consumeAmount > 0)
+            hit(u, std::max(1, u.desc->life / kStarveShare));
 }
 
 void World::updateProduction(std::size_t index) {
     if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
     Unit& b = units_[index];
     if (!b.queue.front()->noFarm && population(b.player) >= populationLimit(b.player)) return; // нет мест
+    if (starving(b.player) && b.queue.front()->consumeResource == 3) return; // голод: едоков не обучают
     if (++b.produced < std::max(1, b.queue.front()->buildStages)) return;
     const assets::UnitDesc& desc = *b.queue.front();
     b.queue.erase(b.queue.begin());

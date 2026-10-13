@@ -876,6 +876,26 @@ TEST_CASE("Мир: производство — очередь, цена, точ
         for (int i = 0; i < 1500 * 4; ++i) u.step();
         CHECK(u.resources[2][3] == 0); // не ниже нуля
     }
+    {
+        // Голод: еды нет — едоки теряют по 1/20 LIFE раз в 5 секунд, производство едоков стоит.
+        const UnitDesc hungry = UnitDesc::parse("NAME H\nNOFARM\nLIFE 100\nRESCONSUMER FOOD 8\nUSERLC 0 G\n@REST 9 0 0 3\n");
+        World g;
+        const std::size_t h = g.addUnit(hungry, 1, 0, 0, 0);
+        g.resources[1][3] = 1;
+        CHECK(!g.starving(1));
+        for (int i = 0; i < 1500; ++i) g.step();
+        CHECK(g.resources[1][3] == 0 && g.starving(1));
+        const int life = g.units()[h].life;
+        CHECK(life < 100);
+        for (int i = 0; i < World::kStarveSteps; ++i) g.step();
+        CHECK(g.units()[h].life == life - 5);
+        g.resources[1][3] = 1000; // подвезли еду — голод кончается со следующей секунды
+        for (int i = 0; i < 25; ++i) g.step();
+        CHECK(!g.starving(1));
+        g.resources[1][3] = 0;
+        for (int i = 0; i < 1500 * 2; ++i) g.step();
+        CHECK(!g.units()[h].alive());
+    }
     w.resources[0][3] = 20;
     CHECK(w.orderProduce(k, soldier));
     for (int i = 0; i < 10; ++i) w.step();
