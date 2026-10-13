@@ -129,7 +129,8 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d   # карта
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 11939,14000 --screenshot village.png
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 13200,1700 --move 0,13000,1900 --frames 60 --screenshot walk.png
-# на карте: левая кнопка — выбрать юнит, правая — идти (группа сохраняет строй)
+# на карте: левая кнопка — выбрать юнит, правая — идти (группа сохраняет строй), Esc — в меню
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --menu SingleBattles --mouse 405,725 --click --frames 10 --screenshot start.png   # «Начать» без мыши
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d

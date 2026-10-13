@@ -44,6 +44,15 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
             std::fprintf(stderr, "MainMenu.xml: %s\n", e.what());
         }
     }
+    // SingleMiss.txt: число, затем строки «#КлючКарты» (ключ — ещё и текст названия).
+    if (auto path = assets::findCaseInsensitive(ctx_.dataRoot, "Missions/SingleMiss.txt")) {
+        std::ifstream in(*path, std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = trim(line);
+            if (line.size() > 1 && line[0] == '#') skirmishMaps_.push_back("Missions/Skirmish/" + line.substr(1) + ".m3d");
+        }
+    }
 }
 
 bool Menus::open(const std::string& name) {
@@ -76,6 +85,9 @@ void Menus::update() {
         for (const Widget::Action& a : w.actions) {
             // FUN_013eccd0: панель видна, только когда открыта модальная панель с её именем.
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
+            // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки
+            // состава игроков и команд оригинала ещё не перенесены.
+            if (a.type == "cva_MM_SinglStart") w.enabled = selectedSkirmish < skirmishMaps_.size();
         }
     });
 }
@@ -86,6 +98,19 @@ void Menus::click(Widget& w) {
             // FUN_013d83e0. Проверка профиля игрока у cva_MM_SinStart (меню AddProfile)
             // пока пропущена: профилей ещё нет.
             if (!open(a.name)) std::fprintf(stderr, "меню «%s» не найдено\n", a.name.c_str());
+            return;
+        }
+        // FUN_013ddfc0 — отмена действий панели, FUN_013e7150 — загрузка сохранения из
+        // списка файлов; списка сохранений ещё нет, обе — без последствий.
+        if (a.type == "cva_MM_CancelInDesk" || a.type == "cva_LoadInGame_Accept") continue;
+        if (a.type == "cva_MM_SinglStart") {
+            // FUN_013d94c0: начать игру на выбранной карте (без выбора оригинал создаёт
+            // случайную карту — генератора пока нет). Выбора карты в меню ещё нет:
+            // берётся selectedSkirmish из списка SingleMiss.txt.
+            if (selectedSkirmish < skirmishMaps_.size())
+                startRequest_ = skirmishMaps_[selectedSkirmish];
+            else
+                std::fprintf(stderr, "нет списка карт Missions/SingleMiss.txt\n");
             return;
         }
         if (a.type == "cva_MM_Close") { // FUN_013d8510

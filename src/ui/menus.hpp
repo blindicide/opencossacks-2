@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,19 @@ public:
     // Своя у каждого открытого меню: при открытии — «Main», при возврате — прежняя.
     const std::string& modalDesk() const { return stack_.back().modalDesk; }
 
+    // Карты одиночных сражений из Missions\SingleMiss.txt: ключи «#Skirmish18» →
+    // Missions/Skirmish/Skirmish18.m3d, в порядке файла.
+    const std::vector<std::string>& skirmishMaps() const { return skirmishMaps_; }
+    std::size_t selectedSkirmish = 0;
+
+    // Запрос начать игру (cva_MM_SinglStart): путь карты относительно данных.
+    // Возвращается один раз.
+    std::optional<std::string> takeStartRequest() {
+        auto r = std::move(startRequest_);
+        startRequest_.reset();
+        return r;
+    }
+
 private:
     UiContext& ctx_;
     std::map<std::string, std::string> files_; // имя меню → путь к XML
@@ -41,6 +55,8 @@ private:
         std::string modalDesk;
     };
     std::vector<Open> stack_;
+    std::vector<std::string> skirmishMaps_;
+    std::optional<std::string> startRequest_;
 };
 
 } // namespace oc2::ui

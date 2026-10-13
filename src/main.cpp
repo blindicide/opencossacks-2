@@ -60,6 +60,7 @@ const char* kHelp =
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
+    "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --version             версия\n"
     "\n"
     "С --data без --sprite показывается главное меню.\n"
@@ -100,7 +101,8 @@ struct Options {
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
-    std::optional<std::array<int, 3>> move;  // приказ игроку: идти в точку (для проверок)
+    std::optional<std::array<int, 3>> move;
+    bool click = false; // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -141,6 +143,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--click") {
+            o.click = true;
         } else if (a == "--move" && hasValue) {
             int p = 0, x = 0, y = 0;
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
@@ -220,7 +224,8 @@ struct Viewer {
 struct MapView {
     std::unique_ptr<oc2::assets::Map3d> mapData;
     std::unique_ptr<oc2::render::TerrainRenderer> terrain;
-    std::unique_ptr<oc2::render::GpImages> images;
+    std::unique_ptr<oc2::render::GpImages> ownImages; // если общих изображений меню нет
+    oc2::render::GpImages* images = nullptr;
     std::unique_ptr<oc2::world::UnitCatalog> units;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
@@ -228,8 +233,9 @@ struct MapView {
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
 
+    // shared — изображения меню (общий кэш текстур), иначе создаются свои.
     MapView(oc2::render::VulkanContext& vulkan, oc2::render::SpriteRenderer& sprites, const fs::path& data,
-            const fs::path& mapFile) {
+            const fs::path& mapFile, oc2::render::GpImages* shared = nullptr) {
         const auto path = oc2::assets::findCaseInsensitive(data, mapFile);
         if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
         mapData = std::make_unique<oc2::assets::Map3d>(oc2::assets::Map3d::parse(readFile(*path)));
@@ -267,7 +273,12 @@ struct MapView {
         terrain = std::make_unique<oc2::render::TerrainRenderer>(vulkan);
         terrain->setFactures(factures);
         terrain->setMesh(mesh);
-        images = std::make_unique<oc2::render::GpImages>(sprites, data);
+        if (shared) {
+            images = shared;
+        } else {
+            ownImages = std::make_unique<oc2::render::GpImages>(sprites, data);
+            images = ownImages.get();
+        }
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
         std::size_t missing = 0;
@@ -287,6 +298,16 @@ struct MapView {
     void centerOn(VkExtent2D e) {
         camera.x = (width - float(e.width) / camera.zoom) / 2.0f;
         camera.y = (height - float(e.height) / camera.zoom) / 2.0f;
+    }
+
+    // Камера на юниты игрока (центр масс не-зданий, иначе всех); без них — центр карты.
+    void centerOnPlayer(int player, VkExtent2D e) {
+        long sx = 0, sy = 0, n = 0;
+        for (int pass = 0; pass < 2 && n == 0; ++pass)
+            for (const auto& u : world.units())
+                if (u.player == player && (pass == 1 || !u.building())) sx += u.x(), sy += u.y(), ++n;
+        if (n == 0) return centerOn(e);
+        lookAt(float(sx / n), float(sy / n), e);
     }
 
     // Мировая точка (x, y) — в центр экрана (высота рельефа не учитывается).
@@ -473,6 +494,7 @@ int main(int argc, char** argv) {
             pattern = sprites.createTexture(testPattern());
         }
 
+        std::optional<std::string> pendingStart; // карта, выбранная в меню
         std::uint64_t last = SDL_GetTicksNS();
         std::string shownTitle;
         for (long frame = 0; window.pumpEvents(); ++frame) {
@@ -484,10 +506,31 @@ int main(int argc, char** argv) {
             last = now;
             if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
                 window.pressedKeys.end()) {
-                // В меню Esc закрывает текущее окно, из главного — выход.
-                if (!screen) break;
-                screen->menus->close();
-                if (screen->menus->empty()) break;
+                // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
+                // текущее окно, из главного — выход.
+                if (mapView && screen) {
+                    mapView.reset();
+                    window.pressedKeys.clear();
+                    window.clicks.clear();
+                } else {
+                    if (!screen) break;
+                    screen->menus->close();
+                    if (screen->menus->empty()) break;
+                }
+            }
+            // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
+            if (pendingStart && screen) {
+                try {
+                    mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart,
+                                                        screen->images.get());
+                    mapView->centerOnPlayer(0, vulkan.extent());
+                } catch (const std::exception& ex) {
+                    std::fprintf(stderr, "не удалось начать игру: %s\n", ex.what());
+                }
+                pendingStart.reset();
+                window.clicks.clear();
+                last = SDL_GetTicksNS(); // время загрузки не идёт в симуляцию
+                continue;
             }
             if (viewer) {
                 for (std::uint32_t key : window.pressedKeys) viewer->handleKey(key);
@@ -522,11 +565,13 @@ int main(int argc, char** argv) {
                     my = screen->toVirtualY(window.mouseY);
                 }
                 oc2::ui::Widget* hovered = menus.current().updateHover(mx, my);
+                if (opts->click && opts->mouse && frame == 2) window.clicks.push_back({1, mx, my});
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;
                     menus.click(*hovered);
                     break; // меню могло смениться
                 }
+                if (auto start = menus.takeStartRequest()) pendingStart = std::move(start);
                 if (menus.empty()) break;
                 menus.current().draw(screen->view);
             } else if (viewer) {
