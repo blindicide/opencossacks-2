@@ -34,7 +34,8 @@ WidgetKind kindOf(std::string_view type) {
     if (type == "CheckBox") return WidgetKind::CheckBox;
     if (type == "ColoredBar") return WidgetKind::ColoredBar;
     if (type == "ComboBox") return WidgetKind::ComboBox;
-    if (type == "BitPicture") return WidgetKind::BitPicture;
+    // Canvas рисует код игры (мини-карта и т. п.) — здесь это картинка во всю рамку.
+    if (type == "BitPicture" || type == "Canvas") return WidgetKind::BitPicture;
     if (type == "GPPicture") return WidgetKind::GPPicture;
     if (type == "TextButton") return WidgetKind::TextButton;
     if (type == "VitButton" || type == "TabButton") return WidgetKind::VitButton; // TabButton — VitButton с группой

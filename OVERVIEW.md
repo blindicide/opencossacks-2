@@ -102,7 +102,7 @@ opencossacks-2/
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::GpImages` (`src/render/gp_images.hpp`): `id("interf3\\Fonts\\FontG16")` → номер; `draw()` рисует кадр с цветовым множителем.
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
-- `oc2::assets::Map3d` (`src/assets/map3d.hpp`): `parse()` читает карту; `height()`, `facture()`, `worldX()/worldY()` — сетка 513×512 со сдвинутыми нечётными столбцами; `heightAt(x, y)` — высота в мировой точке; `objects()` — деревья и пр. (TRE2), `units()` — юниты (UNI3).
+- `oc2::assets::Map3d` (`src/assets/map3d.hpp`): `parse()` читает карту; `height()`, `facture()`, `worldX()/worldY()` — сетка 513×512 со сдвинутыми нечётными столбцами; `heightAt(x, y)` — высота в мировой точке; `objects()` — деревья и пр. (TRE2), `units()` — юниты (UNI3), `preview()` — мини-карта 256×240 (VIE2, ARGB4444).
 - `oc2::assets::SpriteList` (`src/assets/sprite_list.hpp`): `parse()` списка `.lst` — имя GP и для каждого объекта привязка (dx, dy), кадр = номер.
 - `oc2::assets::UnitDesc` (`src/assets/unit_desc.hpp`): `parse()` описания `.md`; `file(id)` — файл спрайтов USERLC, `animation("#STAND")` — кадры анимации; `parseNationMembers()` — раздел [MEMBERS] файла нации.
 - `oc2::world::UnitCatalog` (`src/world/unit_catalog.hpp`): `find("SelFraDom4_3(SFR)")` → описание типа.

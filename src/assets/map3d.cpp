@@ -21,6 +21,23 @@ const MapSection* Map3d::section(std::string_view tag) const {
     return nullptr;
 }
 
+Image Map3d::preview() const {
+    constexpr std::uint32_t kW = 256, kH = 240;
+    const MapSection* v = section("VIE2");
+    if (!v || v->size != kW * kH * 2) return {};
+    const ByteReader r(sectionData(*v));
+    Image img(kW, kH);
+    for (std::uint32_t i = 0; i < kW * kH; ++i) {
+        const auto c = r.read<std::uint16_t>(std::size_t(i) * 2);
+        std::uint8_t* p = &img.rgba[std::size_t(i) * 4];
+        p[0] = std::uint8_t(((c >> 8) & 15) * 17);
+        p[1] = std::uint8_t(((c >> 4) & 15) * 17);
+        p[2] = std::uint8_t((c & 15) * 17);
+        p[3] = 255;
+    }
+    return img;
+}
+
 int Map3d::heightAt(int x, int y) const {
     // Дословный перенос FUN_00ed4600: у чётных столбцов вершина ниже на полклетки,
     // поэтому клетка режется на треугольники по-разному для чётных и нечётных столбцов.

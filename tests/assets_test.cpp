@@ -574,6 +574,20 @@ TEST_CASE("Карта .m3d: разделы и сетка") {
     CHECK(map.worldY(0, 1) == 32.0f && map.worldY(1, 1) == 16.0f); // нечётный столбец выше на 16
 }
 
+TEST_CASE("Карта .m3d: мини-карта VIE2") {
+    CHECK(Map3d::parse(tinyMap()).preview().width == 0); // VIE2 в tinyMap неполный
+    Bytes m{'3', 'D', 'M', 'P', 1, 2, 0, 0, 0, 2, 0, 0};
+    Bytes vie(256 * 240 * 2, 0);
+    vie[0] = 0x5F; // 0xF05F → R=0, G=5, B=F
+    vie[1] = 0xF0;
+    appendSection(m, "VIE2", vie);
+    Bytes surf(12, 0);
+    appendSection(m, "SURF", surf);
+    const Image img = Map3d::parse(m).preview();
+    CHECK(img.width == 256 && img.height == 240);
+    CHECK(img.pixel(0, 0)[0] == 0 && img.pixel(0, 0)[1] == 85 && img.pixel(0, 0)[2] == 255 && img.pixel(0, 0)[3] == 255);
+}
+
 TEST_CASE("Карта .m3d: сжатая и повреждённая") {
     const Bytes raw = tinyMap();
     // Блок метода 1 (bzip2) со стандартным заголовком.

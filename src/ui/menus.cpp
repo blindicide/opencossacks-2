@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include "assets/game_paths.hpp"
+#include "assets/map3d.hpp"
 #include "assets/text_encoding.hpp"
 
 namespace oc2::ui {
@@ -118,6 +119,33 @@ void Menus::update() {
                     std::ifstream in(*path, std::ios::binary);
                     w.text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
                 }
+            }
+            // cva_Map_Preview (Canvas): мини-карта выбранной миссии из раздела VIE2 её карты.
+            if (a.type == "cva_Map_Preview" && selectedMission && shownPreview_ != selectedMission) {
+                shownPreview_ = selectedMission;
+                auto it = previews_.find(*selectedMission);
+                if (it == previews_.end()) {
+                    render::TextureId tex = 0;
+                    bool ok = false;
+                    if (auto path = assets::findCaseInsensitive(ctx_.dataRoot,
+                                                                gamePath(missions_.missions[*selectedMission].map))) {
+                        try {
+                            std::ifstream in(*path, std::ios::binary);
+                            const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(in),
+                                                                  std::istreambuf_iterator<char>()};
+                            const assets::Image img = assets::Map3d::parse(bytes).preview();
+                            if (img.width) {
+                                tex = ctx_.renderer.createTexture(img);
+                                ok = true;
+                            }
+                        } catch (const std::exception& e) {
+                            std::fprintf(stderr, "мини-карта %s: %s\n", path->string().c_str(), e.what());
+                        }
+                    }
+                    it = previews_.emplace(*selectedMission, ok ? tex : render::TextureId(-1)).first;
+                }
+                w.hasBitmap = it->second != render::TextureId(-1);
+                w.bitmap = it->second;
             }
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
             // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки

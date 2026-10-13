@@ -61,7 +61,8 @@ private:
 
     assets::MissionList missions_;
     std::vector<std::size_t> skirmish_, battles_;
-    std::optional<std::size_t> shownDescription_; // какое описание уже показано
+    std::optional<std::size_t> shownDescription_, shownPreview_; // что уже показано в панелях
+    std::map<std::size_t, render::TextureId> previews_;          // мини-карты VIE2 по миссиям
     std::map<std::string, std::string> activeTab_; // меню → группа нажатой вкладки
     std::optional<std::string> startRequest_;
 };

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "assets/image.hpp"
+
 namespace oc2::assets {
 
 // Спрайт-объект карты из раздела TRE2 (FUN_00f98f10): дерево, камень, стена…
@@ -74,6 +76,10 @@ public:
     // Высота поверхности в мировой точке (x, y) — интерполяция по треугольникам
     // сетки, как FUN_00ed4600 (точка прижимается к краям карты).
     int heightAt(int x, int y) const;
+
+    // Мини-карта из раздела VIE2: 256×240 точек ARGB4444 (альфа не используется).
+    // Пустое изображение, если раздела нет или размер другой.
+    Image preview() const;
 
     const std::vector<MapObject>& objects() const { return objects_; }
     const std::vector<MapUnit>& units() const { return units_; }
