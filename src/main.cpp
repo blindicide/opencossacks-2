@@ -29,6 +29,7 @@
 #include "render/gp_images.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "render/map_objects.hpp"
 #include "render/terrain_renderer.hpp"
 #include "ui/dialogs.hpp"
 #include "ui/fonts.hpp"
@@ -199,13 +200,16 @@ struct Viewer {
     }
 };
 
-// Просмотр карты: рельеф с фактурами, прокрутка и масштаб.
+// Просмотр карты: рельеф с фактурами, объекты карты, прокрутка и масштаб.
 struct MapView {
     std::unique_ptr<oc2::render::TerrainRenderer> terrain;
+    std::unique_ptr<oc2::render::GpImages> images;
+    std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
 
-    MapView(oc2::render::VulkanContext& vulkan, const fs::path& data, const fs::path& mapFile) {
+    MapView(oc2::render::VulkanContext& vulkan, oc2::render::SpriteRenderer& sprites, const fs::path& data,
+            const fs::path& mapFile) {
         const auto path = oc2::assets::findCaseInsensitive(data, mapFile);
         if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
         const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(*path));
@@ -242,10 +246,12 @@ struct MapView {
         terrain = std::make_unique<oc2::render::TerrainRenderer>(vulkan);
         terrain->setFactures(factures);
         terrain->setMesh(mesh);
+        images = std::make_unique<oc2::render::GpImages>(sprites, data);
+        objects = std::make_unique<oc2::render::MapObjects>(*images, data, map);
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
-        std::printf("%s: сетка %d×%d, треугольников %zu\n", path->string().c_str(), map.vertsInLine(), map.rows(),
-                    mesh.size() / 3);
+        std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu\n", path->string().c_str(),
+                    map.vertsInLine(), map.rows(), mesh.size() / 3, objects->count());
     }
 
     void centerOn(VkExtent2D e) {
@@ -343,7 +349,7 @@ int main(int argc, char** argv) {
         oc2::render::TextureId pattern = 0;
         if (!opts->map.empty()) {
             if (opts->dataDir.empty()) throw std::runtime_error("для --map нужен --data");
-            mapView = std::make_unique<MapView>(vulkan, opts->dataDir, opts->map);
+            mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map);
             mapView->centerOn(vulkan.extent());
         } else if (opts->sprite.empty() && !opts->dataDir.empty()) {
             screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
@@ -392,6 +398,7 @@ int main(int argc, char** argv) {
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
                 mapView->scroll(dt, window, e);
                 mapView->terrain->draw(cmd, mapView->camera);
+                mapView->objects->draw(mapView->camera, float(e.width), float(e.height));
             } else if (screen) {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;

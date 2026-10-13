@@ -81,6 +81,19 @@ GpImages::Entry& GpImages::load(GpId id) {
         }
         return e;
     }
+    // Последняя попытка — кэш Cash/: там лежат .g16 с «_» вместо косых черт
+    // (Interf3\background → Cash/Interf3_background.g16). Для камней, стен и ям
+    // (STONES, WALLS, HOLES) других копий в данных нет.
+    std::string cached = base;
+    std::replace(cached.begin(), cached.end(), '/', '_');
+    if (auto path = assets::findCaseInsensitive(root_, "cash/" + cached + ".g16")) {
+        try {
+            e.g16 = assets::G16File::parse(readFile(*path));
+        } catch (const std::exception& ex) {
+            std::fprintf(stderr, "Не удалось прочитать %s: %s\n", path->string().c_str(), ex.what());
+        }
+        return e;
+    }
     std::fprintf(stderr, "Нет изображения %s (.g17/.g16/.g2d)\n", e.name.c_str());
     return e;
 }
