@@ -26,7 +26,13 @@ jobs:
             libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libasound2-dev libpulse-dev libpipewire-0.3-dev \
             libdbus-1-dev libudev-dev \
-            mesa-vulkan-drivers xvfb
+            mesa-vulkan-drivers xvfb glslang-tools
+
+      # SPIR-V хранится в репозитории; проверяем, что он собран из текущих шейдеров.
+      - name: Шейдеры актуальны
+        run: |
+          ./tools/compile_shaders.sh
+          git diff --exit-code -- src/render/shaders
 
       - name: Сборка
         run: |
@@ -40,7 +46,13 @@ jobs:
       - name: Дымовая проверка
         run: |
           ./build/linux/Release/opencossacks2 --version
-          xvfb-run -a ./build/linux/Release/opencossacks2 --frames 30
+          xvfb-run -a ./build/linux/Release/opencossacks2 --frames 30 --screenshot smoke.png
+          test -s smoke.png
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke-screenshot
+          path: smoke.png
 
       - name: Пакеты
         working-directory: build/linux

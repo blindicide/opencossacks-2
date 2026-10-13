@@ -15,7 +15,7 @@
 #include "assets/byte_reader.hpp"
 #include "assets/g2d.hpp"
 #include "core/version.hpp"
-#include "png_writer.hpp"
+#include "assets/png.hpp"
 
 namespace fs = std::filesystem;
 using oc2::assets::G2dFile;
@@ -52,11 +52,11 @@ int extractG2d(const fs::path& file, const fs::path& outDir, bool pages, bool fr
                 g2d.pages().size());
     if (pages) {
         for (std::size_t i = 0; i < g2d.pages().size(); ++i)
-            oc2::tools::writePng(outDir / (stem + "_page" + std::to_string(i) + ".png"), g2d.decodePage(i));
+            oc2::assets::writePng(outDir / (stem + "_page" + std::to_string(i) + ".png"), g2d.decodePage(i));
     }
     if (frames) {
         for (std::size_t i = 0; i < g2d.frames().size(); ++i)
-            oc2::tools::writePng(outDir / (stem + "_frame" + std::to_string(i) + ".png"), g2d.renderFrame(i));
+            oc2::assets::writePng(outDir / (stem + "_frame" + std::to_string(i) + ".png"), g2d.renderFrame(i));
     }
     return 0;
 }

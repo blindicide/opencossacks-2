@@ -22,6 +22,7 @@ include(cmake/Dependencies.cmake)
 add_library(oc2_assets STATIC
     src/assets/compression.cpp
     src/assets/g2d.cpp
+    src/assets/png.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
 
@@ -29,6 +30,8 @@ add_executable(opencossacks2
     src/main.cpp
     src/platform/window.cpp
     src/render/vulkan_context.cpp
+    src/render/sprite_renderer.cpp
+    src/render/sprite_sheet.cpp
 )
 target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk vma)
 if(WIN32)
@@ -51,7 +54,6 @@ oc2_warnings(opencossacks2)
 # Утилита выгрузки ресурсов в PNG и проверки чтения форматов.
 add_executable(oc2-extract
     tools/oc2-extract/main.cpp
-    tools/oc2-extract/png_writer.cpp
 )
 target_link_libraries(oc2-extract PRIVATE oc2_assets)
 oc2_warnings(oc2-extract)

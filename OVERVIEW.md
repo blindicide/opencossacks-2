@@ -41,13 +41,19 @@ opencossacks-2/
 │   │   ├── byte_reader.hpp — чтение little-endian с проверкой границ, FormatError
 │   │   ├── compression.*   — распаковка FLZ и блоков со стандартным заголовком
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
+│   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
 │   └── render/
-│       ├── vulkan_context.* — экземпляр и устройство Vulkan, распределитель памяти VMA, цепочка обмена, цикл кадров
+│       ├── vulkan_context.* — экземпляр и устройство Vulkan, VMA, цепочка обмена, кадры beginFrame/endFrame, снимки экрана
+│       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
+│       ├── sprite_sheet.*  — пакет .g2d в видеопамяти: страницы-текстуры, рисование кадров
+│       ├── shaders/        — SPIR-V шейдеров в виде массивов C++ (генерируется, не править вручную)
 │       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
+├── shaders/                — исходники шейдеров GLSL (sprite.vert, sprite.frag)
 ├── tests/                  — тесты на синтетических данных (check.hpp — мини-набор проверок)
 ├── tools/oc2-extract/      — утилита: выгрузка спрайтов в PNG, проверка чтения всех файлов
+├── tools/compile_shaders.sh — компиляция shaders/ в src/render/shaders/ (нужен glslangValidator)
 ├── tools/ghidra_scripts/
 │   ├── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
 │   ├── RunAnalysis.java    — автоанализ с замером времени анализаторов и отменой по флагу
@@ -61,7 +67,9 @@ opencossacks-2/
 - `oc2::platform::Window` (`src/platform/window.hpp`): окно SDL3; `pumpEvents()` обрабатывает события, `createSurface()` создаёт Vulkan-поверхность.
 - `oc2::assets::G2dFile` (`src/assets/g2d.hpp`): `parse()` читает пакет спрайтов и проверяет ссылки между таблицами; `decodePage()` даёт страницу-атлас в RGBA8, `renderFrame()` собирает кадр из треугольных частей.
 - `oc2::assets::unpackBlock()` / `flzDecompress()` (`src/assets/compression.hpp`): распаковка сжатых блоков движка (метод 4, FLZ).
-- `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; `drawFrame()` рисует кадр.
+- `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; кадр — между `beginFrame()` и `endFrame()`, `submitNow()` выполняет команды загрузки, `requestScreenshot()` сохраняет кадр в PNG.
+- `oc2::render::SpriteRenderer` (`src/render/sprite_renderer.hpp`): `createTexture()` загружает изображение, `drawTriangles()` ставит треугольники в очередь, `flush()` записывает их в кадр.
+- `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
 
 - `tools/oc2-extract/main.cpp`: утилита `oc2-extract` — `g2d <файл> <папка>` выгружает страницы и кадры в PNG, `check <папка игры>` читает все `.g2d` и сообщает об ошибках.
 
@@ -74,6 +82,7 @@ cmake --preset linux
 cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
+./build/linux/Debug/opencossacks2 --screenshot shot.png   # один кадр в PNG
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
 ./build/linux/Debug/oc2-extract g2d <файл.g2d> out/       # страницы и кадры в PNG
@@ -114,5 +123,7 @@ analyzeHeadless re/project engine \
 - `engine.exe` (GOG-сборка) импортирует `X3D8.DLL` вместо `d3d8.dll`: это GOG-прокладка, которая просто загружает системный `d3d8.dll` и делает паузу 500 мс после `CreateDevice`.
 - Сборка собрана с инкрементальной компоновкой MSVC (секция `.textbss`), поэтому в ней много функций-переходников.
 - Ничего из `re/` и файлов игры не коммитить.
+- После правки `shaders/` запустить `tools/compile_shaders.sh` и закоммитить `src/render/shaders/`: CI сверяет их.
+- Текстуры и экран — в sRGB, поэтому смешивание идёт в линейном пространстве (в оригинале — в гамма-пространстве); на полупрозрачных краях возможна небольшая разница.
 - Сжатие FLZ копирует 32-битными словами: при перекрывающихся ссылках побайтовое копирование даёт другой результат.
 - Заголовок `.g2d` версии 5 на байт короче (нет байта флагов), таблица кадров начинается с 0x39.

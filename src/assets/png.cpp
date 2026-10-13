@@ -1,5 +1,6 @@
-#include "png_writer.hpp"
+#include "assets/png.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -7,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace oc2::tools {
+namespace oc2::assets {
 
 namespace {
 
@@ -43,7 +44,7 @@ void putChunk(std::vector<std::uint8_t>& out, const char* type, const std::vecto
 
 } // namespace
 
-void writePng(const std::filesystem::path& path, const assets::Image& image) {
+void writePng(const std::filesystem::path& path, const Image& image) {
     // Строки с байтом фильтра 0.
     std::vector<std::uint8_t> raw;
     const std::size_t stride = std::size_t(image.width) * 4;
@@ -91,4 +92,4 @@ void writePng(const std::filesystem::path& path, const assets::Image& image) {
     if (!file) throw std::runtime_error("ошибка записи " + path.string());
 }
 
-} // namespace oc2::tools
+} // namespace oc2::assets

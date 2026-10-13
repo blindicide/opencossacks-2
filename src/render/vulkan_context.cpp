@@ -4,7 +4,10 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
+#include "assets/image.hpp"
+#include "assets/png.hpp"
 #include "core/version.hpp"
 #include "platform/window.hpp"
 
@@ -53,6 +56,8 @@ VulkanContext::VulkanContext(platform::Window& window) : window_(window) {
 
 VulkanContext::~VulkanContext() {
     if (device_) vkDeviceWaitIdle(device_);
+    if (screenshotBuffer_) vmaDestroyBuffer(allocator_, screenshotBuffer_, screenshotMemory_);
+    vkDestroyCommandPool(device_, uploadPool_, nullptr);
     for (Frame& f : frames_) {
         vkDestroyFence(device_, f.inFlight, nullptr);
         vkDestroySemaphore(device_, f.imageAvailable, nullptr);
@@ -218,6 +223,8 @@ void VulkanContext::createSwapchain() {
     ci.imageExtent = extent_;
     ci.imageArrayLayers = 1;
     ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    canCopyImages_ = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    if (canCopyImages_) ci.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -310,6 +317,11 @@ void VulkanContext::recreateSwapchain() {
 }
 
 void VulkanContext::createFrames() {
+    VkCommandPoolCreateInfo upi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    upi.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    upi.queueFamilyIndex = queueFamily_;
+    check(vkCreateCommandPool(device_, &upi, nullptr, &uploadPool_), "не удалось создать пул команд");
+
     for (Frame& f : frames_) {
         VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         pi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -330,17 +342,44 @@ void VulkanContext::createFrames() {
     }
 }
 
-void VulkanContext::drawFrame(const std::array<float, 4>& clearColor) {
-    if (window_.minimized()) return; // поверхность нулевого размера рисовать нельзя
+void VulkanContext::submitNow(const std::function<void(VkCommandBuffer)>& record) {
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = uploadPool_;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    check(vkAllocateCommandBuffers(device_, &ai, &cmd), "не удалось выделить буфер команд");
+
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &bi);
+    record(cmd);
+    check(vkEndCommandBuffer(cmd), "не удалось записать буфер команд");
+
+    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence fence = VK_NULL_HANDLE;
+    check(vkCreateFence(device_, &fi, nullptr, &fence), "не удалось создать барьер");
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cmd;
+    VkResult r = vkQueueSubmit(queue_, 1, &si, fence);
+    if (r == VK_SUCCESS) r = vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(device_, fence, nullptr);
+    vkFreeCommandBuffers(device_, uploadPool_, 1, &cmd);
+    check(r, "не удалось выполнить команды загрузки");
+}
+
+VkCommandBuffer VulkanContext::beginFrame(const std::array<float, 4>& clearColor) {
+    if (window_.minimized()) return VK_NULL_HANDLE; // поверхность нулевого размера рисовать нельзя
 
     Frame& f = frames_[frameIndex_];
     vkWaitForFences(device_, 1, &f.inFlight, VK_TRUE, UINT64_MAX);
 
-    std::uint32_t image = 0;
-    VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, f.imageAvailable, VK_NULL_HANDLE, &image);
+    VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, f.imageAvailable, VK_NULL_HANDLE,
+                                       &currentImage_);
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapchain();
-        return;
+        return VK_NULL_HANDLE;
     }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) check(r, "не удалось получить изображение");
     vkResetFences(device_, 1, &f.inFlight);
@@ -354,12 +393,19 @@ void VulkanContext::drawFrame(const std::array<float, 4>& clearColor) {
     std::memcpy(clear.color.float32, clearColor.data(), sizeof(float) * 4);
     VkRenderPassBeginInfo rb{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     rb.renderPass = renderPass_;
-    rb.framebuffer = framebuffers_[image];
+    rb.framebuffer = framebuffers_[currentImage_];
     rb.renderArea = {{0, 0}, extent_};
     rb.clearValueCount = 1;
     rb.pClearValues = &clear;
     vkCmdBeginRenderPass(f.cmd, &rb, VK_SUBPASS_CONTENTS_INLINE);
+    return f.cmd;
+}
+
+void VulkanContext::endFrame() {
+    Frame& f = frames_[frameIndex_];
     vkCmdEndRenderPass(f.cmd);
+    const bool screenshot = !screenshotPath_.empty() && canCopyImages_;
+    if (screenshot) recordScreenshotCopy(f.cmd);
     check(vkEndCommandBuffer(f.cmd), "не удалось записать буфер команд");
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -370,16 +416,25 @@ void VulkanContext::drawFrame(const std::array<float, 4>& clearColor) {
     si.commandBufferCount = 1;
     si.pCommandBuffers = &f.cmd;
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores = &renderFinished_[image];
+    si.pSignalSemaphores = &renderFinished_[currentImage_];
     check(vkQueueSubmit(queue_, 1, &si, f.inFlight), "не удалось отправить команды");
 
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores = &renderFinished_[image];
+    pi.pWaitSemaphores = &renderFinished_[currentImage_];
     pi.swapchainCount = 1;
     pi.pSwapchains = &swapchain_;
-    pi.pImageIndices = &image;
-    r = vkQueuePresentKHR(queue_, &pi);
+    pi.pImageIndices = &currentImage_;
+    VkResult r = vkQueuePresentKHR(queue_, &pi);
+
+    if (screenshot) {
+        vkWaitForFences(device_, 1, &f.inFlight, VK_TRUE, UINT64_MAX);
+        saveScreenshot();
+    } else if (!screenshotPath_.empty()) {
+        std::fprintf(stderr, "Снимок экрана недоступен: цепочка обмена не поддерживает копирование\n");
+        screenshotPath_.clear();
+    }
+
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || window_.resized) {
         window_.resized = false;
         recreateSwapchain();
@@ -388,6 +443,79 @@ void VulkanContext::drawFrame(const std::array<float, 4>& clearColor) {
     }
 
     frameIndex_ = (frameIndex_ + 1) % kFramesInFlight;
+}
+
+void VulkanContext::recordScreenshotCopy(VkCommandBuffer cmd) {
+    const VkDeviceSize size = VkDeviceSize(extent_.width) * extent_.height * 4;
+    if (screenshotBuffer_ && (screenshotExtent_.width != extent_.width || screenshotExtent_.height != extent_.height)) {
+        vmaDestroyBuffer(allocator_, screenshotBuffer_, screenshotMemory_);
+        screenshotBuffer_ = VK_NULL_HANDLE;
+    }
+    if (!screenshotBuffer_) {
+        VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bci.size = size;
+        bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VmaAllocationCreateInfo aci{};
+        aci.usage = VMA_MEMORY_USAGE_AUTO;
+        aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        check(vmaCreateBuffer(allocator_, &bci, &aci, &screenshotBuffer_, &screenshotMemory_, nullptr),
+              "не удалось создать буфер снимка");
+        screenshotExtent_ = extent_;
+    }
+
+    // Изображение после прохода — в PRESENT_SRC; на время копирования переводим в TRANSFER_SRC.
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = images_[currentImage_];
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                         nullptr, 0, nullptr, 1, &b);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {extent_.width, extent_.height, 1};
+    vkCmdCopyImageToBuffer(cmd, images_[currentImage_], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, screenshotBuffer_, 1,
+                           &region);
+
+    b.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    b.dstAccessMask = 0;
+    b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &b);
+
+    VkBufferMemoryBarrier hb{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    hb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    hb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    hb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    hb.buffer = screenshotBuffer_;
+    hb.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &hb, 0,
+                         nullptr);
+}
+
+void VulkanContext::saveScreenshot() {
+    assets::Image img(screenshotExtent_.width, screenshotExtent_.height);
+    void* mapped = nullptr;
+    check(vmaMapMemory(allocator_, screenshotMemory_, &mapped), "не удалось прочитать снимок");
+    vmaInvalidateAllocation(allocator_, screenshotMemory_, 0, VK_WHOLE_SIZE);
+    std::memcpy(img.rgba.data(), mapped, img.rgba.size());
+    vmaUnmapMemory(allocator_, screenshotMemory_);
+
+    const bool bgra = format_ == VK_FORMAT_B8G8R8A8_SRGB || format_ == VK_FORMAT_B8G8R8A8_UNORM;
+    for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+        if (bgra) std::swap(img.rgba[i], img.rgba[i + 2]);
+        img.rgba[i + 3] = 255; // окно непрозрачно
+    }
+    assets::writePng(screenshotPath_, img);
+    std::printf("Снимок экрана: %s\n", screenshotPath_.string().c_str());
+    screenshotPath_.clear();
 }
 
 } // namespace oc2::render
