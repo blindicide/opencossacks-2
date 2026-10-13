@@ -13,6 +13,7 @@
 #include "assets/ai_script.hpp"
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
+#include "assets/economy.hpp"
 #include "assets/game_paths.hpp"
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
@@ -1099,3 +1100,30 @@ TEST_CASE("Сценарий ИИ: папки, цепочки условий, д�
 }
 
 int main() { return oc2::test::runAll(); }
+
+TEST_CASE("рынок: обмен по ценам economy.txt и сдвиг цен") {
+    using oc2::assets::Economy;
+    const Economy e = Economy::parse("r_clear r_a\r\n"
+                                     "WOOD\r\n"
+                                     "BUY 600 600 600 CHANGE 100 1.0 TIMERETURN 0.0001\r\n"
+                                     "SELL 240 240 240 CHANGE 100 1.0 TIMERETURN 0.0001\r\n"
+                                     "//FOOD\r\n"
+                                     "FOOD\r\n"
+                                     "BUY 1000 1200 2000 CHANGE 100 1.0 TIMERETURN 0.0001\r\n"
+                                     "SELL 480 480 480 CHANGE 100 1.0 TIMERETURN 0.0001\r\n");
+    CHECK(e.resources[0].present);
+    CHECK(e.resources[3].buy.start == 1200);
+    CHECK(e.resources[3].buy.rate == 1.0 / 10000.0);
+    CHECK(!e.resources[1].present);
+    oc2::world::Market m(e);
+    std::array<int, 8> stock{};
+    stock[0] = 700;
+    // 1000 дерева запрошено, есть 700: 700·240/1200 = 140 еды.
+    CHECK(m.trade(stock, 0, 3, 1000) == 140);
+    CHECK(stock[0] == 0);
+    CHECK(stock[3] == 140);
+    // Цена покупки еды сдвинулась к максимуму: (2000·0.014 + 1200)/1.014 ≈ 1211.
+    CHECK(m.buyPrice(3) == 1211);
+    CHECK(m.trade(stock, 1, 3, 10) == 0); // золота нет на рынке
+    CHECK_THROWS_AS(Economy::parse("btn\r\n/ всё закомментировано\r\n"), oc2::assets::FormatError);
+}

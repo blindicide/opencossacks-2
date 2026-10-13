@@ -199,9 +199,15 @@ void StrategicAi::act(const assets::AiAction& a) {
         onStone_ = std::max(0, a.onStone);
         onFood_ = std::max(0, a.onFood);
         break;
-    case K::BuyResource:
+    case K::BuyResource: buyResource(a); break;
     case K::Unsupported: break;
     }
+}
+
+// BuyResource (FUN_015d2c10): продаёт Amount ресурса ResTypeToSell (сколько есть) за ResTypeToBuy.
+void StrategicAi::buyResource(const assets::AiAction& a) {
+    if (!world_.market || a.resource < 0 || a.sellResource < 0 || a.amount <= 0) return;
+    world_.market->trade(world_.resources[std::size_t(player_ & 7)], a.sellResource, a.resource, a.amount);
 }
 
 std::pair<int, int> StrategicAi::baseCenter() const {

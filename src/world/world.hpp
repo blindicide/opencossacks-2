@@ -12,6 +12,7 @@
 #include "assets/sprite_list.hpp"
 #include "assets/unit_desc.hpp"
 #include "world/lock_map.hpp"
+#include "world/market.hpp"
 
 namespace oc2::world {
 
@@ -219,6 +220,8 @@ public:
 
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};
+    // Рынок, общий для всех игроков (нет — economy.txt не загружен).
+    std::optional<Market> market;
     // Счётчики игроков по типам для стратегического ИИ: сколько готово произведено
     // (юниты из зданий и достроенные здания) и сколько погибло.
     std::array<std::unordered_map<const assets::UnitDesc*, int>, 8> producedCount, lostCount;

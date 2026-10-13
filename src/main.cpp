@@ -17,6 +17,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include "assets/economy.hpp"
 #include "assets/g2d.hpp"
 #include "assets/game_paths.hpp"
 #include "assets/image.hpp"
@@ -616,6 +617,14 @@ struct MapView {
     // Стратегический ИИ игрокам 0..6 с юнитами (кроме нашего, если не self), по сценарию их нации.
     void startAi(const fs::path& data, bool self) {
         ais.clear();
+        if (!world.market)
+            if (auto f = oc2::assets::findCaseInsensitive(data, "economy.txt")) try {
+                    const std::vector<std::uint8_t> b = readFile(*f);
+                    world.market.emplace(oc2::assets::Economy::parse(std::string_view(
+                        reinterpret_cast<const char*>(b.data()), b.size())));
+                } catch (const std::exception& e) {
+                    std::printf("economy.txt: %s\n", e.what());
+                }
         for (int p = 0; p < 7; ++p) {
             if (p == player && !self) continue;
             const std::string code = oc2::world::playerNation(world, *units, p);

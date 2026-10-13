@@ -34,7 +34,8 @@ std::string playerNation(const World& world, const UnitCatalog& catalog, int pla
 //   MinDistFromCenter, с запасом клеток вокруг, NearTrees/NearStones — дерево или камень
 //   в 400; строят до MaxPeasants ближайших свободных крестьян;
 // - за раз начинается не больше одной стройки;
-// - BuyResource пропускается (рынка ещё нет), AmountOfSettlements и UpgradeIsRun ложны.
+// - BuyResource — продажа Amount на общем рынке World::market (без проверки, есть ли рынок у игрока);
+//   AmountOfSettlements и UpgradeIsRun ложны.
 class StrategicAi {
 public:
     static constexpr int kThinkSteps = 25;
@@ -61,6 +62,7 @@ private:
     void act(const assets::AiAction& a);
     bool build(const assets::AiAction& a);
     bool produce(const assets::AiAction& a);
+    void buyResource(const assets::AiAction& a);
     void employIdle();
     bool sowNear(int x, int y);
     std::optional<std::pair<int, int>> findSite(const assets::UnitDesc& desc, const assets::AiAction& a);

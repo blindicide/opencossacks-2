@@ -28,6 +28,7 @@ add_library(oc2_assets STATIC
     src/assets/ai_script.cpp
     src/assets/audio_decode.cpp
     src/assets/compression.cpp
+    src/assets/economy.cpp
     src/assets/g16.cpp
     src/assets/g2d.cpp
     src/assets/game_paths.cpp
@@ -51,6 +52,7 @@ target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 add_library(oc2_world STATIC
     src/world/terrain_mesh.cpp
     src/world/lock_map.cpp
+    src/world/market.cpp
     src/world/strategic_ai.cpp
     src/world/unit_catalog.cpp
     src/world/world.cpp
