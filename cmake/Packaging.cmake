@@ -8,6 +8,7 @@ set(CPACK_PACKAGE_DESCRIPTION
     "Движок на C++20 и Vulkan. Требует данные игры из легальной копии (например, GOG).")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_STRIP_FILES ON)
+set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE")
 
 if(WIN32)
     set(CPACK_GENERATOR "ZIP")
@@ -22,6 +23,7 @@ else()
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libvulkan1")
 
     set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+    set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0-or-later")
     set(CPACK_RPM_PACKAGE_GROUP "Amusements/Games")
     set(CPACK_RPM_PACKAGE_REQUIRES "vulkan-loader")
 endif()

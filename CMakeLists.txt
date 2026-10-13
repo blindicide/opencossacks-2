@@ -60,6 +60,7 @@ oc2_warnings(oc2-extract)
 # пользователь берёт из своей легальной копии.
 include(GNUInstallDirs)
 install(TARGETS opencossacks2 oc2-extract RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
 if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/opencossacks2.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 endif()
