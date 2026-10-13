@@ -13,11 +13,13 @@
 #include <vector>
 
 #include "assets/byte_reader.hpp"
+#include "assets/g16.hpp"
 #include "assets/g2d.hpp"
 #include "core/version.hpp"
 #include "assets/png.hpp"
 
 namespace fs = std::filesystem;
+using oc2::assets::G16File;
 using oc2::assets::G2dFile;
 
 namespace {
@@ -26,8 +28,10 @@ void usage() {
     std::printf("oc2-extract %s — выгрузка ресурсов «Казаки II»\n\n"
                 "  oc2-extract g2d <файл.g2d> <папка> [--pages] [--frames]\n"
                 "      страницы и/или кадры в PNG (по умолчанию — и то и другое)\n"
+                "  oc2-extract g16 <файл.g16|.g17> <папка>\n"
+                "      кадры в PNG\n"
                 "  oc2-extract check <папка игры> [--render]\n"
-                "      прочитать все .g2d и распаковать страницы; с --render ещё и собрать кадры\n",
+                "      прочитать все .g2d, .g16 и .g17; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
 }
 
@@ -61,16 +65,36 @@ int extractG2d(const fs::path& file, const fs::path& outDir, bool pages, bool fr
     return 0;
 }
 
+int extractG16(const fs::path& file, const fs::path& outDir) {
+    G16File g16 = G16File::parse(readFile(file));
+    fs::create_directories(outDir);
+    const std::string stem = file.stem().string();
+    std::printf("%s: %s, кадров %zu\n", file.string().c_str(),
+                g16.kind() == G16File::Kind::Uniform ? "GU16" : "GN16", g16.frameCount());
+    for (std::size_t i = 0; i < g16.frameCount(); ++i) {
+        if (g16.frameWidth(i) == 0 || g16.frameHeight(i) == 0) continue;
+        oc2::assets::writePng(outDir / (stem + "_frame" + std::to_string(i) + ".png"), g16.decodeFrame(i));
+    }
+    return 0;
+}
+
 int check(const fs::path& root, bool render) {
     const auto start = std::chrono::steady_clock::now();
-    std::size_t files = 0, failed = 0, pages = 0, frames = 0;
+    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0;
     std::uintmax_t bytes = 0;
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
-        if (!entry.is_regular_file() || !hasExtension(entry.path(), ".g2d")) continue;
+        if (!entry.is_regular_file()) continue;
+        const bool isG16 = hasExtension(entry.path(), ".g16") || hasExtension(entry.path(), ".g17");
+        if (!isG16 && !hasExtension(entry.path(), ".g2d")) continue;
         ++files;
         try {
             auto data = readFile(entry.path());
             bytes += data.size();
+            if (isG16) {
+                G16File g16 = G16File::parse(std::move(data));
+                for (std::size_t i = 0; i < g16.frameCount(); ++i, ++g16Frames) (void)g16.decodeTiles(i);
+                continue;
+            }
             G2dFile g2d = G2dFile::parse(std::move(data));
             for (std::size_t i = 0; i < g2d.pages().size(); ++i, ++pages) (void)g2d.decodePageArgb4444(i);
             if (render)
@@ -81,8 +105,8 @@ int check(const fs::path& root, bool render) {
         }
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    std::printf("файлов .g2d: %zu (%.1f МБ), с ошибками: %zu, страниц: %zu", files, double(bytes) / 1048576.0,
-                failed, pages);
+    std::printf("файлов: %zu (%.1f МБ), с ошибками: %zu, страниц .g2d: %zu, кадров .g16/.g17: %zu", files,
+                double(bytes) / 1048576.0, failed, pages, g16Frames);
     if (render) std::printf(", кадров: %zu", frames);
     std::printf(", время: %.1f с\n", seconds);
     return failed == 0 ? 0 : 1;
@@ -108,6 +132,7 @@ int main(int argc, char** argv) {
             if (!pages && !frames) pages = frames = true;
             return extractG2d(args[1], args[2], pages, frames);
         }
+        if (args.size() >= 3 && args[0] == "g16") return extractG16(args[1], args[2]);
         if (args.size() >= 2 && args[0] == "check") {
             bool render = flag("--render");
             return check(args[1], render);
