@@ -48,12 +48,14 @@ opencossacks-2/
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   ├── image_decode.*  — JPG, PNG, TGA, BMP через stb_image
+│   │   ├── map3d.*         — карты .m3d: разделы, высоты (SURF), фактуры (TILE, TIL2)
 │   │   ├── xml_tree.*      — разбор XML-диалекта игры (диалоги, настройки, состояния шейдеров)
 │   │   ├── text_table.*    — тексты интерфейса «#КЛЮЧ текст» в порядке загрузки оригинала
 │   │   ├── text_encoding.* — Windows-1251 ↔ UTF-8
 │   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события (клавиши, мышь), Vulkan-поверхность
+│   ├── world/terrain_mesh.* — треугольники рельефа карты с освещением вершин (библиотека oc2_world)
 │   ├── ui/                 — интерфейс из данных игры
 │   │   ├── fonts.*         — шрифты по именам оригинала (MenuTitleWhite, fonBlow_A, …) и из fonts.xml
 │   │   ├── rich_text.*     — упрощённый DrawMultilineText: строки, перенос, теги {C…} {F…} {A…}
@@ -62,6 +64,7 @@ opencossacks-2/
 │       ├── vulkan_context.* — экземпляр и устройство Vulkan, VMA, цепочка обмена, кадры beginFrame/endFrame, снимки экрана
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
 │       ├── sprite_sheet.*  — пакет .g2d в видеопамяти: страницы-текстуры, рисование кадров
+│       ├── terrain_renderer.* — рельеф: массив фактур с мип-картами, проекция X = x, Y = y/2 − z
 │       ├── gp_images.*     — изображения по именам из данных (.g17 → .g16 → .g2d), ленивая загрузка, окраска
 │       ├── shaders/        — SPIR-V шейдеров в виде массивов C++ (генерируется, не править вручную)
 │       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
@@ -91,6 +94,9 @@ opencossacks-2/
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::GpImages` (`src/render/gp_images.hpp`): `id("interf3\\Fonts\\FontG16")` → номер; `draw()` рисует кадр с цветовым множителем.
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
+- `oc2::assets::Map3d` (`src/assets/map3d.hpp`): `parse()` читает карту; `height()`, `facture()`, `worldX()/worldY()` — сетка 513×512 со сдвинутыми нечётными столбцами.
+- `oc2::world::buildTerrainMesh()` (`src/world/terrain_mesh.hpp`): треугольники рельефа построчно от дальних к ближним.
+- `oc2::render::TerrainRenderer` (`src/render/terrain_renderer.hpp`): `setFactures()`, `setMesh()`, `draw()` с `MapCamera`.
 - `oc2::ui::Fonts` (`src/ui/fonts.hpp`): `find("MenuTitleWhite")` → шрифт (изображение + цвет); кадр символа = байт Windows-1251.
 - `oc2::ui::RichText` (`src/ui/rich_text.hpp`): `measure()` и `draw()` текста с разметкой внутри ширины; `View` переводит экран 1024×768 в пиксели окна.
 - `oc2::ui::Dialog` (`src/ui/dialogs.hpp`): загрузка окна из XML в дерево `Widget` (координаты относительно родителя), `updateHover()`, `draw()`.
@@ -109,6 +115,7 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --screenshot shot.png   # один кадр в PNG
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app   # главное меню
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --mouse 512,575 --screenshot menu.png   # меню с наведением
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d   # карта
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
@@ -160,3 +167,5 @@ analyzeHeadless re/project engine \
 - Разметка текста упрощена: ссылки `{R …}` и картинки `{I…}`, `{P …}`, `{G …}` пропускаются, высота строки — высота кадра «W»; оригинал (`DrawMultilineText`, `FUN_01058920`) учитывает ещё Top/Bottom/YShift из `fonts.xml`.
 - Действия кнопок (`cva_MM_SinStart` и др.) пока только печатаются в консоль; работает лишь выход (`cva_MM_Close`).
 - `grep` считает XML диалогов двоичными (Windows-1251): нужен `grep -a`.
+- Рельеф рисуется иначе, чем в оригинале: тот строит 2D-кэш с одной фактурой на треугольник, случайными сдвигами текстуры и масками краёв (FUN_015590b0); здесь фактуры вершин смешиваются плавно. Вектор света подобран вручную.
+- Порядок рядов рельефа (сверху вниз) заменяет буфер глубины — менять его нельзя.
