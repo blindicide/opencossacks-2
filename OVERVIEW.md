@@ -56,6 +56,7 @@ opencossacks-2/
 │       ├── vulkan_context.* — экземпляр и устройство Vulkan, VMA, цепочка обмена, кадры beginFrame/endFrame, снимки экрана
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
 │       ├── sprite_sheet.*  — пакет .g2d в видеопамяти: страницы-текстуры, рисование кадров
+│       ├── gp_images.*     — изображения по именам из данных (.g17 → .g16 → .g2d), ленивая загрузка, окраска
 │       ├── shaders/        — SPIR-V шейдеров в виде массивов C++ (генерируется, не править вручную)
 │       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
 ├── shaders/                — исходники шейдеров GLSL (sprite.vert, sprite.frag)
@@ -82,6 +83,7 @@ opencossacks-2/
 - `oc2::assets::TextTable` (`src/assets/text_table.hpp`): `loadGame()` читает тексты игры, `lookup("#КЛЮЧ")` возвращает строку в UTF-8.
 - `oc2::assets::decodeImage()` (`src/assets/image_decode.hpp`): JPG/PNG/TGA/BMP → RGBA8.
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
+- `oc2::render::GpImages` (`src/render/gp_images.hpp`): `id("interf3\\Fonts\\FontG16")` → номер; `draw()` рисует кадр с цветовым множителем.
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
 
 - `tools/oc2-extract/main.cpp`: утилита `oc2-extract` — `g2d <файл> <папка>` выгружает страницы и кадры в PNG, `check <папка игры>` читает все `.g2d` и сообщает об ошибках.

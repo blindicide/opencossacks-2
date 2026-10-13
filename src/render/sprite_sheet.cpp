@@ -21,7 +21,7 @@ SpriteSheet::SpriteSheet(SpriteRenderer& renderer, assets::G2dFile file)
     }
 }
 
-void SpriteSheet::draw(std::size_t frame, float x, float y, float scale) const {
+void SpriteSheet::draw(std::size_t frame, float x, float y, float scale, std::uint32_t tint) const {
     if (frame >= frameCount()) throw std::out_of_range("нет кадра " + std::to_string(frame));
     const assets::G2dFrame& fr = file_.frames()[frame];
     std::vector<SpriteVertex> vertices;
@@ -38,9 +38,10 @@ void SpriteSheet::draw(std::size_t frame, float x, float y, float scale) const {
             sv.y = y + float(v.y) * scale;
             sv.u = float(v.u) / float(page.width);
             sv.v = float(v.v) / float(page.height);
-            // ARGB → RGBA
-            sv.color = {std::uint8_t(v.color >> 16), std::uint8_t(v.color >> 8), std::uint8_t(v.color),
-                        std::uint8_t(v.color >> 24)};
+            // ARGB → RGBA с умножением на tint
+            auto mul = [](std::uint32_t a, std::uint32_t b) { return std::uint8_t((a * b + 127) / 255); };
+            sv.color = {mul((v.color >> 16) & 0xFF, (tint >> 16) & 0xFF), mul((v.color >> 8) & 0xFF, (tint >> 8) & 0xFF),
+                        mul(v.color & 0xFF, tint & 0xFF), mul(v.color >> 24, tint >> 24)};
             vertices.push_back(sv);
         }
         std::span<const std::uint16_t> idx(file_.indices().data() + part.firstIndex,

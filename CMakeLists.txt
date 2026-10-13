@@ -44,6 +44,7 @@ add_executable(opencossacks2
     src/render/vulkan_context.cpp
     src/render/sprite_renderer.cpp
     src/render/sprite_sheet.cpp
+    src/render/gp_images.cpp
 )
 target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk vma)
 if(WIN32)
