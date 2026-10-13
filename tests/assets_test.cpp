@@ -834,6 +834,29 @@ TEST_CASE("Мир: стройка — цена, стадии, клетки ст�
     CHECK(!w.units()[p].buildTarget); // стройка кончилась — строитель свободен
 }
 
+TEST_CASE("Мир: производство — очередь, цена, точка рождения") {
+    using namespace oc2::world;
+    const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n"
+                                             "PRICE 1 FOOD 20\nBUILDSTAGES 3\n");
+    const UnitDesc barracks = UnitDesc::parse("NAME K\nBUILDING\nUSERLC 0 H\nLIFE 100\n#STANDLO 1 1 0 0\n"
+                                              "BORNPOINTS2 2 100 50 160 50\nBORN_SOUND BLD_KAZ\n");
+    CHECK(barracks.bornPoints.size() == 2 && barracks.bornPoints[0].second == 100 && barracks.bornSound == "BLD_KAZ");
+    World w;
+    const std::size_t k = w.addUnit(barracks, 0, 320, 320, 0); // угол — клетка (20, 20) = (320, 320)
+    w.resources[0][3] = 30;
+    CHECK(w.orderProduce(k, soldier));
+    CHECK(!w.orderProduce(k, soldier)); // еды осталось 10
+    CHECK(w.resources[0][3] == 10 && w.units()[k].queue.size() == 1);
+    w.step();
+    w.step();
+    CHECK(w.units().size() == 1);
+    w.step();
+    if (w.units().size() != 2) { CHECK(w.units().size() == 2); return; }
+    const Unit& s = w.units()[1];
+    CHECK(s.desc == &soldier); CHECK(s.x() >= 420 && s.x() <= 425); CHECK(s.y() == 420); // в том же шаге уже шагнул к второй точке CHECK(s.direction == 0); CHECK(s.moving);
+    CHECK(w.units()[k].queue.empty() && !w.soundEvents.empty() && w.soundEvents.back().group == "BLD_KAZ");
+}
+
 TEST_CASE("Список миссий Missions.txt и выборки") {
     const MissionList list = MissionList::parse("#TUTORIAL\r\nTutorial\r\n-\r\nMissions\\Campains\\27x.m3d\r\n-\r\n0\r\n"
                                                 "#Skirmish18\r\n#Skirmish18_TXT\r\n-\r\nMissions\\Skirmish\\Skirmish18.m3d\r\n"

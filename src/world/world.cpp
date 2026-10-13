@@ -128,7 +128,19 @@ std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, in
         if (lock_.width() > 0) lock_.addBuilding(desc, x, y);
     }
     units_.push_back(u);
+    pushOutOfLocks();
     return units_.size() - 1;
+}
+
+void World::pushOutOfLocks() {
+    if (lock_.width() == 0) return;
+    constexpr int C = LockMap::kCell;
+    for (std::size_t i = 0; i < units_.size(); ++i) {
+        const Unit& v = units_[i];
+        if (v.building() || !v.alive() || !lock_.locked(v.x() / C, v.y() / C)) continue;
+        if (const auto open = lock_.nearestOpen(v.x() / C, v.y() / C, 16))
+            orderMove(i, open->first * C + C / 2, open->second * C + C / 2);
+    }
 }
 
 void World::nextStage(std::size_t index) {
@@ -144,11 +156,42 @@ void World::nextStage(std::size_t index) {
         if (lock_.width() > 0) {
             lock_.setPoints(*b.desc, b.x(), b.y(), b.desc->buildLockPoints, false);
             lock_.addBuilding(*b.desc, b.x(), b.y());
+            pushOutOfLocks();
         }
         return;
     }
     if (const auto* a = namedAnimation(*b.desc, "BUILDLO_" + std::to_string(std::min(3, b.stage * 4 / stages))))
         b.animation = a;
+}
+
+bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
+    Unit& b = units_.at(index);
+    if (!b.building() || b.underConstruction || !b.alive() || unit.building || !affordable(unit, b.player)) return false;
+    auto& have = resources[std::size_t(b.player & 7)];
+    for (std::size_t r = 0; r < have.size() && r < unit.price.size(); ++r) have[r] -= unit.price[r];
+    b.queue.push_back(&unit);
+    return true;
+}
+
+void World::updateProduction(std::size_t index) {
+    if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
+    Unit& b = units_[index];
+    if (++b.produced < std::max(1, b.queue.front()->buildStages)) return;
+    const assets::UnitDesc& desc = *b.queue.front();
+    b.queue.erase(b.queue.begin());
+    b.produced = 0;
+    const int player = b.player;
+    const auto& born = b.desc->bornPoints;
+    const auto [cx, cy] = LockMap::corner(*b.desc, b.x(), b.y());
+    int x = b.x(), y = b.y() + 64, direction = 64;
+    if (!born.empty()) {
+        x = cx * LockMap::kCell + born[0].first;
+        y = cy * LockMap::kCell + born[0].second;
+    }
+    if (born.size() >= 2) direction = directionOf(born[1].first - born[0].first, born[1].second - born[0].second);
+    if (!b.desc->bornSound.empty()) soundEvents.push_back({b.desc->bornSound, b.x(), b.y()});
+    const std::size_t u = addUnit(desc, player, x, y, direction); // b больше не трогаем: вектор мог переехать
+    if (born.size() >= 2) orderMove(u, cx * LockMap::kCell + born[1].first, cy * LockMap::kCell + born[1].second);
 }
 
 bool World::orderBuild(std::size_t index, std::size_t building) {
@@ -532,7 +575,10 @@ void World::step() {
     ++steps_;
     for (std::size_t index = 0; index < units_.size(); ++index) {
         Unit& u = units_[index];
-        if (u.building()) continue; // кадры зданий — слои, не время
+        if (u.building()) { // кадры зданий — слои, не время
+            updateProduction(index);
+            continue;
+        }
         for (int& r : u.reload)
             if (r > 0) --r;
         if (u.dead) continue; // лежит неподвижно

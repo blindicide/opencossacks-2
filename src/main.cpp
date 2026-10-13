@@ -65,6 +65,7 @@ const char* kHelp =
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --build <тип>         с --map: крестьяне игрока 0 закладывают рядом здание <тип> и строят (для проверок)\n"
+    "  --produce <зд>,<юнит> с --map: у крестьян игрока 0 ставится готовое здание <зд>, в нём заказано 3 <юнит>\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
@@ -114,6 +115,7 @@ struct Options {
     std::optional<std::array<int, 3>> move;
     std::optional<int> gather;
     std::string build;
+    std::string produce;
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
@@ -173,6 +175,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--produce" && hasValue) {
+            o.produce = argv[++i];
         } else if (a == "--build" && hasValue) {
             o.build = argv[++i];
         } else if (a == "--gather" && hasValue) {
@@ -314,18 +318,22 @@ struct MapView {
         const oc2::assets::UnitDesc* desc;
         float x, y, size;
     };
+    // Выбранный свой юнит или здание, у которого есть [FIXED_PRODUCE].
+    std::optional<std::size_t> producer() const {
+        const auto& us = world.units();
+        for (std::size_t i = 0; i < us.size(); ++i) {
+            const auto& u = us[i];
+            if (!u.selected || u.player != player || !u.alive() || u.underConstruction) continue;
+            if (!units->produces(units->typeOf(u.desc)).empty()) return i;
+        }
+        return std::nullopt;
+    }
+
     std::vector<PanelButton> panel(VkExtent2D e) const {
         std::vector<PanelButton> out;
-        const std::vector<oc2::assets::ProduceItem>* items = nullptr;
-        for (const auto& u : world.units()) {
-            if (!u.selected || u.player != player || !u.alive() || u.underConstruction) continue;
-            const auto& list = units->produces(units->typeOf(u.desc));
-            if (!list.empty()) {
-                items = &list;
-                break;
-            }
-        }
-        if (!items) return out;
+        const auto who = producer();
+        if (!who) return out;
+        const std::vector<oc2::assets::ProduceItem>* items = &units->produces(units->typeOf(world.units()[*who].desc));
         int rows = 1;
         for (const auto& it : *items) rows = std::max(rows, it.row + 1);
         const float cell = std::floor(48.0f * std::max(0.5f, float(e.height) / 768.0f));
@@ -344,7 +352,7 @@ struct MapView {
             x0 = std::min(x0, b.x), y0 = std::min(y0, b.y);
             x1 = std::max(x1, b.x + b.size), y1 = std::max(y1, b.y + b.size);
         }
-        sprites.fillRect(x0 - 4.0f, y0 - 4.0f, x1 - x0 + 8.0f, y1 - y0 + 8.0f, 0xC0201810);
+        sprites.fillRect(x0 - 4.0f, y0 - 4.0f, x1 - x0 + 8.0f, y1 - y0 + 8.0f, 0xF0201810);
         for (const auto& b : buttons) {
             const oc2::render::GpId id = images->id(b.desc->bigIconFile);
             const auto frame = std::size_t(b.desc->bigIconFrame);
@@ -356,6 +364,18 @@ struct MapView {
             const float scale = (b.size - 2.0f) / std::max({w, h, 1.0f});
             const bool can = world.affordable(*b.desc, player);
             images->draw(id, frame, b.x + 1.0f, b.y + 1.0f, can ? 0xFFFFFFFF : 0xFF707070, scale);
+            // Очередь здания: полоса готовности над значком первого, точки — сколько заказано.
+            if (const auto who = producer(); who && world.units()[*who].building()) {
+                const auto& w = world.units()[*who];
+                int queued = 0;
+                for (const auto* q : w.queue) queued += q == b.desc ? 1 : 0;
+                if (!w.queue.empty() && w.queue.front() == b.desc) {
+                    const float part = float(w.produced) / float(std::max(1, b.desc->buildStages));
+                    sprites.fillRect(b.x + 2.0f, b.y + b.size - 6.0f, (b.size - 4.0f) * part, 4.0f, 0xFF40E040);
+                }
+                for (int q = 0; q < std::min(queued, 10); ++q)
+                    sprites.fillRect(b.x + 3.0f + float(q) * 4.0f, b.y + 3.0f, 3.0f, 3.0f, 0xFFFFE060);
+            }
             if (placing == b.desc) {
                 const std::uint32_t c = 0xFFFFD040;
                 sprites.fillRect(b.x, b.y, b.size, 2.0f, c);
@@ -380,6 +400,9 @@ struct MapView {
         for (const auto& b : panel(e)) {
             if (c.x < b.x || c.y < b.y || c.x >= b.x + b.size || c.y >= b.y + b.size) continue;
             if (c.button == 1 && b.desc->building) placing = b.desc;
+            if (c.button == 1 && !b.desc->building)
+                if (const auto who = producer(); who && world.orderProduce(*who, *b.desc) && sounds)
+                    sounds->play(b.desc->selectSound);
             return true;
         }
         return false;
@@ -630,6 +653,25 @@ struct MapView {
         return best;
     }
 
+    // Здание под курсором (своё прочтение): ближайшее, чья точка земли на экране не дальше
+    // 110 пикселей от нажатия, поднятого на 50 (картинка здания выше точки земли).
+    std::optional<std::size_t> pickBuilding(float sx, float sy) const {
+        std::optional<std::size_t> best;
+        float bestDist = 110.0f * 110.0f * camera.zoom * camera.zoom;
+        const auto& us = world.units();
+        for (std::size_t i = 0; i < us.size(); ++i) {
+            if (!us[i].building() || !us[i].alive()) continue;
+            const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
+            const float gy = (objects->groundY(us[i]) - camera.y - 50.0f) * camera.zoom;
+            const float d = (sx - gx) * (sx - gx) + (sy - gy) * (sy - gy);
+            if (d < bestDist) {
+                bestDist = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
     // Рамка выбора: нажатие левой кнопки начинает её, отпускание выбирает.
     std::optional<std::array<float, 2>> dragStart;
 
@@ -695,7 +737,9 @@ struct MapView {
         auto& us = world.units();
         if (std::abs(c.x - x0) < 5.0f && std::abs(c.y - y0) < 5.0f) {
             for (auto& u : us) u.selected = false;
-            if (auto i = pick(c.x, c.y)) {
+            auto i = pick(c.x, c.y);
+            if (!i) i = pickBuilding(c.x, c.y);
+            if (i) {
                 us[*i].selected = true;
                 if (sounds && us[*i].player == player) sounds->play(us[*i].desc->selectSound);
             }
@@ -870,9 +914,10 @@ int main(int argc, char** argv) {
                         mapView->world.orderMove(i, (*opts->move)[1] + int(us[i].x() - cx / n),
                                                  (*opts->move)[2] + int(us[i].y() - cy / n));
             }
-            if (!opts->build.empty()) {
+            if (!opts->build.empty() || !opts->produce.empty()) {
                 auto& w = mapView->world;
-                const oc2::assets::UnitDesc* d = mapView->units->find(opts->build);
+                const std::string what = opts->build.empty() ? opts->produce.substr(0, opts->produce.find(',')) : opts->build;
+                const oc2::assets::UnitDesc* d = mapView->units->find(what);
                 long cx = 0, cy = 0, n = 0;
                 for (auto& u : w.units())
                     if (u.player == 0 && u.desc->peasant) u.selected = true, cx += u.x(), cy += u.y(), ++n;
@@ -881,13 +926,20 @@ int main(int argc, char** argv) {
                 for (int r = 200; d && n && !b && r < 3000; r += 100)
                     for (int a = 0; a < 16 && !b; ++a)
                         b = w.placeBuilding(*d, 0, int(cx / n + r * std::cos(a * 0.3927)), int(cy / n + r * std::sin(a * 0.3927)));
+                if (b && !opts->produce.empty()) {
+                    while (w.units()[*b].underConstruction) w.nextStage(*b);
+                    for (auto& u : w.units()) u.selected = false;
+                    w.units()[*b].selected = true;
+                    if (const auto* unit = mapView->units->find(opts->produce.substr(opts->produce.find(',') + 1)))
+                        for (int k = 0; k < 3; ++k) w.orderProduce(*b, *unit);
+                }
                 if (b) {
                     for (std::size_t i = 0; i < w.units().size(); ++i)
                         if (w.units()[i].selected) w.orderBuild(i, *b);
                     mapView->lookAt(float(w.units()[*b].x()), float(w.units()[*b].y()), vulkan.extent());
-                    std::printf("стройка: %s в (%d,%d)\n", opts->build.c_str(), w.units()[*b].x(), w.units()[*b].y());
+                    std::printf("стройка: %s в (%d,%d)\n", what.c_str(), w.units()[*b].x(), w.units()[*b].y());
                 } else {
-                    std::printf("стройка: %s не заложить\n", opts->build.c_str());
+                    std::printf("стройка: %s не заложить\n", what.c_str());
                 }
             }
             if (opts->gather) {
@@ -1067,11 +1119,16 @@ int main(int argc, char** argv) {
             sprites.flush(cmd);
             vulkan.endFrame();
         }
-        if (mapView && !opts->build.empty())
+        if (mapView && (!opts->build.empty() || !opts->produce.empty())) {
+            int people = 0;
             for (const auto& u : mapView->world.units())
                 if (u.player == 0 && u.building())
-                    std::printf("здание %s: стадия %d из %d, жизнь %d\n", u.desc->name.c_str(), u.stage,
-                                u.desc->buildStages, u.life);
+                    std::printf("здание %s: стадия %d из %d, жизнь %d, в очереди %zu\n", u.desc->name.c_str(), u.stage,
+                                u.desc->buildStages, u.life, u.queue.size());
+                else if (u.player == 0)
+                    ++people;
+            std::printf("юнитов игрока 0: %d\n", people);
+        }
         if (mapView && opts->gather) {
             const auto& r = mapView->world.resources[std::size_t(*opts->gather & 7)];
             std::printf("ресурсы игрока %d: дерево %d, золото %d, камень %d, еда %d, железо %d, уголь %d\n",

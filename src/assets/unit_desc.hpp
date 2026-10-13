@@ -79,6 +79,11 @@ struct UnitDesc {
     int buildStages = 0;
     std::vector<std::pair<int, int>> buildLockPoints; // BUILDLOCKPOINTS — клетки стройки (как LOCKPOINTS)
     std::vector<std::pair<int, int>> buildPoints;     // BUILDPOINTS — где стоят строители (клетки от угла)
+    // Где появляется произведённый юнит, в мировых единицах от угла (клетка угла ·16):
+    // BORNPOINTS2 x y — (x, 2y), как MDBORNPOINTS2 (поле 0x410/0x41c); BORNPOINTS — в
+    // клетках (·16, своё прочтение). Направление нового юнита — от первой точки ко второй.
+    std::vector<std::pair<int, int>> bornPoints;
+    std::string bornSound;                     // BORN_SOUND
     std::string bigIconFile;                   // BIGICON файл кадр — значок на панели
     int bigIconFrame = 0;
 

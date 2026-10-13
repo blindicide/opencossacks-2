@@ -141,6 +141,15 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                     d.price[std::size_t(r)] = intAt(w, 3 + 2 * std::size_t(i), "цена");
         } else if (key == "BUILDSTAGES") {
             d.buildStages = intAt(w, 1, "стадии");
+        } else if (key == "BORNPOINTS2" || key == "BORNPOINTS") {
+            const int n = intAt(w, 1, "число точек");
+            const int sx = key == "BORNPOINTS" ? 16 : 1, sy = key == "BORNPOINTS" ? 16 : 2;
+            d.bornPoints.clear();
+            for (int i = 0; i < n; ++i)
+                d.bornPoints.emplace_back(intAt(w, 2 + 2 * std::size_t(i), "x") * sx,
+                                          intAt(w, 3 + 2 * std::size_t(i), "y") * sy);
+        } else if (key == "BORN_SOUND" && w.size() >= 2) {
+            d.bornSound = std::string(w[1]);
         } else if (key == "BIGICON" && w.size() >= 3) {
             d.bigIconFile = std::string(w[1]);
             d.bigIconFrame = intAt(w, 2, "кадр");

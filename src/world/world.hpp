@@ -61,6 +61,10 @@ struct Unit {
     bool underConstruction = false;
     int stage = 0;
     std::optional<std::size_t> buildTarget;
+    // Производство у здания: очередь и шаги текущего (время — BUILDSTAGES юнита в шагах:
+    // приказ производства прибавляет GameSpeed = 256 к счётчику до стадий·256, FUN_00e4fe60).
+    std::vector<const assets::UnitDesc*> queue;
+    int produced = 0;
 
     bool alive() const { return !dying && !dead; }
     int x() const { return x16 >> 4; }
@@ -119,6 +123,8 @@ public:
     // законченным циклом @WORK продвигает стройку на стадию (своё упрощение:
     // кто вызывает NextStage у оригинала, не найдено).
     bool orderBuild(std::size_t unit, std::size_t building);
+    // Заказать юнит в здании: списывает PRICE, ставит в очередь. false — нельзя.
+    bool orderProduce(std::size_t building, const assets::UnitDesc& unit);
     // Следующая стадия стройки (OneObject::NextStage).
     void nextStage(std::size_t building);
     // Источники из объектов карты вида kind («AG», «ST»): номер объекта → ID в списке
@@ -183,6 +189,9 @@ private:
     void thinkAi(std::size_t index);
     void updateGather(std::size_t index);
     void updateBuild(std::size_t index);
+    void updateProduction(std::size_t index);
+    // Юниты в закрытых клетках (под новым зданием) уходят к ближайшей открытой.
+    void pushOutOfLocks();
     std::pair<int, int> buildPoint(std::size_t builder, const Unit& building) const;
     std::optional<std::size_t> nearestBase(const Unit& u, int resource) const;
     static const assets::UnitAnimation* workAnimation(const assets::UnitDesc& d, int resource);
