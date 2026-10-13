@@ -839,7 +839,8 @@ TEST_CASE("Мир: производство — очередь, цена, точ
     const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n"
                                              "PRICE 1 FOOD 20\nBUILDSTAGES 3\n");
     const UnitDesc barracks = UnitDesc::parse("NAME K\nBUILDING\nUSERLC 0 H\nLIFE 100\n#STANDLO 1 1 0 0\n"
-                                              "BORNPOINTS2 2 100 50 160 50\nBORN_SOUND BLD_KAZ\n");
+                                              "BORNPOINTS2 2 100 50 160 50\nBORN_SOUND BLD_KAZ\nMFARM 1\n");
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nNOFARM\nUSERLC 0 G\n@REST 9 0 0 3\n");
     CHECK(barracks.bornPoints.size() == 2 && barracks.bornPoints[0].second == 100 && barracks.bornSound == "BLD_KAZ");
     World w;
     const std::size_t k = w.addUnit(barracks, 0, 320, 320, 0); // угол — клетка (20, 20) = (320, 320)
@@ -855,6 +856,13 @@ TEST_CASE("Мир: производство — очередь, цена, точ
     const Unit& s = w.units()[1];
     CHECK(s.desc == &soldier); CHECK(s.x() >= 420 && s.x() <= 425); CHECK(s.y() == 420); // в том же шаге уже шагнул к второй точке CHECK(s.direction == 0); CHECK(s.moving);
     CHECK(w.units()[k].queue.empty() && !w.soundEvents.empty() && w.soundEvents.back().group == "BLD_KAZ");
+    // Мест одно (MFARM 1), и оно занято: второй солдат ждёт; крестьянин (NOFARM) места не занимает.
+    w.addUnit(peasant, 0, 0, 0, 0);
+    CHECK(w.population(0) == 1 && w.populationLimit(0) == 1);
+    w.resources[0][3] = 20;
+    CHECK(w.orderProduce(k, soldier));
+    for (int i = 0; i < 10; ++i) w.step();
+    CHECK(w.units().size() == 3 && w.units()[k].queue.size() == 1 && w.units()[k].produced == 0);
 }
 
 TEST_CASE("Список миссий Missions.txt и выборки") {

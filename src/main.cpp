@@ -846,9 +846,7 @@ struct Screen {
     void updateHud(const oc2::world::World& world, int player) {
         oc2::ui::Dialog* d = gameHud();
         if (!d) return;
-        int population = 0;
-        for (const auto& u : world.units())
-            if (u.player == player && !u.building()) ++population;
+        const int population = world.population(player), limit = world.populationLimit(player);
         d->forEach([&](oc2::ui::Widget& w) {
             bool money = false;
             for (const auto& a : w.actions) money = money || a.type == "cva_ResPanel_Money";
@@ -856,7 +854,7 @@ struct Screen {
             for (oc2::ui::Widget& c : w.children) {
                 if (c.kind != oc2::ui::WidgetKind::TextButton) continue;
                 if (c.name == "Population")
-                    c.text = std::to_string(population); // предел населения (дома) ещё не считается
+                    c.text = std::to_string(population) + "/" + std::to_string(limit); // образец в XML: «{CR}120{C}/{CR}0»
                 else if (c.id >= 0 && c.id < 8)
                     c.text = std::to_string(std::min(world.resources[std::size_t(player)][std::size_t(c.id)], 999999));
             }

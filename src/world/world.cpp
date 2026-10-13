@@ -173,9 +173,24 @@ bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
     return true;
 }
 
+int World::population(int player) const {
+    int n = 0;
+    for (const Unit& u : units_)
+        if (u.player == player && !u.building() && u.alive() && !u.desc->noFarm) ++n;
+    return n;
+}
+
+int World::populationLimit(int player) const {
+    int n = 0;
+    for (const Unit& u : units_)
+        if (u.player == player && u.building() && u.alive() && !u.underConstruction) n += u.desc->farm;
+    return n;
+}
+
 void World::updateProduction(std::size_t index) {
     if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
     Unit& b = units_[index];
+    if (!b.queue.front()->noFarm && population(b.player) >= populationLimit(b.player)) return; // нет мест
     if (++b.produced < std::max(1, b.queue.front()->buildStages)) return;
     const assets::UnitDesc& desc = *b.queue.front();
     b.queue.erase(b.queue.begin());

@@ -123,6 +123,11 @@ public:
     // законченным циклом @WORK продвигает стройку на стадию (своё упрощение:
     // кто вызывает NextStage у оригинала, не найдено).
     bool orderBuild(std::size_t unit, std::size_t building);
+    // Население игрока (как пересчёт thunk_FUN_00dcec00): занято — живые не-здания без
+    // NOFARM; предел — сумма MFARM готовых зданий. Юнит без NOFARM не производится,
+    // пока занято ≥ предела (приказ производства ждёт).
+    int population(int player) const;
+    int populationLimit(int player) const;
     // Заказать юнит в здании: списывает PRICE, ставит в очередь. false — нельзя.
     bool orderProduce(std::size_t building, const assets::UnitDesc& unit);
     // Следующая стадия стройки (OneObject::NextStage).

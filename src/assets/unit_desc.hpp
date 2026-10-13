@@ -71,6 +71,10 @@ struct UnitDesc {
     std::array<int, kResources> workCycles{};  // TAKERESSTAGES РЕС id циклы x — циклов работы на ходку
     std::uint8_t resourceBase = 0;             // RESOURCEBASE n РЕС… — какие ресурсы принимает (биты)
     bool peasant = false;                      // PEASANT
+    // Население: MFARM n — мест у готового здания (поле 0x350); NOFARM — юнит места не
+    // занимает (флаг 0x340 & 0x20; у крестьян, пушек, кораблей).
+    int farm = 0;
+    bool noFarm = false;
 
     // Строительство и производство.
     std::array<int, kResources> price{};       // PRICE n РЕС кол-во …

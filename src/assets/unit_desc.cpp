@@ -132,6 +132,10 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             const int n = intAt(w, 1, "число ресурсов");
             for (int i = 0; i < n && 2 + std::size_t(i) < w.size(); ++i)
                 if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.resourceBase |= std::uint8_t(1u << r);
+        } else if (key == "MFARM") {
+            d.farm = intAt(w, 1, "места");
+        } else if (key == "NOFARM") {
+            d.noFarm = true;
         } else if (key == "PEASANT") {
             d.peasant = true;
         } else if (key == "PRICE") {
