@@ -64,3 +64,13 @@ if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/opencossacks2.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 endif()
 include(cmake/Packaging.cmake)
+
+# Тесты на синтетических данных (файлы игры не нужны): ctest --test-dir build/linux -C Debug
+option(OC2_BUILD_TESTS "Собирать тесты" ON)
+if(OC2_BUILD_TESTS)
+    enable_testing()
+    add_executable(oc2_assets_test tests/assets_test.cpp)
+    target_link_libraries(oc2_assets_test PRIVATE oc2_assets)
+    oc2_warnings(oc2_assets_test)
+    add_test(NAME assets COMMAND oc2_assets_test)
+endif()

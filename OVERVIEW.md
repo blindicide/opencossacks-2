@@ -44,6 +44,7 @@ opencossacks-2/
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
 │   └── render/vulkan_context.* — экземпляр и устройство Vulkan, цепочка обмена, цикл кадров
+├── tests/                  — тесты на синтетических данных (check.hpp — мини-набор проверок)
 ├── tools/oc2-extract/      — утилита: выгрузка спрайтов в PNG, проверка чтения всех файлов
 ├── tools/ghidra_scripts/
 │   ├── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
@@ -71,6 +72,7 @@ cmake --preset linux
 cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
+ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
 ./build/linux/Debug/oc2-extract g2d <файл.g2d> out/       # страницы и кадры в PNG
 ```

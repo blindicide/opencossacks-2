@@ -33,6 +33,9 @@ jobs:
           cmake --preset linux
           cmake --build --preset linux-release
 
+      - name: Тесты
+        run: ctest --test-dir build/linux -C Release --output-on-failure
+
       # Программный Vulkan (lavapipe) и виртуальный X-сервер: проверяем, что кадры рисуются.
       - name: Дымовая проверка
         run: |
@@ -61,6 +64,9 @@ jobs:
         run: |
           cmake --preset windows-msvc
           cmake --build --preset windows-release
+
+      - name: Тесты
+        run: ctest --test-dir build/windows-msvc -C Release --output-on-failure
 
       - name: Пакет
         working-directory: build/windows-msvc
