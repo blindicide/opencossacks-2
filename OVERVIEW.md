@@ -48,14 +48,18 @@ opencossacks-2/
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   ├── image_decode.*  — JPG, PNG, TGA, BMP через stb_image
-│   │   ├── map3d.*         — карты .m3d: разделы, высоты (SURF), фактуры (TILE, TIL2)
+│   │   ├── map3d.*         — карты .m3d: разделы, высоты (SURF), фактуры (TILE, TIL2), объекты (TRE2), юниты (UNI3)
+│   │   ├── sprite_list.*   — списки спрайт-объектов .lst (Treelist, stonlist, walls…): имя GP, привязка кадров
+│   │   ├── unit_desc.*     — описания юнитов .md (USERLC, SETANMPARAM, анимации) и члены наций .nds
 │   │   ├── xml_tree.*      — разбор XML-диалекта игры (диалоги, настройки, состояния шейдеров)
 │   │   ├── text_table.*    — тексты интерфейса «#КЛЮЧ текст» в порядке загрузки оригинала
 │   │   ├── text_encoding.* — Windows-1251 ↔ UTF-8
 │   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события (клавиши, мышь), Vulkan-поверхность
-│   ├── world/terrain_mesh.* — треугольники рельефа карты с освещением вершин (библиотека oc2_world)
+│   ├── world/              — мир игры без графики (библиотека oc2_world)
+│   │   ├── terrain_mesh.*  — треугольники рельефа карты с освещением вершин
+│   │   └── unit_catalog.*  — типы юнитов карты → описания .md через файлы наций
 │   ├── ui/                 — интерфейс из данных игры
 │   │   ├── fonts.*         — шрифты по именам оригинала (MenuTitleWhite, fonBlow_A, …) и из fonts.xml
 │   │   ├── rich_text.*     — упрощённый DrawMultilineText: строки, перенос, теги {C…} {F…} {A…}
@@ -65,7 +69,8 @@ opencossacks-2/
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
 │       ├── sprite_sheet.*  — пакет .g2d в видеопамяти: страницы-текстуры, рисование кадров
 │       ├── terrain_renderer.* — рельеф: массив фактур с мип-картами, проекция X = x, Y = y/2 − z
-│       ├── gp_images.*     — изображения по именам из данных (.g17 → .g16 → .g2d), ленивая загрузка, окраска
+│       ├── map_objects.*   — деревья, камни, стены и юниты карты поверх рельефа, по мировому Y
+│       ├── gp_images.*     — изображения по именам из данных (.g17 → .g16 → .g2d → Cash/), ленивая загрузка, окраска, отражение
 │       ├── shaders/        — SPIR-V шейдеров в виде массивов C++ (генерируется, не править вручную)
 │       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
 ├── shaders/                — исходники шейдеров GLSL (sprite.vert, sprite.frag)
@@ -94,7 +99,11 @@ opencossacks-2/
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::GpImages` (`src/render/gp_images.hpp`): `id("interf3\\Fonts\\FontG16")` → номер; `draw()` рисует кадр с цветовым множителем.
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
-- `oc2::assets::Map3d` (`src/assets/map3d.hpp`): `parse()` читает карту; `height()`, `facture()`, `worldX()/worldY()` — сетка 513×512 со сдвинутыми нечётными столбцами.
+- `oc2::assets::Map3d` (`src/assets/map3d.hpp`): `parse()` читает карту; `height()`, `facture()`, `worldX()/worldY()` — сетка 513×512 со сдвинутыми нечётными столбцами; `heightAt(x, y)` — высота в мировой точке; `objects()` — деревья и пр. (TRE2), `units()` — юниты (UNI3).
+- `oc2::assets::SpriteList` (`src/assets/sprite_list.hpp`): `parse()` списка `.lst` — имя GP и для каждого объекта привязка (dx, dy), кадр = номер.
+- `oc2::assets::UnitDesc` (`src/assets/unit_desc.hpp`): `parse()` описания `.md`; `file(id)` — файл спрайтов USERLC, `animation("#STAND")` — кадры анимации; `parseNationMembers()` — раздел [MEMBERS] файла нации.
+- `oc2::world::UnitCatalog` (`src/world/unit_catalog.hpp`): `find("SelFraDom4_3(SFR)")` → описание типа.
+- `oc2::render::MapObjects` (`src/render/map_objects.hpp`): спрайты карты (объекты и юниты в покое), `draw()` с отсечением по экрану.
 - `oc2::world::buildTerrainMesh()` (`src/world/terrain_mesh.hpp`): треугольники рельефа построчно от дальних к ближним.
 - `oc2::render::TerrainRenderer` (`src/render/terrain_renderer.hpp`): `setFactures()`, `setMesh()`, `draw()` с `MapCamera`.
 - `oc2::ui::Fonts` (`src/ui/fonts.hpp`): `find("MenuTitleWhite")` → шрифт (изображение + цвет); кадр символа = байт Windows-1251.
@@ -116,6 +125,7 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app   # главное меню
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --mouse 512,575 --screenshot menu.png   # меню с наведением
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d   # карта
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 11939,14000 --screenshot village.png
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
@@ -169,3 +179,7 @@ analyzeHeadless re/project engine \
 - `grep` считает XML диалогов двоичными (Windows-1251): нужен `grep -a`.
 - Рельеф рисуется иначе, чем в оригинале: тот строит 2D-кэш с одной фактурой на треугольник, случайными сдвигами текстуры и масками краёв (FUN_015590b0); здесь фактуры вершин смешиваются плавно. Вектор света подобран вручную.
 - Порядок рядов рельефа (сверху вниз) заменяет буфер глубины — менять его нельзя.
+- Часть изображений есть только в кэше `Cash/` в виде `.g16` с «_» вместо «\» (`STONES`, `WALLS`, `UnitsG17\SelFraDom4_3` → `Cash/UNITSG17_SELFRADOM4_3.g16`).
+- У зданий (`BUILDING` в .md) кадры анимации — слои одной картинки (низ с тенью и верх), у остальных юнитов — кадры во времени. Кадры направления d в файле: d·(всего/поворотов)+кадр.
+- Направление юнита 0..255: 0 — восток, по часовой стрелке (юг = 64) — сверено по строю солдат на Skirmish1, но не по коду оригинала. В файлах спрайтов 2·(повороты−1) направлений: от юга до севера, остальное — отражение.
+- Составные объекты TRE2 («CO», `complex.lst`) и вода (SEA2, RIV1) пока не выводятся; цвет игрока на юнитах не накладывается.
