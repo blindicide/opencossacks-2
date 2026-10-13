@@ -16,4 +16,5 @@
 # Файлы инструкций для ИИ-агентов
 CLAUDE.md
 AGENTS.md
+HANDOFF.md
 /build/
