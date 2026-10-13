@@ -249,6 +249,53 @@ struct MapView {
     oc2::world::World world;
     std::unique_ptr<oc2::render::Effects> effects;
     bool ended = false; // бой окончен, показано окно итога
+
+    // Мини-карта (своя; оригинал рисует её кодом MiniMap4X.cpp): картинка VIE2, точки
+    // юнитов цветом игрока, рамка видимой области. M — показать или скрыть.
+    std::optional<oc2::render::TextureId> minimapTexture;
+    bool minimapVisible = true;
+    static constexpr float kMinimapW = 256.0f, kMinimapH = 240.0f;
+
+    struct MinimapRect {
+        float x, y, w, h;
+    };
+    MinimapRect minimapRect(VkExtent2D e) const {
+        const float scale = std::max(0.5f, float(e.height) / 768.0f) * 0.75f;
+        const float w = kMinimapW * scale, h = kMinimapH * scale;
+        return {8.0f, float(e.height) - h - 8.0f, w, h};
+    }
+
+    void drawMinimap(oc2::render::SpriteRenderer& sprites, VkExtent2D e) const {
+        if (!minimapVisible || !minimapTexture) return;
+        const MinimapRect r = minimapRect(e);
+        const float worldSize = float(mapData->rows() * oc2::assets::Map3d::kCell);
+        sprites.fillRect(r.x - 2.0f, r.y - 2.0f, r.w + 4.0f, r.h + 4.0f, 0xFF201810);
+        sprites.drawQuad(*minimapTexture, r.x, r.y, r.w, r.h);
+        for (const auto& u : world.units()) {
+            if (!u.alive() || u.player == 7) continue;
+            const float px = r.x + float(u.x()) / worldSize * r.w, py = r.y + float(u.y()) / worldSize * r.h;
+            sprites.fillRect(px - 1.0f, py - 1.0f, 2.0f, 2.0f, oc2::render::playerColor(u.player));
+        }
+        // Видимая область: экранный Y = мировой Y / 2.
+        const float vx = r.x + camera.x / worldSize * r.w, vy = r.y + camera.y * 2.0f / worldSize * r.h;
+        const float vw = float(e.width) / camera.zoom / worldSize * r.w;
+        const float vh = float(e.height) / camera.zoom * 2.0f / worldSize * r.h;
+        const std::uint32_t c = 0xFFFFFFFF;
+        sprites.fillRect(vx, vy, vw, 1.0f, c);
+        sprites.fillRect(vx, vy + vh, vw, 1.0f, c);
+        sprites.fillRect(vx, vy, 1.0f, vh, c);
+        sprites.fillRect(vx + vw, vy, 1.0f, vh + 1.0f, c);
+    }
+
+    // Нажатие на мини-карте ставит туда камеру; true — нажатие поглощено.
+    bool minimapClick(float x, float y, VkExtent2D e) {
+        if (!minimapVisible || !minimapTexture) return false;
+        const MinimapRect r = minimapRect(e);
+        if (x < r.x || y < r.y || x >= r.x + r.w || y >= r.y + r.h) return false;
+        const float worldSize = float(mapData->rows() * oc2::assets::Map3d::kCell);
+        lookAt((x - r.x) / r.w * worldSize, (y - r.y) / r.h * worldSize, e);
+        return true;
+    }
     bool showLocks = false; // L — показать закрытые клетки
     int player = 0;         // за кого играем: приказы слушают только его юниты
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
@@ -320,6 +367,7 @@ struct MapView {
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
         effects = std::make_unique<oc2::render::Effects>(data);
+        if (const oc2::assets::Image preview = map.preview(); preview.width) minimapTexture = sprites.createTexture(preview);
         world.setLockMap(oc2::world::LockMap::fromTerrain(map));
         // Команды и одиночная игра: юниты отключённых игроков отходят союзнику (MOPT).
         oc2::assets::MissionOptions mission;
@@ -375,6 +423,7 @@ struct MapView {
         case SDLK_MINUS:
         case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
         case SDLK_L: showLocks = !showLocks; return;
+        case SDLK_M: minimapVisible = !minimapVisible; return;
         default: return;
         }
         camera.x = cx - float(e.width) / camera.zoom / 2.0f;
@@ -793,7 +842,8 @@ int main(int argc, char** argv) {
                 oc2::ui::Widget* overHud = hud && window.mouseInside ? hud->updateHover(hx, hy) : nullptr;
                 if (!resultOpen) {
                     for (const auto& click : window.clicks)
-                        if (!overHud) mapView->handleClick(click);
+                        if (!overHud && !(click.button == 1 && mapView->minimapClick(click.x, click.y, e)))
+                            mapView->handleClick(click);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
                 if (!mapView->ended) mapView->advance(dt);
@@ -811,6 +861,7 @@ int main(int argc, char** argv) {
                                        mapView->effects.get());
                 mapView->drawLocks(sprites, e);
                 mapView->drawDragBox(sprites, window);
+                mapView->drawMinimap(sprites, e);
                 screen->updateHud(mapView->world, mapView->player);
                 if (hud) hud->draw(screen->hudView);
                 if (resultOpen) {
