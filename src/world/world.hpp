@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -60,6 +61,9 @@ public:
     void step();
 
     std::uint64_t stepCount() const { return steps_; }
+
+    // Ресурсы игроков (номера — как ID счётчиков на панели).
+    std::array<std::array<int, 8>, 8> resources{};
 
 private:
     static const assets::UnitAnimation* idleAnimation(const assets::UnitDesc& desc);

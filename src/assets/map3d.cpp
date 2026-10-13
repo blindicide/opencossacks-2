@@ -21,6 +21,15 @@ const MapSection* Map3d::section(std::string_view tag) const {
     return nullptr;
 }
 
+std::array<int, 8> Map3d::startResources(int player) const {
+    std::array<int, 8> r{};
+    const MapSection* s = section("RESU");
+    if (!s || s->size < 256 || player < 0 || player > 7) return r;
+    const ByteReader reader(sectionData(*s));
+    for (std::size_t i = 0; i < 8; ++i) r[i] = reader.read<std::int32_t>((std::size_t(player) * 8 + i) * 4);
+    return r;
+}
+
 Image Map3d::preview() const {
     constexpr std::uint32_t kW = 256, kH = 240;
     const MapSection* v = section("VIE2");

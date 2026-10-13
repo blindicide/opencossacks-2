@@ -57,6 +57,7 @@ const char* kHelp =
     "  --screenshot <файл>   сохранить последний кадр в PNG (по умолчанию после одного кадра)\n"
     "  --map <файл.m3d>      показать карту (путь относительно --data, например Missions/Skirmish/Skirmish1.m3d)\n"
     "  --menu <имя>          открыть меню из Dialogs/MainMenu.xml (Main, Single, Options, …)\n"
+    "  --dialog <файл.xml>   открыть любое окно *.DialogsSystem.xml (путь относительно --data)\n"
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
@@ -135,6 +136,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.map = argv[++i];
         } else if (a == "--menu" && hasValue) {
             o.menu = argv[++i];
+        } else if (a == "--dialog" && hasValue) {
+            o.menu = std::string("file:") + argv[++i];
         } else if (a == "--mouse" && hasValue) {
             float mx = 0, my = 0;
             if (std::sscanf(argv[++i], "%f,%f", &mx, &my) != 2)
@@ -245,6 +248,7 @@ struct MapView {
         if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
         mapData = std::make_unique<oc2::assets::Map3d>(oc2::assets::Map3d::parse(readFile(*path)));
         const oc2::assets::Map3d& map = *mapData;
+        for (int p = 0; p < 8; ++p) world.resources[std::size_t(p)] = map.startResources(p);
 
         // Фактуры — по списку FacturesList.xml (номер в карте = номер в списке).
         std::vector<oc2::assets::Image> factures;
@@ -472,7 +476,54 @@ struct Screen {
         text = std::make_unique<oc2::ui::RichText>(*fonts);
         ctx.reset(new oc2::ui::UiContext{renderer, *images, *fonts, *text, texts, data});
         menus = std::make_unique<oc2::ui::Menus>(*ctx);
+        if (firstMenu.empty()) return; // только интерфейс игры (--map)
+        if (firstMenu.rfind("file:", 0) == 0) menus->addFile(firstMenu, firstMenu.substr(5));
         if (!menus->open(firstMenu)) throw std::runtime_error("нет меню «" + firstMenu + "»");
+    }
+
+    // Панель игры (dialogs\respanel.DialogsSystem.xml): пока — верхняя полоса с ресурсами.
+    std::unique_ptr<oc2::ui::Dialog> hud;
+    oc2::ui::View hudView;
+
+    // Оригинал рисует панель в настоящих пикселях экрана; здесь — с масштабом по высоте
+    // 768, без полей по бокам (полоса тянется на всю ширину).
+    void fitHud(VkExtent2D e) {
+        hudView.scale = float(e.height) / kHeight;
+        hudView.ox = 0.0f;
+        hudView.oy = 0.0f;
+    }
+
+    oc2::ui::Dialog* gameHud() {
+        if (!hud) {
+            if (auto path = oc2::assets::findCaseInsensitive(ctx->dataRoot, "dialogs/respanel.DialogsSystem.xml")) {
+                hud = std::make_unique<oc2::ui::Dialog>(*ctx, *path);
+                // Видима только верхняя полоса; остальные панели оригинал показывает кодом.
+                auto& kids = hud->root().children;
+                for (std::size_t i = 1; i < kids.size(); ++i) kids[i].visible = false;
+            }
+        }
+        return hud.get();
+    }
+
+    // FUN_013da8a0 (cva_ResPanel_Money): счётчики ресурсов (ID 0..7) и «Population».
+    void updateHud(const oc2::world::World& world, int player) {
+        oc2::ui::Dialog* d = gameHud();
+        if (!d) return;
+        int population = 0;
+        for (const auto& u : world.units())
+            if (u.player == player && !u.building()) ++population;
+        d->forEach([&](oc2::ui::Widget& w) {
+            bool money = false;
+            for (const auto& a : w.actions) money = money || a.type == "cva_ResPanel_Money";
+            if (!money) return;
+            for (oc2::ui::Widget& c : w.children) {
+                if (c.kind != oc2::ui::WidgetKind::TextButton) continue;
+                if (c.name == "Population")
+                    c.text = std::to_string(population); // предел населения (дома) ещё не считается
+                else if (c.id >= 0 && c.id < 8)
+                    c.text = std::to_string(std::min(world.resources[std::size_t(player)][std::size_t(c.id)], 999999));
+            }
+        });
     }
 
     // Экран 1024×768 вписывается в окно с сохранением пропорций.
@@ -503,7 +554,8 @@ int main(int argc, char** argv) {
         oc2::render::TextureId pattern = 0;
         if (!opts->map.empty()) {
             if (opts->dataDir.empty()) throw std::runtime_error("для --map нужен --data");
-            mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map);
+            screen = std::make_unique<Screen>(sprites, opts->dataDir, std::string());
+            mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map, screen->images.get());
             mapView->centerOn(vulkan.extent());
             mapView->showLocks = opts->locks;
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
@@ -548,6 +600,7 @@ int main(int argc, char** argv) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
                 // текущее окно, из главного — выход.
                 if (mapView && screen) {
+                    if (screen->menus->empty()) break; // игра открыта ключом --map, меню нет
                     mapView.reset();
                     window.pressedKeys.clear();
                     window.clicks.clear();
@@ -587,11 +640,19 @@ int main(int argc, char** argv) {
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
                 if (window.wheel != 0.0f) mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
                 mapView->scroll(dt, window, e);
-                for (const auto& click : window.clicks) mapView->handleClick(click);
+                // Нажатия на панели не доходят до карты.
+                screen->fitHud(e);
+                oc2::ui::Dialog* hud = screen->gameHud();
+                const float hx = window.mouseX / screen->hudView.scale, hy = window.mouseY / screen->hudView.scale;
+                oc2::ui::Widget* overHud = hud && window.mouseInside ? hud->updateHover(hx, hy) : nullptr;
+                for (const auto& click : window.clicks)
+                    if (!overHud) mapView->handleClick(click);
                 mapView->advance(dt);
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
                 mapView->drawLocks(sprites, e);
+                screen->updateHud(mapView->world, 0);
+                if (hud) hud->draw(screen->hudView);
             } else if (screen) {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;

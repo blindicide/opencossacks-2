@@ -17,6 +17,8 @@ class Menus {
 public:
     explicit Menus(UiContext& ctx);
 
+    // Добавляет окно с именем name из файла path (относительно данных).
+    void addFile(const std::string& name, const std::string& path) { files_[name] = path; }
     // Открывает меню поверх текущего; false, если такого имени нет.
     bool open(const std::string& name);
     // Закрывает текущее меню (cva_MM_Close). Пустая стопка — выход из игры.

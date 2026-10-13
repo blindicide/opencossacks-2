@@ -75,6 +75,7 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
     w.enabled = node.boolValue("Enabled").value_or(true);
     w.color = std::uint32_t(node.hexValue("Color").value_or(0xFFFFFFFF));
     w.hint = node.value("Hint").value_or("");
+    w.id = int(node.intValue("ID").value_or(0));
     if (const assets::XmlNode* actions = node.child("v_Actions"))
         for (const assets::XmlNode& a : actions->children) w.actions.push_back({a.name, a.value("Name").value_or("")});
 

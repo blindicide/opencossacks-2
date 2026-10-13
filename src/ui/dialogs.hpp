@@ -57,6 +57,7 @@ struct Widget {
     };
     std::vector<Action> actions;
     std::string hint;   // ключ подсказки
+    int id = 0;         // поле ID (у счётчиков ресурсов — номер ресурса)
 
     // Текст (TextButton, VitButton) — уже переведённый, в Windows-1251.
     std::string text;

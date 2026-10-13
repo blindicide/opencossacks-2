@@ -585,6 +585,7 @@ TEST_CASE("Карта .m3d: мини-карта VIE2") {
     appendSection(m, "SURF", surf);
     const Image img = Map3d::parse(m).preview();
     CHECK(img.width == 256 && img.height == 240);
+    CHECK(Map3d::parse(m).startResources(0)[0] == 0); // без RESU — нули
     CHECK(img.pixel(0, 0)[0] == 0 && img.pixel(0, 0)[1] == 85 && img.pixel(0, 0)[2] == 255 && img.pixel(0, 0)[3] == 255);
 }
 
