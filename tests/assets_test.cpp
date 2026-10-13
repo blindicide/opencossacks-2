@@ -1,6 +1,7 @@
 // Проверки чтения форматов на синтетических данных: файлы игры не нужны.
 
 #include <cstdint>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -795,6 +796,12 @@ TEST_CASE("Мир: бой — выстрел, перезарядка, смерт
     for (int i = 0; i < 130; ++i) ai.step();
     CHECK(ai.units()[bot].target == me && ai.units()[bot].x() < 2000); // ИИ пошёл в атаку
     CHECK(!ai.units()[me].target || ai.units()[me].target == bot);
+
+    World crowd; // стоящие в одной точке расходятся на сумму радиусов
+    const std::size_t c1 = crowd.addUnit(shooter, 0, 500, 500, 0), c2 = crowd.addUnit(shooter, 0, 500, 500, 0);
+    for (int i = 0; i < 10; ++i) crowd.step();
+    const auto& cu = crowd.units();
+    CHECK(std::hypot(double(cu[c1].x16 - cu[c2].x16), double(cu[c1].y16 - cu[c2].y16)) >= 16.0 * 15);
 
     World peace;
     peace.addUnit(shooter, 0, 100, 100, 0);
