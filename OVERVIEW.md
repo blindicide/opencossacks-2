@@ -26,6 +26,7 @@ opencossacks-2/
 ├── cliff.toml              — настройки git-cliff: группы коммитов на русском
 ├── .github/workflows/build.yml — CI: Linux (.deb/.rpm) и Windows (.zip), релизы по тегам vX.Y.Z
 ├── docs/                   — заметки о форматах и поведении движка
+│   └── formats/g2d.md      — пакеты спрайтов .g2d: заголовок, сетки кадров, кодировки, сжатие FLZ
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
 ├── cmake/
