@@ -10,8 +10,11 @@
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
 #include "assets/game_paths.hpp"
+#include "assets/g16.hpp"
 #include "assets/g2d.hpp"
 #include "check.hpp"
+
+#include <bzlib.h>
 
 using namespace oc2::assets;
 using Bytes = std::vector<std::uint8_t>;
@@ -310,6 +313,124 @@ TEST_CASE("Пути: поиск файла без учёта регистра") 
     CHECK(!findCaseInsensitive(root, "UnitsG17/нет.g2d"));
     CHECK(!findCaseInsensitive(root, "Нет/FrnPopU.g2d"));
     fs::remove_all(root);
+}
+
+TEST_CASE("LZO: литералы, копия и маркер конца") {
+    Bytes onlyLiterals{17 + 5, 'h', 'e', 'l', 'l', 'o', 0x11, 0, 0};
+    CHECK(text(lzo1xDecompress(onlyLiterals, 64)) == "hello");
+    // 3 литерала, затем копия 6 байт с дистанцией 3 (код M2), затем конец.
+    Bytes withMatch{17 + 3, 'a', 'b', 'c', 0xA8, 0x00, 0x11, 0, 0};
+    CHECK(text(lzo1xDecompress(withMatch, 64)) == "abcabcabc");
+    CHECK_THROWS_AS(lzo1xDecompress(onlyLiterals, 3), FormatError);          // не помещается
+    CHECK_THROWS_AS(lzo1xDecompress(Bytes(onlyLiterals.begin(), onlyLiterals.end() - 2), 64), FormatError);
+    Bytes badDistance{17 + 1, 'a', 0xA8, 0x00, 0x11, 0, 0}; // ссылка дальше начала
+    CHECK_THROWS_AS(lzo1xDecompress(badDistance, 64), FormatError);
+    // В блоке движка размер LZO должен совпасть точно.
+    CHECK(text(unpackBlock(packBlock(2, withMatch, 9))) == "abcabcabc");
+    CHECK_THROWS_AS(unpackBlock(packBlock(2, withMatch, 10)), FormatError);
+}
+
+namespace {
+
+Bytes bzip2(const Bytes& data) {
+    Bytes out(data.size() * 2 + 600);
+    unsigned int size = static_cast<unsigned int>(out.size());
+    int r = BZ2_bzBuffToBuffCompress(reinterpret_cast<char*>(out.data()), &size,
+                                     const_cast<char*>(reinterpret_cast<const char*>(data.data())),
+                                     static_cast<unsigned int>(data.size()), 9, 0, 0);
+    if (r != BZ_OK) throw std::runtime_error("bzip2 в тесте");
+    out.resize(size);
+    return out;
+}
+
+// Синтетический GN16: один кадр 3×2 из одной плитки 2×2 в точке (1, 0),
+// цвета напрямую (метод 12) или через палитру (метод 0, с разделом GPAL).
+Bytes makeGn16(bool palette) {
+    Bytes body;
+    put<std::uint32_t>(body, 0, 10);  // цвета — с байта 4 + 10 = 14
+    put<std::uint32_t>(body, 4, palette ? 9 : 12); // альфа — с байта 8 + B
+    put<std::uint16_t>(body, 8, 1);   // одна плитка
+    put<std::uint32_t>(body, 10, 0x10000000u | (1u << 12) | 0u); // сторона 2, x = 1, y = 0
+    if (palette) {
+        body.insert(body.end(), {1, 2, 3}); // индексы
+    } else {
+        for (std::uint16_t c : {0x0F00, 0x00F0, 0x000F}) put<std::uint16_t>(body, body.size(), c);
+    }
+    body.insert(body.end(), {0xF0, 0x8F}); // альфа: строка 0 — (15, 0), строка 1 — (8, 15)
+
+    Bytes f;
+    const std::uint32_t chunkAt = 0x10 + 6 + 8;
+    f.insert(f.end(), {'G', 'N', '1', '6'});
+    put<std::uint16_t>(f, 8, 1);       // кадров
+    put<std::uint32_t>(f, 0x0A, 1024); // граница распаковки
+    put<std::uint16_t>(f, 0x0E, 1);    // блоков
+    put<std::uint32_t>(f, 0x10, (chunkAt << 4) | (palette ? 0u : 12u));
+    put<std::uint16_t>(f, 0x14, 1);
+    put<std::uint16_t>(f, 0x16, 1);    // кадр: плиток
+    put<std::uint16_t>(f, 0x18, 3);    // ширина
+    put<std::uint16_t>(f, 0x1A, 2);    // высота
+    put<std::uint16_t>(f, 0x1C, 0);    // блок
+    put<std::uint32_t>(f, chunkAt, 64); // размер буфера плиток (не используется)
+    f.insert(f.end(), body.begin(), body.end());
+    put<std::uint32_t>(f, 4, std::uint32_t(f.size()));
+
+    if (palette) {
+        Bytes pal(0x822, 0);
+        std::memcpy(pal.data(), "GPAL", 4);
+        put<std::uint32_t>(pal, 4, 0x822);
+        const std::uint8_t colors[4][3] = {{0, 0, 0}, {0xF0, 0, 0}, {0, 0xF0, 0}, {0, 0, 0xF0}};
+        for (int i = 0; i < 4; ++i) std::memcpy(&pal[0x422 + i * 4], colors[i], 3);
+        f.insert(f.end(), pal.begin(), pal.end());
+    }
+    return f;
+}
+
+} // namespace
+
+TEST_CASE("bzip2 и блок метода 1") {
+    Bytes data{'g', '1', '7', 0, 1, 2, 3};
+    CHECK(bzip2Decompress(bzip2(data), data.size()) == data);
+    CHECK(unpackBlock(packBlock(1, bzip2(data), std::uint32_t(data.size()))) == data);
+    CHECK_THROWS_AS(bzip2Decompress(bzip2(data), data.size() + 1), FormatError);
+    CHECK_THROWS_AS(bzip2Decompress(Bytes{'B', 'Z', 'h', '9', 1, 2}, 4), FormatError);
+}
+
+TEST_CASE("g16: плитки GN16 с прямыми цветами и с палитрой") {
+    for (bool palette : {false, true}) {
+        G16File f = G16File::parse(makeGn16(palette));
+        CHECK(f.kind() == G16File::Kind::NonUniform);
+        CHECK(f.frameCount() == 1 && f.frameWidth(0) == 3 && f.frameHeight(0) == 2);
+        auto tiles = f.decodeTiles(0);
+        CHECK(tiles.size() == 1 && tiles[0].x == 1 && tiles[0].y == 0 && tiles[0].size == 2);
+        CHECK(tiles[0].pixels == (std::vector<std::uint16_t>{0xFF00, 0x0000, 0x80F0, 0xF00F}));
+        Image img = f.decodeFrame(0);
+        CHECK(img.pixel(1, 0)[0] == 255 && img.pixel(1, 0)[3] == 255);
+        CHECK(img.pixel(2, 0)[3] == 0);
+        CHECK(img.pixel(1, 1)[1] == 255 && img.pixel(1, 1)[3] == 8 * 17);
+        CHECK(img.pixel(0, 0)[3] == 0);
+    }
+}
+
+TEST_CASE("g16: .g17 — тот же файл в сжатом блоке") {
+    Bytes plain = makeGn16(false);
+    Bytes g17 = packBlock(1, bzip2(plain), std::uint32_t(plain.size()));
+    CHECK(G16File::parse(g17).decodeTiles(0)[0].pixels == G16File::parse(plain).decodeTiles(0)[0].pixels);
+}
+
+TEST_CASE("g16: повреждённые файлы") {
+    Bytes good = makeGn16(false);
+    Bytes magic = good;
+    magic[1] = 'X';
+    CHECK_THROWS_AS(G16File::parse(magic), FormatError);
+    Bytes badChunk = good;
+    put<std::uint16_t>(badChunk, 0x1C, 5); // кадр ссылается на блок 5
+    CHECK_THROWS_AS(G16File::parse(badChunk), FormatError);
+    Bytes noPalette = makeGn16(true);
+    noPalette.resize(noPalette.size() - 0x822); // палитра нужна, но раздела GPAL нет
+    CHECK_THROWS_AS(G16File::parse(noPalette).decodeTiles(0), FormatError);
+    Bytes cut(good.begin(), good.end() - 3); // поток альфы обрезан
+    put<std::uint32_t>(cut, 4, std::uint32_t(cut.size()));
+    CHECK_THROWS_AS(G16File::parse(cut).decodeTiles(0), FormatError);
 }
 
 int main() { return oc2::test::runAll(); }
