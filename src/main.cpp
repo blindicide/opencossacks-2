@@ -29,6 +29,7 @@
 #include "render/gp_images.hpp"
 #include "ui/dialogs.hpp"
 #include "ui/fonts.hpp"
+#include "ui/menus.hpp"
 #include "ui/rich_text.hpp"
 
 namespace fs = std::filesystem;
@@ -46,6 +47,7 @@ const char* kHelp =
     "  --frame <N>           начальный кадр\n"
     "  --frames <N>          нарисовать N кадров и выйти (для проверок)\n"
     "  --screenshot <файл>   сохранить последний кадр в PNG (по умолчанию после одного кадра)\n"
+    "  --menu <имя>          открыть меню из Dialogs/MainMenu.xml (Main, Single, Options, …)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --version             версия\n"
     "\n"
@@ -85,6 +87,7 @@ struct Options {
     fs::path screenshot;
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
+    std::string menu = "Main";
     fs::path sprite;
     long startFrame = 0;
 };
@@ -109,6 +112,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.dataDir = argv[++i];
         } else if (a == "--sprite" && hasValue) {
             o.sprite = argv[++i];
+        } else if (a == "--menu" && hasValue) {
+            o.menu = argv[++i];
         } else if (a == "--mouse" && hasValue) {
             float mx = 0, my = 0;
             if (std::sscanf(argv[++i], "%f,%f", &mx, &my) != 2)
@@ -193,10 +198,10 @@ struct Screen {
     std::unique_ptr<oc2::ui::Fonts> fonts;
     std::unique_ptr<oc2::ui::RichText> text;
     std::unique_ptr<oc2::ui::UiContext> ctx;
-    std::unique_ptr<oc2::ui::Dialog> dialog;
+    std::unique_ptr<oc2::ui::Menus> menus;
     oc2::ui::View view;
 
-    Screen(oc2::render::SpriteRenderer& renderer, const fs::path& data, const std::string& dialogFile) {
+    Screen(oc2::render::SpriteRenderer& renderer, const fs::path& data, const std::string& firstMenu) {
         texts.loadGame(data);
         images = std::make_unique<oc2::render::GpImages>(renderer, data);
         fonts = std::make_unique<oc2::ui::Fonts>(*images);
@@ -206,9 +211,8 @@ struct Screen {
         }
         text = std::make_unique<oc2::ui::RichText>(*fonts);
         ctx.reset(new oc2::ui::UiContext{renderer, *images, *fonts, *text, texts, data});
-        const auto path = oc2::assets::findCaseInsensitive(data, dialogFile);
-        if (!path) throw std::runtime_error("нет файла " + (data / dialogFile).string());
-        dialog = std::make_unique<oc2::ui::Dialog>(*ctx, *path);
+        menus = std::make_unique<oc2::ui::Menus>(*ctx);
+        if (!menus->open(firstMenu)) throw std::runtime_error("нет меню «" + firstMenu + "»");
     }
 
     // Экран 1024×768 вписывается в окно с сохранением пропорций.
@@ -237,7 +241,7 @@ int main(int argc, char** argv) {
         std::unique_ptr<Screen> screen;
         oc2::render::TextureId pattern = 0;
         if (opts->sprite.empty() && !opts->dataDir.empty()) {
-            screen = std::make_unique<Screen>(sprites, opts->dataDir, "Dialogs/v/M_Main.DialogsSystem.xml");
+            screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
         } else if (!opts->sprite.empty()) {
             const fs::path path = resolveSprite(*opts);
             viewer.emplace();
@@ -261,8 +265,12 @@ int main(int argc, char** argv) {
             const double dt = double(now - last) / 1e9;
             last = now;
             if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
-                window.pressedKeys.end())
-                break;
+                window.pressedKeys.end()) {
+                // В меню Esc закрывает текущее окно, из главного — выход.
+                if (!screen) break;
+                screen->menus->close();
+                if (screen->menus->empty()) break;
+            }
             if (viewer) {
                 for (std::uint32_t key : window.pressedKeys) viewer->handleKey(key);
                 viewer->update(dt);
@@ -277,22 +285,25 @@ int main(int argc, char** argv) {
             const VkExtent2D e = vulkan.extent();
             if (screen) {
                 screen->fit(e);
+                oc2::ui::Menus& menus = *screen->menus;
+                menus.update();
                 // Наведение считается по рамкам прошлого кадра — как в оригинале.
-                const oc2::ui::Widget* hovered = nullptr;
-                if (opts->mouse) hovered = screen->dialog->updateHover((*opts->mouse)[0], (*opts->mouse)[1]);
-                else if (window.mouseInside)
-                    hovered = screen->dialog->updateHover(screen->toVirtualX(window.mouseX),
-                                                          screen->toVirtualY(window.mouseY));
-                else
-                    screen->dialog->updateHover(-1.0f, -1.0f);
-                bool quit = false;
+                float mx = -1.0f, my = -1.0f;
+                if (opts->mouse) {
+                    mx = (*opts->mouse)[0];
+                    my = (*opts->mouse)[1];
+                } else if (window.mouseInside) {
+                    mx = screen->toVirtualX(window.mouseX);
+                    my = screen->toVirtualY(window.mouseY);
+                }
+                oc2::ui::Widget* hovered = menus.current().updateHover(mx, my);
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;
-                    std::printf("действие: %s (%s)\n", hovered->action.c_str(), hovered->name.c_str());
-                    if (hovered->action == "cva_MM_Close") quit = true;
+                    menus.click(*hovered);
+                    break; // меню могло смениться
                 }
-                if (quit) break;
-                screen->dialog->draw(screen->view);
+                if (menus.empty()) break;
+                menus.current().draw(screen->view);
             } else if (viewer) {
                 viewer->draw(e);
             } else {
