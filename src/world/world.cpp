@@ -332,10 +332,56 @@ void World::updateBuild(std::size_t index) {
     emitSounds(u);
 }
 
+int World::ObjectRules::find(std::string_view id) const {
+    for (std::size_t i = 0; i < list.entries.size(); ++i)
+        if (list.entries[i].id == id) return int(i);
+    return -1;
+}
+
+void World::setStage(Source& s, int object) {
+    s.object = object;
+    s.timer = 0;
+    s.works = 0;
+    s.resource = -1;
+    if (object < 0 || std::size_t(object) >= rules_.list.entries.size()) return;
+    const auto it = rules_.sources.find(rules_.list.entries[std::size_t(object)].id);
+    if (it == rules_.sources.end()) return;
+    s.resource = assets::UnitDesc::resourceId(it->second.resource);
+    s.perWork = it->second.perWork;
+    s.radius = it->second.radius;
+}
+
+std::size_t World::addObject(int object, int x, int y) {
+    Source s;
+    s.x = x;
+    s.y = y;
+    setStage(s, object);
+    sources.push_back(s);
+    return sources.size() - 1;
+}
+
+void World::updateObjects() {
+    for (Source& s : sources) {
+        if (s.object < 0) continue;
+        const auto it = rules_.time.find(rules_.list.entries[std::size_t(s.object)].id);
+        if (it == rules_.time.end()) continue;
+        if (++s.timer >= it->second.amount * kTransformTimeSteps) setStage(s, rules_.find(it->second.next));
+    }
+}
+
+void World::workDone(std::size_t index) {
+    Source& s = sources[index];
+    if (s.object < 0) return;
+    const auto it = rules_.work.find(rules_.list.entries[std::size_t(s.object)].id);
+    if (it == rules_.work.end()) return;
+    if (++s.works >= it->second.amount) setStage(s, rules_.find(it->second.next));
+}
+
 std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) const {
     std::optional<std::size_t> best;
     long long bestD = (long long)maxDistance * maxDistance;
     for (std::size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i].resource < 0) continue;
         const long long dx = sources[i].x - x, dy = sources[i].y - y;
         if (dx * dx + dy * dy <= bestD) {
             bestD = dx * dx + dy * dy;
@@ -347,12 +393,13 @@ std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) cons
 
 bool World::orderGather(std::size_t index, std::size_t source) {
     Unit& u = units_.at(index);
-    if (!u.alive() || u.inside || u.building() || source >= sources.size()) return false;
+    if (!u.alive() || u.inside || u.building() || source >= sources.size() || sources[source].resource < 0) return false;
     if (u.desc->portion[std::size_t(sources[source].resource)] <= 0) return false;
     u.target.reset();
     u.attacking = false;
     if (u.gather == Unit::Gather::None || u.source != source) u.carry = 0;
     u.source = source;
+    u.gatherResource = sources[source].resource;
     u.buildTarget.reset();
     u.gather = Unit::Gather::ToSource;
     u.moving = false;
@@ -409,8 +456,24 @@ std::optional<std::size_t> World::nearestBase(const Unit& u, int resource) const
 void World::updateGather(std::size_t index) {
     Unit& u = units_[index];
     if (u.gather == Unit::Gather::None || u.target) return;
+    // Источник иссяк (поле сжато) — ближайший другой с тем же ресурсом.
+    if (u.gather == Unit::Gather::ToSource && sources[u.source].resource != u.gatherResource) {
+        std::optional<std::size_t> next;
+        long long bestD = 600LL * 600LL;
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            if (sources[i].resource != u.gatherResource) continue;
+            const long long ddx = sources[i].x - sources[u.source].x, ddy = sources[i].y - sources[u.source].y;
+            if (ddx * ddx + ddy * ddy < bestD) bestD = ddx * ddx + ddy * ddy, next = i;
+        }
+        if (!next) {
+            u.gather = Unit::Gather::None;
+            return;
+        }
+        u.source = *next;
+        pathTo(u, sources[u.source].x, sources[u.source].y);
+    }
     const Source& src = sources[u.source];
-    const auto res = std::size_t(src.resource);
+    const auto res = std::size_t(u.gatherResource);
     const int reach = src.radius + 24;
     const int dx = src.x - u.x(), dy = src.y - u.y();
     switch (u.gather) {
@@ -420,7 +483,7 @@ void World::updateGather(std::size_t index) {
             u.gather = Unit::Gather::Working;
             u.workLeft = std::max(1, u.desc->workCycles[res]);
             u.direction = directionOf(dx, dy);
-            u.animation = workAnimation(*u.desc, src.resource);
+            u.animation = workAnimation(*u.desc, u.gatherResource);
             u.frame = 0;
         } else {
             pathTo(u, src.x, src.y);
@@ -431,7 +494,7 @@ void World::updateGather(std::size_t index) {
         return; // циклы считаются при смене кадров
     case Unit::Gather::ToBase: {
         if (u.moving) return;
-        if (!u.base || !units_[*u.base].alive()) u.base = nearestBase(u, src.resource);
+        if (!u.base || !units_[*u.base].alive()) u.base = nearestBase(u, u.gatherResource);
         if (!u.base) {
             u.gather = Unit::Gather::None; // нести некуда — стоит с ношей
             return;
@@ -656,6 +719,7 @@ void World::killAllExcept(int keep) {
 
 void World::step() {
     ++steps_;
+    updateObjects();
     for (std::size_t index = 0; index < units_.size(); ++index) {
         Unit& u = units_[index];
         if (u.building()) { // кадры зданий — слои, не время
@@ -714,8 +778,9 @@ void World::step() {
             const int frames = int(u.animation->frames.size());
             if (++u.frame >= frames) {
                 u.frame = 0;
-                if (--u.workLeft <= 0) {
-                    const int r = sources[u.source].resource;
+                workDone(u.source);
+                if (--u.workLeft <= 0 || sources[u.source].resource != u.gatherResource) {
+                    const int r = u.gatherResource;
                     u.carry = u.desc->portion[std::size_t(r)];
                     u.gather = Unit::Gather::ToBase;
                     u.base.reset();
@@ -753,7 +818,7 @@ void World::step() {
             }
         }
         const bool carrying = u.carry > 0 && u.gather == Unit::Gather::ToBase;
-        setAnimation(u, u.moving ? (carrying ? carryAnimation(*u.desc, sources[u.source].resource)
+        setAnimation(u, u.moving ? (carrying ? carryAnimation(*u.desc, u.gatherResource)
                                              : moveAnimation(*u.desc))
                                  : idleAnimation(*u.desc));
         // Один кадр за шаг при GameSpeed = 256 (OneObject::SetNextFrame).

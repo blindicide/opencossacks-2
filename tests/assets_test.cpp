@@ -892,6 +892,35 @@ TEST_CASE("Мир: шахта — вход крестьян, захват нич
     CHECK(!w.units()[stays].moving); // изнутри не ходят
 }
 
+TEST_CASE("Мир: поля — рост по времени, жатва работой, иссякание") {
+    using namespace oc2::world;
+    World::ObjectRules rules;
+    rules.list = SpriteList::parse("COMPLEX 4\n//ID 64 64 Radius #FIELDPATH Width Height GrowStage YScale\n"
+                                   "FG0 64 64 30 #FIELDPATH 1 0 2 256\nFG1 64 64 30 #FIELDPATH 1 0 50 256\n"
+                                   "FW0 64 64 30 #FIELDPATH 1 0 255 230\n");
+    CHECK(rules.list.complex && rules.list.entries.size() == 3 && rules.list.entries[2].field &&
+          rules.list.entries[2].growStage == 255 && rules.list.entries[2].yScale == 230);
+    const std::string rsr = "[WORKTRANSFORM]\nFG1 FW0 2\n[TIMETRANSFORM]\nFG0  FG1 3\n[SOURCES]\nFG1 FOOD 10 64\n";
+    rules.sources = SpriteList::parseSources(rsr);
+    rules.time = SpriteList::parseTransforms(rsr, "[TIMETRANSFORM]");
+    rules.work = SpriteList::parseTransforms(rsr, "[WORKTRANSFORM]");
+    CHECK(rules.time.at("FG0").next == "FG1" && rules.time.at("FG0").amount == 3 && rules.work.at("FG1").amount == 2);
+    World w;
+    w.setObjectRules(std::move(rules));
+    const std::size_t f = w.addObject(0, 100, 100);
+    CHECK(w.sources[f].resource == -1 && !w.sourceNear(100, 100, 10)); // растёт — не источник
+    for (int i = 0; i < 3 * World::kTransformTimeSteps; ++i) w.step();
+    CHECK(w.sources[f].object == 1 && w.sources[f].resource == 3 && w.sources[f].radius == 64);
+
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n"
+                                             "#ATTACK3 9 1 0 0\nPORTION 1 FOOD 50\nTAKERESSTAGES FOOD 3 5 4\n");
+    const std::size_t p = w.addUnit(peasant, 0, 110, 100, 0);
+    CHECK(w.orderGather(p, f));
+    for (int i = 0; i < 10; ++i) w.step();
+    CHECK(w.sources[f].object == 2 && w.sources[f].resource == -1); // две работы — сжато
+    CHECK(w.units()[p].carry == 50); // унёс, хотя циклов было меньше TAKERESSTAGES
+}
+
 TEST_CASE("Список миссий Missions.txt и выборки") {
     const MissionList list = MissionList::parse("#TUTORIAL\r\nTutorial\r\n-\r\nMissions\\Campains\\27x.m3d\r\n-\r\n0\r\n"
                                                 "#Skirmish18\r\n#Skirmish18_TXT\r\n-\r\nMissions\\Skirmish\\Skirmish18.m3d\r\n"

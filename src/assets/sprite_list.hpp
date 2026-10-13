@@ -21,6 +21,17 @@ struct SpriteListEntry {
     int dx = 0, dy = 0;
     int radius = 0;
     int frame = 0; // кадр в изображении GP
+    // Поле complex.lst: «#FIELDPATH ширина высота рост масштабY» — рост колосьев
+    // (у FG — 2…50, у сжатых FW — 255) и высота в 1/256 (у FW убывает при жатве).
+    bool field = false;
+    int growStage = 0, yScale = 256;
+};
+
+// Переходы объектов из .rsr: [TIMETRANSFORM] «ИЗ В время» и [WORKTRANSFORM] «ИЗ В работ»
+// (разбор — FUN_00f… рядом с «[WORK/FIRE/TIMETRANSFORM]»: поля 0x77/0x67 и 0x61/0x51).
+struct SpriteTransform {
+    std::string next;
+    int amount = 0;
 };
 
 // Раздел [SOURCES] файла .rsr: какой ресурс даёт объект и сколько за единицу работы.
@@ -40,6 +51,8 @@ struct SpriteList {
     static SpriteList parse(std::string_view text);
     // [SOURCES] из .rsr: ID объекта → источник.
     static std::unordered_map<std::string, SpriteSource> parseSources(std::string_view rsr);
+    // Раздел section («[TIMETRANSFORM]», «[WORKTRANSFORM]») из .rsr: ID → переход.
+    static std::unordered_map<std::string, SpriteTransform> parseTransforms(std::string_view rsr, std::string_view section);
 };
 
 } // namespace oc2::assets

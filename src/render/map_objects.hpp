@@ -50,7 +50,12 @@ private:
         std::uint32_t frame;
         int sortY;     // мировой Y
         bool mirror = false;
+        float scale = 1.0f;
     };
+    // Поля (объекты complex.lst с #FIELDPATH): оригинал рисует их трёхмерным FieldPatch;
+    // здесь — пучок колосьев из Field.g2d (51 вариант) на объект, высота — по стадии.
+    void appendFields(const world::World& world, const MapCamera& camera, float right, float bottom);
+    std::optional<GpId> fieldGp_;
 
     void appendUnit(const world::Unit& u, std::vector<Item>& out);
     // Кадр анимации описания desc в мировой точке; layer — номер кадра анимации.

@@ -39,8 +39,8 @@ std::optional<assets::SpriteList> loadList(const std::filesystem::path& root, co
 MapObjects::MapObjects(SpriteRenderer& renderer, GpImages& images, const std::filesystem::path& dataRoot,
                        const assets::Map3d& map)
     : renderer_(renderer), images_(images), map_(map) {
-    // Виды объектов TRE2 и их списки (FUN_00f98f10, FUN_00ed23a0). Составные
-    // объекты («CO», complex.lst) собираются из частей — пока не выводятся.
+    // Виды объектов TRE2 и их списки (FUN_00f98f10, FUN_00ed23a0). Объекты «CO»
+    // (complex.lst — поля) живут в мире и рисуются appendFields.
     struct Kind {
         const char* code;
         const char* file;
@@ -56,6 +56,7 @@ MapObjects::MapObjects(SpriteRenderer& renderer, GpImages& images, const std::fi
 
     std::map<std::string, int> skipped;
     for (const assets::MapObject& o : map.objects()) {
+        if (o.is("CO")) continue; // поля — объекты мира (appendFields)
         const Kind* kind = nullptr;
         for (const Kind& k : kinds)
             if (o.kind[0] == k.code[0] && o.kind[1] == k.code[1]) kind = &k;
@@ -160,7 +161,38 @@ std::uint32_t playerColor(int player) {
 void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, float bottom, std::uint32_t color) {
     if (it.x > right || it.y > bottom || it.x + it.w < camera.x || it.y + it.h < camera.y) return;
     images_.draw(it.gp, it.frame, (it.x - camera.x) * camera.zoom, (it.y - camera.y) * camera.zoom, color,
-                 camera.zoom, it.mirror);
+                 camera.zoom * it.scale, it.mirror);
+}
+
+void MapObjects::appendFields(const world::World& world, const MapCamera& camera, float right, float bottom) {
+    const auto& list = world.objectRules().list.entries;
+    if (list.empty()) return;
+    if (!fieldGp_) fieldGp_ = images_.id("Field");
+    if (!images_.valid(*fieldGp_)) return;
+    const std::size_t frames = images_.frameCount(*fieldGp_);
+    for (const world::World::Source& s : world.sources) {
+        if (s.object < 0 || std::size_t(s.object) >= list.size() || !list[std::size_t(s.object)].field) continue;
+        const assets::SpriteListEntry& e = list[std::size_t(s.object)];
+        // Рост: стадия 2…50 (у сжатых 255 — полный), высота YScale/256; пучок не мельче четверти.
+        const float grow = e.growStage >= 255 ? 1.0f : std::min(1.0f, float(e.growStage) / 50.0f);
+        const float scale = std::clamp(grow * float(e.yScale) / 256.0f, 0.25f, 1.0f) * 0.75f;
+        // Четыре пучка на объект 64×64 — поле сплошное, как у FieldPatch.
+        for (int k = 0; k < 4; ++k) {
+            const int wx = s.x + (k & 1 ? 16 : -16), wy = s.y + (k & 2 ? 16 : -16);
+            const float px = float(wx), py = float((wy >> 1) - map_.heightAt(wx, wy));
+            if (px + 64.0f < camera.x || px - 64.0f > right || py + 64.0f < camera.y || py - 64.0f > bottom) continue;
+            Item it;
+            it.gp = *fieldGp_;
+            it.frame = std::uint32_t((unsigned(wx) * 73856093u ^ unsigned(wy) * 19349663u) % frames);
+            it.w = float(images_.frameWidth(it.gp, it.frame)) * scale;
+            it.h = float(images_.frameHeight(it.gp, it.frame)) * scale;
+            it.x = px - it.w / 2.0f;
+            it.y = py - it.h * 0.75f;
+            it.scale = scale;
+            it.sortY = wy;
+            dynamic_.push_back(it);
+        }
+    }
 }
 
 void MapObjects::drawGhost(const assets::UnitDesc& desc, int x, int y, const MapCamera& camera, std::uint32_t color) {
@@ -188,6 +220,7 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
         }
     dynamic_.clear();
     for (const world::Unit& u : world.units()) appendUnit(u, dynamic_);
+    appendFields(world, camera, right, bottom);
     // Дым выстрелов — поверх стрелков (сортировка чуть ниже точки выстрела).
     if (effects)
         for (const Effects::Instance& e : effects->instances())

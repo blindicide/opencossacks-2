@@ -529,6 +529,30 @@ struct MapView {
             const char* list;
             const char* rsr;
         };
+        // Поля: стадии complex.lst и переходы complex.rsr; объекты «CO» карты — их номера.
+        {
+            const auto lst = oc2::assets::findCaseInsensitive(data, "complex.lst");
+            const auto rsr = oc2::assets::findCaseInsensitive(data, "complex.rsr");
+            if (lst && rsr) {
+                const auto text = [](const fs::path& p) {
+                    const std::vector<std::uint8_t> b = readFile(p);
+                    return std::string(b.begin(), b.end());
+                };
+                try {
+                    oc2::world::World::ObjectRules rules;
+                    rules.list = oc2::assets::SpriteList::parse(text(*lst));
+                    const std::string r = text(*rsr);
+                    rules.sources = oc2::assets::SpriteList::parseSources(r);
+                    rules.time = oc2::assets::SpriteList::parseTransforms(r, "[TIMETRANSFORM]");
+                    rules.work = oc2::assets::SpriteList::parseTransforms(r, "[WORKTRANSFORM]");
+                    world.setObjectRules(std::move(rules));
+                    for (const oc2::assets::MapObject& o : map.objects())
+                        if (o.is("CO")) world.addObject(o.type, o.x, o.y);
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr, "complex.lst: %s\n", e.what());
+                }
+            }
+        }
         for (const SourceKind& k : {SourceKind{"AG", "Treelist.lst", "treelist.rsr"},
                                     SourceKind{"ST", "stonlist.LST", "stonlist.rsr"}}) {
             const auto lst = oc2::assets::findCaseInsensitive(data, k.list);

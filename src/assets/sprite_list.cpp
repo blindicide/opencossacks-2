@@ -29,6 +29,13 @@ public:
         return ec == std::errc() && end == w.data() + w.size();
     }
 
+    // Следующее слово, только если оно на той же строке.
+    bool wordOnLine(std::string& out) {
+        while (pos_ < text_.size() && (text_[pos_] == ' ' || text_[pos_] == '\t' || text_[pos_] == '\r')) ++pos_;
+        if (pos_ >= text_.size() || text_[pos_] == '\n') return false;
+        return word(out);
+    }
+
     void skipLine() {
         while (pos_ < text_.size() && text_[pos_] != '\n') ++pos_;
         if (pos_ < text_.size()) ++pos_;
@@ -50,10 +57,7 @@ SpriteList SpriteList::parse(std::string_view text) {
     if (!in.word(list.gpName) || !in.number(count) || count < 0)
         throw FormatError("список спрайтов: нет заголовка «ИМЯ количество»");
     in.skipLine();
-    if (list.gpName == "COMPLEX") {
-        list.complex = true;
-        return list;
-    }
+    list.complex = list.gpName == "COMPLEX";
 
     // Как в оригинале, строки-комментарии тоже входят в счёт объявленных объектов.
     int frame = 0;
@@ -67,6 +71,13 @@ SpriteList SpriteList::parse(std::string_view text) {
         SpriteListEntry e;
         if (!in.number(e.dx) || !in.number(e.dy) || !in.number(e.radius))
             throw FormatError("список спрайтов: у " + id + " нет трёх чисел «dx dy радиус»");
+        if (list.complex) {
+            std::string anim;
+            int w = 0, h = 0;
+            if (in.wordOnLine(anim) && anim == "#FIELDPATH" && in.number(w) && in.number(h) && in.number(e.growStage) &&
+                in.number(e.yScale))
+                e.field = true;
+        }
         in.skipLine();
         e.frame = frame++;
         if (id[0] == '@') {
@@ -81,6 +92,28 @@ SpriteList SpriteList::parse(std::string_view text) {
         }
     }
     return list;
+}
+
+std::unordered_map<std::string, SpriteTransform> SpriteList::parseTransforms(std::string_view rsr,
+                                                                             std::string_view section) {
+    std::unordered_map<std::string, SpriteTransform> out;
+    std::size_t pos = 0;
+    bool inside = false;
+    while (pos < rsr.size()) {
+        std::size_t end = rsr.find('\n', pos);
+        if (end == std::string_view::npos) end = rsr.size();
+        Tokens line(rsr.substr(pos, end - pos));
+        pos = end + 1;
+        std::string id;
+        if (!line.word(id) || id.rfind("//", 0) == 0) continue;
+        if (id[0] == '[') {
+            inside = id == section;
+            continue;
+        }
+        SpriteTransform t;
+        if (inside && line.word(t.next) && line.number(t.amount)) out.emplace(std::move(id), std::move(t));
+    }
+    return out;
 }
 
 std::unordered_map<std::string, SpriteSource> SpriteList::parseSources(std::string_view rsr) {

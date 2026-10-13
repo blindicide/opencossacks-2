@@ -53,6 +53,7 @@ struct Unit {
     enum class Gather : std::uint8_t { None, ToSource, Working, ToBase };
     Gather gather = Gather::None;
     std::size_t source = 0;  // номер источника в World::sources
+    int gatherResource = 0;  // какой ресурс добывает
     int carry = 0;           // сколько несёт
     int workLeft = 0;        // циклов работы до полной ноши
     std::optional<std::size_t> base; // куда несёт
@@ -107,11 +108,31 @@ public:
     // радиус работы. Не истощаются (упрощение).
     struct Source {
         int x = 0, y = 0;
-        int resource = 0;
+        int resource = 0; // −1 — сейчас не источник (поле растёт или сжато)
         int perWork = 0;
         int radius = 0;
+        // Объект с переходами (поле complex.lst): номер в списке, шаги и работы в этой стадии.
+        int object = -1;
+        int timer = 0, works = 0;
     };
     std::vector<Source> sources;
+
+    // Правила объектов с переходами (complex.lst + complex.rsr): стадии полей растут со
+    // временем ([TIMETRANSFORM]) и сжинаются работой ([WORKTRANSFORM]); источником стадия
+    // бывает, только если она есть в [SOURCES].
+    struct ObjectRules {
+        assets::SpriteList list;
+        std::unordered_map<std::string, assets::SpriteSource> sources;
+        std::unordered_map<std::string, assets::SpriteTransform> time, work;
+        int find(std::string_view id) const;
+    };
+    // Время [TIMETRANSFORM] в шагах на единицу. Своё допущение: единица = шаг (рост
+    // FG0 → FG24, 120 переходов по 10, — 48 с); в коде оригинала единица не найдена.
+    static constexpr int kTransformTimeSteps = 1;
+    void setObjectRules(ObjectRules rules) { rules_ = std::move(rules); }
+    const ObjectRules& objectRules() const { return rules_; }
+    // Объект с переходами в точке (стадия object — номер в rules.list); номер источника.
+    std::size_t addObject(int object, int x, int y);
     // Ближайший источник к мировой точке в пределах maxDistance.
     std::optional<std::size_t> sourceNear(int x, int y, int maxDistance) const;
     // Приказ добывать: идти к источнику, работать TAKERESSTAGES циклов анимации
@@ -206,6 +227,9 @@ private:
     void updateGather(std::size_t index);
     void updateBuild(std::size_t index);
     void updateProduction(std::size_t index);
+    void updateObjects();
+    void setStage(Source& s, int object);
+    void workDone(std::size_t source);
     void updateEnter(std::size_t index);
     void updateMine(std::size_t index);
     // Юниты в закрытых клетках (под новым зданием) уходят к ближайшей открытой.
@@ -215,7 +239,8 @@ private:
     static const assets::UnitAnimation* workAnimation(const assets::UnitDesc& d, int resource);
     static const assets::UnitAnimation* carryAnimation(const assets::UnitDesc& d, int resource);
     void separate();
-    std::vector<std::pair<std::int64_t, std::uint32_t>> cells_; // для separate(): клетка → юнит
+    std::vector<std::pair<std::int64_t, std::uint32_t>> cells_;
+    ObjectRules rules_; // для separate(): клетка → юнит
 
     std::vector<Unit> units_;
     LockMap lock_;
