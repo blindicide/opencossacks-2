@@ -237,6 +237,7 @@ struct MapView {
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
     bool showLocks = false; // L — показать закрытые клетки
+    int player = 0;         // за кого играем: приказы слушают только его юниты
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
@@ -412,24 +413,59 @@ struct MapView {
         return best;
     }
 
-    // Левая кнопка — выбрать юнит (пустое место снимает выбор), правая — идти в точку.
-    // Группа сохраняет строй: каждый идёт со своим смещением от центра группы.
+    // Рамка выбора: нажатие левой кнопки начинает её, отпускание выбирает.
+    std::optional<std::array<float, 2>> dragStart;
+
+    // Левая кнопка — начало рамки; правая — идти в точку. Группа сохраняет строй:
+    // каждый идёт со своим смещением от центра группы.
     void handleClick(const oc2::platform::Window::Click& c) {
         auto& us = world.units();
         if (c.button == 1) {
-            for (auto& u : us) u.selected = false;
-            if (auto i = pick(c.x, c.y)) us[*i].selected = true;
+            dragStart = std::array<float, 2>{c.x, c.y};
         } else if (c.button == 3) {
             const auto [tx, ty] = screenToWorld(c.x, c.y);
             long cx = 0, cy = 0, n = 0;
             for (const auto& u : us)
-                if (u.selected) cx += u.x(), cy += u.y(), ++n;
+                if (u.selected && u.player == player) cx += u.x(), cy += u.y(), ++n;
             if (n == 0) return;
             cx /= n;
             cy /= n;
             for (std::size_t i = 0; i < us.size(); ++i)
-                if (us[i].selected) world.orderMove(i, tx + int(us[i].x() - cx), ty + int(us[i].y() - cy));
+                if (us[i].selected && us[i].player == player)
+                    world.orderMove(i, tx + int(us[i].x() - cx), ty + int(us[i].y() - cy));
         }
+    }
+
+    // Отпускание левой кнопки: короткое — выбор юнита под курсором (пустое место снимает
+    // выбор), протяжка — все не-здания игрока в рамке (по точке земли).
+    void handleRelease(const oc2::platform::Window::Click& c, int player) {
+        if (c.button != 1 || !dragStart) return;
+        const auto [x0, y0] = *dragStart;
+        dragStart.reset();
+        auto& us = world.units();
+        if (std::abs(c.x - x0) < 5.0f && std::abs(c.y - y0) < 5.0f) {
+            for (auto& u : us) u.selected = false;
+            if (auto i = pick(c.x, c.y)) us[*i].selected = true;
+            return;
+        }
+        const float x1 = std::min(x0, c.x), x2 = std::max(x0, c.x), y1 = std::min(y0, c.y), y2 = std::max(y0, c.y);
+        for (auto& u : us) {
+            const float gx = (objects->groundX(u) - camera.x) * camera.zoom;
+            const float gy = (objects->groundY(u) - camera.y) * camera.zoom;
+            u.selected = !u.building() && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 && gy <= y2;
+        }
+    }
+
+    void drawDragBox(oc2::render::SpriteRenderer& sprites, const oc2::platform::Window& window) const {
+        if (!dragStart) return;
+        const float x1 = std::min((*dragStart)[0], window.mouseX), x2 = std::max((*dragStart)[0], window.mouseX);
+        const float y1 = std::min((*dragStart)[1], window.mouseY), y2 = std::max((*dragStart)[1], window.mouseY);
+        if (x2 - x1 < 5.0f && y2 - y1 < 5.0f) return;
+        const std::uint32_t c = 0xFF30E030;
+        sprites.fillRect(x1, y1, x2 - x1, 1.0f, c);
+        sprites.fillRect(x1, y2, x2 - x1, 1.0f, c);
+        sprites.fillRect(x1, y1, 1.0f, y2 - y1, c);
+        sprites.fillRect(x2, y1, 1.0f, y2 - y1 + 1.0f, c);
     }
 
     // Прокрутка: стрелки (состояние клавиш) и курсор у края окна.
@@ -647,11 +683,13 @@ int main(int argc, char** argv) {
                 oc2::ui::Widget* overHud = hud && window.mouseInside ? hud->updateHover(hx, hy) : nullptr;
                 for (const auto& click : window.clicks)
                     if (!overHud) mapView->handleClick(click);
+                for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 mapView->advance(dt);
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
                 mapView->drawLocks(sprites, e);
-                screen->updateHud(mapView->world, 0);
+                mapView->drawDragBox(sprites, window);
+                screen->updateHud(mapView->world, mapView->player);
                 if (hud) hud->draw(screen->hudView);
             } else if (screen) {
                 screen->fit(e);

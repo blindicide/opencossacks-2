@@ -45,6 +45,8 @@ public:
         float x, y;
     };
     std::vector<Click> clicks;
+    // Отпускания кнопок мыши с прошлого вызова pumpEvents().
+    std::vector<Click> releases;
     // Прокрутка колесом с прошлого вызова pumpEvents() (больше нуля — от себя).
     float wheel = 0.0f;
 
