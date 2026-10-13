@@ -89,7 +89,8 @@ void TextTable::loadGame(const fs::path& root) {
 }
 
 std::string TextTable::lookup(std::string_view key) const {
-    if (key.empty() || key.front() != '#') return cp1251ToUtf8(key);
+    // Как GetTextByID: ищется любой ключ, «#» в начале не обязателен.
+    if (key.empty()) return {};
     auto it = entries_.find(std::string(key));
     if (it == entries_.end()) return cp1251ToUtf8(key);
     return it->second;

@@ -496,13 +496,15 @@ TEST_CASE("Таблица текстов") {
     t.addFile("#MAIN_MENU_Window \xC3\xCB\xC0\xC2\xCD\xCE\xC5 \xCC\xC5\xCD\xDE\r\n"
               "\r\n"
               "#TWO   leading spaces are trimmed\r\n"
-              "#MAIN_MENU_Window the second definition is ignored\r\n");
+              "#MAIN_MENU_Window the second definition is ignored\r\n"
+              "PLAIN_KEY keys without a hash\r\n");
     t.addFile("#TWO also from another file\n");
     CHECK(t.lookup("#MAIN_MENU_Window") == "ГЛАВНОЕ МЕНЮ");
     CHECK(t.lookup("#TWO") == "leading spaces are trimmed");
     CHECK(t.lookup("#NOPE") == "#NOPE");
     CHECK(t.lookup("Plain text") == "Plain text");
-    CHECK(t.size() == 2);
+    CHECK(t.lookup("PLAIN_KEY") == "keys without a hash");
+    CHECK(t.size() == 3);
 }
 
 TEST_CASE("Изображения: BMP и отказ на мусоре") {

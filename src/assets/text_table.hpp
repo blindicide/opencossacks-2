@@ -18,8 +18,8 @@ public:
     // Разбирает один файл (содержимое в Windows-1251).
     void addFile(std::string_view content);
 
-    // Текст по ключу (UTF-8). Ключ без «#» в начале возвращается как есть — так в
-    // интерфейсе задают надписи без перевода.
+    // Текст по ключу (UTF-8). Неизвестный ключ возвращается как есть — так в
+    // интерфейсе задают надписи без перевода («Version 1.0»).
     std::string lookup(std::string_view key) const;
     bool contains(std::string_view key) const { return entries_.count(std::string(key)) != 0; }
     std::size_t size() const { return entries_.size(); }

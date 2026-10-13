@@ -46,4 +46,43 @@ std::string cp1251ToUtf8(std::string_view text) {
     return out;
 }
 
+std::string utf8ToCp1251(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        const auto b = static_cast<unsigned char>(text[i]);
+        std::uint32_t cp = 0;
+        std::size_t len = 1;
+        if (b < 0x80) {
+            cp = b;
+        } else if ((b & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            cp = ((b & 0x1Fu) << 6) | (static_cast<unsigned char>(text[i + 1]) & 0x3Fu);
+            len = 2;
+        } else if ((b & 0xF0) == 0xE0 && i + 2 < text.size()) {
+            cp = ((b & 0x0Fu) << 12) | ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 6) |
+                 (static_cast<unsigned char>(text[i + 2]) & 0x3Fu);
+            len = 3;
+        } else {
+            cp = '?';
+            len = (b & 0xF8) == 0xF0 ? 4 : 1;
+        }
+        i += len;
+
+        if (cp < 0x80) {
+            out.push_back(char(cp));
+        } else if (cp >= 0x0410 && cp <= 0x044F) {
+            out.push_back(char(0xC0 + (cp - 0x0410)));
+        } else {
+            char c = '?';
+            for (std::size_t k = 0; k < kHigh.size(); ++k)
+                if (kHigh[k] == cp) {
+                    c = char(0x80 + k);
+                    break;
+                }
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
 } // namespace oc2::assets
