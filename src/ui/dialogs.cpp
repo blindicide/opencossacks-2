@@ -201,9 +201,60 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
         break;
     }
 
+    if (w.type == "ListDesk") {
+        w.marginX = int(node.intValue("marginX").value_or(0));
+        w.marginY = int(node.intValue("marginY").value_or(0));
+        if (const assets::XmlNode* el = node.child("Element"); el && !el->children.empty())
+            w.listElement = std::make_shared<const Widget>(parse(el->children.front(), el->children.front().name));
+    }
+
     if (const assets::XmlNode* kids = node.child("ChildDialogs"))
         for (const assets::XmlNode& c : kids->children) w.children.push_back(parse(c, c.name));
     return w;
+}
+
+void Dialog::setListItems(Widget& list, const std::vector<std::string>& texts) {
+    if (!list.listElement) return;
+    list.children.clear();
+    const Widget& tpl = *list.listElement;
+    for (std::size_t i = 0; i < texts.size(); ++i) {
+        Widget row = tpl;
+        row.text = texts[i];
+        row.x = list.marginX;
+        row.y = list.marginY + int(i) * tpl.height;
+        row.listIndex = int(i);
+        row.state = int(i) == list.currentElement ? 1 : 0;
+        list.children.push_back(std::move(row));
+    }
+    if (list.currentElement >= int(texts.size())) list.currentElement = -1;
+}
+
+void Dialog::selectListItem(Widget& list, int index) {
+    for (Widget& row : list.children)
+        if (row.listIndex >= 0) row.state = row.listIndex == index ? 1 : 0;
+    list.currentElement = index;
+}
+
+Widget* Dialog::listOf(const Widget& row) {
+    if (row.listIndex < 0) return nullptr;
+    Widget* owner = nullptr;
+    forEach([&](Widget& w) {
+        if (w.listElement)
+            for (const Widget& c : w.children)
+                if (&c == &row) owner = &w;
+    });
+    return owner;
+}
+
+void Dialog::scrollListAt(float vx, float vy, int rows) {
+    forEach([&](Widget& w) {
+        if (!w.listElement || !w.visible || w.children.empty()) return;
+        if (vx < float(w.absX) || vx >= float(w.absX + w.width) || vy < float(w.absY) || vy >= float(w.absY + w.height))
+            return;
+        const int rowH = std::max(1, w.listElement->height);
+        const int content = w.marginY * 2 + int(w.children.size()) * rowH;
+        w.scrollY = std::clamp(w.scrollY + rows * rowH, 0, std::max(0, content - w.height));
+    });
 }
 
 Widget* Dialog::updateHover(float vx, float vy) {
@@ -219,6 +270,10 @@ Widget* Dialog::updateHover(float vx, float vy) {
         if (clickable && w.enabled && vx >= float(w.absX) && vx < float(w.absX + w.drawnW) && vy >= float(w.absY) &&
             vy < float(w.absY + w.drawnH))
             top = &w;
+        // Строки списка вне его рамки (прокручены) не нажимаются.
+        if (w.listElement && (vx < float(w.absX) || vx >= float(w.absX + w.width) || vy < float(w.absY) ||
+                              vy >= float(w.absY + w.height)))
+            return;
         for (Widget& c : w.children) self(self, c);
     };
     visit(visit, root_);
@@ -282,6 +337,14 @@ void Dialog::drawWidget(Widget& w, int parentX, int parentY, const View& view) {
     case WidgetKind::Other: break;
     }
 
+    if (w.listElement) {
+        // Строки списка — со сдвигом прокрутки, обрезанные рамкой списка.
+        ctx_.renderer.pushClip(int(view.x(float(w.absX))), int(view.y(float(w.absY))),
+                               int(view.x(float(w.absX + w.width))), int(view.y(float(w.absY + w.height))));
+        for (Widget& c : w.children) drawWidget(c, w.absX, w.absY - w.scrollY, view);
+        ctx_.renderer.popClip();
+        return;
+    }
     for (Widget& c : w.children) drawWidget(c, w.absX, w.absY, view);
 }
 

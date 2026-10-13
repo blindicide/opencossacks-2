@@ -99,6 +99,15 @@ struct Widget {
 
     std::vector<Widget> children;
 
+    // ListDesk: образец строки (<Element>), поля, выбранная строка, сдвиг прокрутки.
+    // Строки — дети-копии образца, их создаёт Dialog::setListItems().
+    std::shared_ptr<const Widget> listElement;
+    int marginX = 0, marginY = 0;
+    int currentElement = -1;
+    int scrollY = 0;
+    // У строки списка — её номер (−1 у прочих элементов).
+    int listIndex = -1;
+
     // Состояние при работе.
     bool hover = false;
     int absX = 0, absY = 0; // левый верхний угол на последнем кадре
@@ -121,6 +130,15 @@ public:
     // Отмечает кнопку под курсором (виртуальные координаты); nullptr — курсор вне кнопок.
     Widget* updateHover(float vx, float vy);
     void draw(const View& view);
+
+    // Заполняет ListDesk строками (текст — Windows-1251), сохраняя выбор (FUN_013d6530).
+    void setListItems(Widget& list, const std::vector<std::string>& texts);
+    // Выбор строки (va_ListItem, FUN_013d4bb0): у прежней State = 0, у новой — 1.
+    static void selectListItem(Widget& list, int index);
+    // Список, которому принадлежит строка (nullptr — не строка списка).
+    Widget* listOf(const Widget& row);
+    // Прокрутка списка под точкой (виртуальные координаты) на rows строк.
+    void scrollListAt(float vx, float vy, int rows);
 
     // Типы элементов, которые встретились в файле, но пока не выводятся.
     const std::vector<std::string>& unsupported() const { return unsupported_; }

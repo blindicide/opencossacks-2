@@ -64,7 +64,8 @@ opencossacks-2/
 │   ├── ui/                 — интерфейс из данных игры
 │   │   ├── fonts.*         — шрифты по именам оригинала (MenuTitleWhite, fonBlow_A, …) и из fonts.xml
 │   │   ├── rich_text.*     — упрощённый DrawMultilineText: строки, перенос, теги {C…} {F…} {A…}
-│   │   └── dialogs.*       — окна *.DialogsSystem.xml: DialogsDesk, BitPicture, GPPicture, TextButton, VitButton
+│   │   ├── dialogs.*       — окна *.DialogsSystem.xml: DialogsDesk, ListDesk (строки по образцу, выбор, прокрутка), BitPicture, GPPicture, TextButton, VitButton
+│   │   └── menus.*         — стопка меню, действия кнопок (переходы, выбор карты, «Начать»)
 │   └── render/
 │       ├── vulkan_context.* — экземпляр и устройство Vulkan, VMA, цепочка обмена, кадры beginFrame/endFrame, снимки экрана
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием

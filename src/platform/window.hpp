@@ -45,6 +45,8 @@ public:
         float x, y;
     };
     std::vector<Click> clicks;
+    // Прокрутка колесом с прошлого вызова pumpEvents() (больше нуля — от себя).
+    float wheel = 0.0f;
 
 private:
     SDL_Window* window_ = nullptr;

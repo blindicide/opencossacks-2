@@ -48,10 +48,13 @@ public:
     // Сплошной прямоугольник цвета ARGB (с прозрачностью).
     void fillRect(float x, float y, float w, float h, std::uint32_t argb);
 
-    // Область отсечения для следующих вызовов drawTriangles() (пиксели экрана).
-    // Сбрасывается в flush().
+    // Область отсечения для следующих вызовов drawTriangles() (пиксели экрана),
+    // всегда внутри внешней области pushClip(). Сбрасывается в flush().
     void setClip(int x1, int y1, int x2, int y2);
-    void resetClip() { clip_.reset(); }
+    void resetClip() { clip_ = outer_.empty() ? std::nullopt : std::optional<VkRect2D>(outer_.back()); }
+    // Вложенное отсечение (список внутри окна): внешняя область для setClip/resetClip.
+    void pushClip(int x1, int y1, int x2, int y2);
+    void popClip();
 
     // Записывает накопленное в буфер команд текущего кадра и очищает очередь.
     void flush(VkCommandBuffer cmd);
@@ -92,6 +95,7 @@ private:
 
     std::vector<Texture> textures_;
     std::optional<VkRect2D> clip_;
+    std::vector<VkRect2D> outer_; // стопка pushClip()
     std::optional<TextureId> white_; // 1×1 белая текстура для fillRect()
     std::vector<SpriteVertex> vertices_;
     std::vector<std::uint32_t> indices_;

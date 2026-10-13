@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include "assets/game_paths.hpp"
+#include "assets/text_encoding.hpp"
 
 namespace oc2::ui {
 
@@ -50,7 +51,10 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
         std::string line;
         while (std::getline(in, line)) {
             line = trim(line);
-            if (line.size() > 1 && line[0] == '#') skirmishMaps_.push_back("Missions/Skirmish/" + line.substr(1) + ".m3d");
+            if (line.size() > 1 && line[0] == '#') {
+                const std::string base = "Missions/Skirmish/" + line.substr(1);
+                skirmishMaps_.push_back({line, base + ".m3d", base + ".txt"});
+            }
         }
     }
 }
@@ -81,8 +85,30 @@ Dialog& Menus::current() {
 
 void Menus::update() {
     if (stack_.empty()) return;
-    current().forEach([&](Widget& w) {
+    Dialog& dialog = current();
+    dialog.forEach([&](Widget& w) {
         for (const Widget::Action& a : w.actions) {
+            // FUN_013d6530: список карт сражений — названия из текстов по ключам SingleMiss.txt.
+            if (a.type == "va_LD_Skirmish" && w.children.size() != skirmishMaps_.size()) {
+                std::vector<std::string> names;
+                for (const SkirmishMap& m : skirmishMaps_) {
+                    // Название — «#Skirmish18_TXT» (Missions\Text\Skirbatlnames.txt).
+                    const std::string nameKey = m.key + "_TXT";
+                    names.push_back(assets::utf8ToCp1251(ctx_.texts.lookup(ctx_.texts.contains(nameKey) ? nameKey : m.key)));
+                }
+                if (w.currentElement < 0) w.currentElement = int(selectedSkirmish);
+                dialog.setListItems(w, names);
+            }
+            // FUN_013d7350: описание выбранной карты — текст её .txt с разметкой.
+            if (a.type == "va_MissDescription" && shownDescription_ != selectedSkirmish &&
+                selectedSkirmish < skirmishMaps_.size()) {
+                shownDescription_ = selectedSkirmish;
+                w.text.clear();
+                if (auto path = assets::findCaseInsensitive(ctx_.dataRoot, skirmishMaps_[selectedSkirmish].description)) {
+                    std::ifstream in(*path, std::ios::binary);
+                    w.text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+                }
+            }
             // FUN_013eccd0: панель видна, только когда открыта модальная панель с её именем.
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
             // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки
@@ -100,6 +126,14 @@ void Menus::click(Widget& w) {
             if (!open(a.name)) std::fprintf(stderr, "меню «%s» не найдено\n", a.name.c_str());
             return;
         }
+        if (a.type == "va_ListItem") { // FUN_013d4bb0
+            if (Widget* list = current().listOf(w)) {
+                Dialog::selectListItem(*list, w.listIndex);
+                for (const Widget::Action& la : list->actions)
+                    if (la.type == "va_LD_Skirmish") selectedSkirmish = std::size_t(w.listIndex);
+            }
+            continue;
+        }
         // FUN_013ddfc0 — отмена действий панели, FUN_013e7150 — загрузка сохранения из
         // списка файлов; списка сохранений ещё нет, обе — без последствий.
         if (a.type == "cva_MM_CancelInDesk" || a.type == "cva_LoadInGame_Accept") continue;
@@ -108,7 +142,7 @@ void Menus::click(Widget& w) {
             // случайную карту — генератора пока нет). Выбора карты в меню ещё нет:
             // берётся selectedSkirmish из списка SingleMiss.txt.
             if (selectedSkirmish < skirmishMaps_.size())
-                startRequest_ = skirmishMaps_[selectedSkirmish];
+                startRequest_ = skirmishMaps_[selectedSkirmish].map;
             else
                 std::fprintf(stderr, "нет списка карт Missions/SingleMiss.txt\n");
             return;

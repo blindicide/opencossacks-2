@@ -33,9 +33,14 @@ public:
     // Своя у каждого открытого меню: при открытии — «Main», при возврате — прежняя.
     const std::string& modalDesk() const { return stack_.back().modalDesk; }
 
-    // Карты одиночных сражений из Missions\SingleMiss.txt: ключи «#Skirmish18» →
-    // Missions/Skirmish/Skirmish18.m3d, в порядке файла.
-    const std::vector<std::string>& skirmishMaps() const { return skirmishMaps_; }
+    // Карты одиночных сражений из Missions\SingleMiss.txt: ключ «#Skirmish18» —
+    // и название в текстах, и имя файлов Missions/Skirmish/Skirmish18.m3d и .txt.
+    struct SkirmishMap {
+        std::string key;  // «#Skirmish18»
+        std::string map;  // путь к .m3d относительно данных
+        std::string description; // путь к .txt
+    };
+    const std::vector<SkirmishMap>& skirmishMaps() const { return skirmishMaps_; }
     std::size_t selectedSkirmish = 0;
 
     // Запрос начать игру (cva_MM_SinglStart): путь карты относительно данных.
@@ -55,7 +60,8 @@ private:
         std::string modalDesk;
     };
     std::vector<Open> stack_;
-    std::vector<std::string> skirmishMaps_;
+    std::vector<SkirmishMap> skirmishMaps_;
+    std::size_t shownDescription_ = std::size_t(-1); // какое описание уже загружено в панель
     std::optional<std::string> startRequest_;
 };
 

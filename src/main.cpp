@@ -546,6 +546,7 @@ int main(int argc, char** argv) {
             const VkExtent2D e = vulkan.extent();
             if (mapView) {
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
+                if (window.wheel != 0.0f) mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
                 mapView->scroll(dt, window, e);
                 for (const auto& click : window.clicks) mapView->handleClick(click);
                 mapView->advance(dt);
@@ -566,6 +567,7 @@ int main(int argc, char** argv) {
                 }
                 oc2::ui::Widget* hovered = menus.current().updateHover(mx, my);
                 if (opts->click && opts->mouse && frame == 2) window.clicks.push_back({1, mx, my});
+                if (window.wheel != 0.0f) menus.current().scrollListAt(mx, my, window.wheel > 0 ? -1 : 1);
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;
                     menus.click(*hovered);

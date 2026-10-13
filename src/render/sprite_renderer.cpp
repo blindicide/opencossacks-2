@@ -323,10 +323,27 @@ void SpriteRenderer::fillRect(float x, float y, float w, float h, std::uint32_t 
 void SpriteRenderer::setClip(int x1, int y1, int x2, int y2) {
     x1 = std::max(x1, 0);
     y1 = std::max(y1, 0);
+    if (!outer_.empty()) {
+        const VkRect2D& o = outer_.back();
+        x1 = std::max(x1, o.offset.x);
+        y1 = std::max(y1, o.offset.y);
+        x2 = std::min(x2, o.offset.x + int(o.extent.width));
+        y2 = std::min(y2, o.offset.y + int(o.extent.height));
+    }
     VkRect2D r{};
     r.offset = {x1, y1};
     r.extent = {std::uint32_t(std::max(x2 - x1, 0)), std::uint32_t(std::max(y2 - y1, 0))};
     clip_ = r;
+}
+
+void SpriteRenderer::pushClip(int x1, int y1, int x2, int y2) {
+    setClip(x1, y1, x2, y2);
+    outer_.push_back(*clip_);
+}
+
+void SpriteRenderer::popClip() {
+    if (!outer_.empty()) outer_.pop_back();
+    resetClip();
 }
 
 void SpriteRenderer::ensureBuffer(Buffer& b, VkDeviceSize size, VkBufferUsageFlags usage) {
@@ -403,6 +420,7 @@ void SpriteRenderer::flush(VkCommandBuffer cmd) {
     indices_.clear();
     batches_.clear();
     clip_.reset();
+    outer_.clear();
 }
 
 } // namespace oc2::render
