@@ -25,6 +25,12 @@ FetchContent_Declare(bzip2
     URL_HASH SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
     SOURCE_SUBDIR none)
 
+# stb_image (общественное достояние): JPG, TGA, BMP и PNG интерфейса.
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20
+    SOURCE_SUBDIR  none)
+
 FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG        release-3.4.18
@@ -37,7 +43,7 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_VULKAN ON CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(Vulkan-Headers SDL3 volk VulkanMemoryAllocator bzip2)
+FetchContent_MakeAvailable(Vulkan-Headers SDL3 volk VulkanMemoryAllocator bzip2 stb)
 
 # volk сам загружает Vulkan во время выполнения; линковать libvulkan не нужно.
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
@@ -74,3 +80,8 @@ if(MSVC)
 else()
     target_compile_options(bz2 PRIVATE -w)
 endif()
+
+# Реализация stb_image — в src/assets/image_decode.cpp; заголовок системный, чтобы
+# не смешивать его предупреждения с нашими.
+add_library(stb_headers INTERFACE)
+target_include_directories(stb_headers SYSTEM INTERFACE ${stb_SOURCE_DIR})

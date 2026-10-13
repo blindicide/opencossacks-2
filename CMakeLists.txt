@@ -29,13 +29,14 @@ add_library(oc2_assets STATIC
     src/assets/g16.cpp
     src/assets/g2d.cpp
     src/assets/game_paths.cpp
+    src/assets/image_decode.cpp
     src/assets/png.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
     src/assets/xml_tree.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
-target_link_libraries(oc2_assets PRIVATE bz2)
+target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 
 add_executable(opencossacks2
     src/main.cpp

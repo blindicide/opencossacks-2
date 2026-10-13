@@ -33,7 +33,7 @@ opencossacks-2/
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
 ├── cmake/
-│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers, VMA, bzip2
+│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers, VMA, bzip2, stb
 │   └── Packaging.cmake     — пакеты CPack: .deb и .rpm (Linux), .zip (Windows)
 ├── packaging/linux/        — ярлык .desktop
 ├── src/
@@ -45,6 +45,7 @@ opencossacks-2/
 │   │   ├── g16.*           — спрайты .g16/.g17: разделы, блоки, плитки, сборка кадров
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
+│   │   ├── image_decode.*  — JPG, PNG, TGA, BMP через stb_image
 │   │   ├── xml_tree.*      — разбор XML-диалекта игры (диалоги, настройки, состояния шейдеров)
 │   │   ├── text_table.*    — тексты интерфейса «#КЛЮЧ текст» в порядке загрузки оригинала
 │   │   ├── text_encoding.* — Windows-1251 → UTF-8
@@ -79,6 +80,7 @@ opencossacks-2/
 - `oc2::render::SpriteRenderer` (`src/render/sprite_renderer.hpp`): `createTexture()` загружает изображение, `drawTriangles()` ставит треугольники в очередь, `flush()` записывает их в кадр.
 - `oc2::assets::parseXml()` (`src/assets/xml_tree.hpp`): дерево `XmlNode` с удобными `intValue()`, `boolValue()`, `hexValue()` и др.
 - `oc2::assets::TextTable` (`src/assets/text_table.hpp`): `loadGame()` читает тексты игры, `lookup("#КЛЮЧ")` возвращает строку в UTF-8.
+- `oc2::assets::decodeImage()` (`src/assets/image_decode.hpp`): JPG/PNG/TGA/BMP → RGBA8.
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
 
