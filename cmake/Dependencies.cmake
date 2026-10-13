@@ -39,7 +39,9 @@ target_include_directories(volk PUBLIC ${volk_SOURCE_DIR})
 target_link_libraries(volk PUBLIC Vulkan::Headers ${CMAKE_DL_LIBS})
 target_compile_definitions(volk PUBLIC VK_NO_PROTOTYPES)
 if(WIN32)
-    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
+    # windows.h (его подключают volk и VMA) без NOMINMAX определяет макросы min и max,
+    # которые ломают std::min и std::max.
+    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 # VMA: функции Vulkan берёт через volk во время выполнения. Заголовок подключается как
