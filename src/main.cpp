@@ -636,6 +636,7 @@ struct MapView {
             if (auto script = oc2::world::loadAiScript(data, code)) {
                 ais.push_back(std::make_unique<oc2::world::StrategicAi>(world, *units, p, std::move(*script), 1,
                                                                         0x9E3779B9u * std::uint32_t(p + 1)));
+                ais.back()->setSettlements(settlements.get());
                 std::printf("ИИ игрока %d: нация %s\n", p, code.c_str());
             } else {
                 std::printf("ИИ игрока %d: нет сценария для нации %s\n", p, code.c_str());

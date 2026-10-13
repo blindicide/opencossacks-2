@@ -31,6 +31,7 @@
 #include "assets/xml_tree.hpp"
 #include "check.hpp"
 #include "world/settlements.hpp"
+#include "world/strategic_ai.hpp"
 #include "world/world.hpp"
 
 #include <bzlib.h>
@@ -1197,6 +1198,21 @@ TEST_CASE("Поселения: захват, доход, разорение") {
     for (std::size_t g : guards) w.units()[g].dead = true;
     for (int i = 0; i < 16; ++i) w.step(), st.step();
     CHECK(st.owned(1) == 1 && w.units()[core].player == 1);
+
+    // Условие ИИ AmountOfSettlements: по ресурсу; без поселений — ложно.
+    StrategicAi ai(w, catalog, 1, oc2::assets::AiScript{});
+    oc2::assets::AiCondition cond;
+    cond.kind = oc2::assets::AiCondition::Kind::Settlements;
+    cond.op = oc2::assets::AiOp::More;
+    cond.value = 0;
+    cond.resource = 1;
+    CHECK(!ai.holds(cond));
+    ai.setSettlements(&st);
+    CHECK(ai.holds(cond));
+    cond.resource = 2;
+    CHECK(!ai.holds(cond));
+    cond.resource = -1;
+    CHECK(ai.holds(cond));
 
     // Все постройки разрушены — поселение ничьё и не действует.
     w.units()[core].dead = w.units()[dom].dead = true;

@@ -69,6 +69,9 @@ AiCondition parseCondition(const XmlNode& e) {
         c.maxAmount = intOf(e, "MaxAmount", 1000000);
     } else if (e.name == "UnitsLost") {
         c.kind = K::UnitsLost;
+    } else if (e.name == "AmountOfSettlements") {
+        c.kind = K::Settlements;
+        c.resource = resourceOf(e, "ResType");
     }
     return c;
 }

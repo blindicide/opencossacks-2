@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "assets/ai_script.hpp"
+#include "world/settlements.hpp"
 #include "world/unit_catalog.hpp"
 #include "world/world.hpp"
 
@@ -35,7 +36,7 @@ std::string playerNation(const World& world, const UnitCatalog& catalog, int pla
 //   в 400; строят до MaxPeasants ближайших свободных крестьян;
 // - за раз начинается не больше одной стройки;
 // - BuyResource — продажа Amount на общем рынке World::market (без проверки, есть ли рынок у игрока);
-//   AmountOfSettlements и UpgradeIsRun ложны.
+//   AmountOfSettlements — по Settlements::owned (без уровней улучшений), UpgradeIsRun ложно.
 class StrategicAi {
 public:
     static constexpr int kThinkSteps = 25;
@@ -52,6 +53,9 @@ public:
     int player() const { return player_; }
     // Последнее распределение крестьян: дерево, камень, еда.
     std::array<int, 3> distribution() const { return {onWood_, onStone_, onFood_}; }
+
+    // Поселения для AmountOfSettlements; без них условие ложно.
+    void setSettlements(const Settlements* s) { settlements_ = s; }
 
     // Выполнено ли условие сейчас; сработавший OnceInPeriod отсчитывает новый период.
     bool holds(const assets::AiCondition& c);
@@ -78,6 +82,7 @@ private:
     int player_;
     assets::AiScript script_;
     int difficulty_;
+    const Settlements* settlements_ = nullptr;
     std::mt19937 rng_;
     int onWood_ = 1, onStone_ = 1, onFood_ = 1;
     bool buildStarted_ = false; // в этом раздумье уже начата стройка

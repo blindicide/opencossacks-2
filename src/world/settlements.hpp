@@ -50,8 +50,8 @@ public:
 
     // Вызывать после каждого шага мира.
     void step();
-    // Сколько поселений у игрока.
-    int owned(int player) const;
+    // Сколько поселений у игрока; resource ≥ 0 — только с этим ресурсом.
+    int owned(int player, int resource = -1) const;
     const std::vector<Settlement>& list() const { return list_; }
 
 private:

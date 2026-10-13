@@ -106,9 +106,10 @@ void Settlements::step() {
     }
 }
 
-int Settlements::owned(int player) const {
-    return int(std::count_if(list_.begin(), list_.end(),
-                             [&](const Settlement& s) { return s.active && s.owner == player; }));
+int Settlements::owned(int player, int resource) const {
+    return int(std::count_if(list_.begin(), list_.end(), [&](const Settlement& s) {
+        return s.active && s.owner == player && (resource < 0 || s.resource == resource);
+    }));
 }
 
 void Settlements::capture(Settlement& s) {

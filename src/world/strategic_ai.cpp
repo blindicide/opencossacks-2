@@ -175,6 +175,8 @@ bool StrategicAi::holds(const assets::AiCondition& c) {
                 ++n;
         return n >= c.minAmount && n <= c.maxAmount;
     }
+    case K::Settlements:
+        return settlements_ && assets::aiCompare(settlements_->owned(player_, c.resource), c.op, c.value);
     case K::Unsupported: return false;
     }
     return false;

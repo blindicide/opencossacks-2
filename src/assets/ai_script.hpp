@@ -25,7 +25,8 @@ struct AiCondition {
         Difficulty,      // Difficulty: OpType, DifficultyValue
         EnemyNearBase,   // EnemyNearBase: Radius, MinAmount, MaxAmount (и виды — пока все)
         UnitsLost,       // UnitsLost: UnitType, OpType, Value
-        Unsupported,     // AmountOfSettlements, UpgradeIsRun — механики ещё нет: ложно
+        Settlements,     // AmountOfSettlements: ResType, OpType, Value (Level, CheckUpgrades — без улучшений)
+        Unsupported,     // UpgradeIsRun — механики ещё нет: ложно
     };
     Kind kind = Kind::Unsupported;
     AiOp op = AiOp::More;
