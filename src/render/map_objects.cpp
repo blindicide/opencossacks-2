@@ -110,7 +110,7 @@ void MapObjects::appendUnit(const world::Unit& u, std::vector<Item>& out) {
         const std::size_t perDirection = total / std::size_t(rotations);
         if (perDirection == 0 || fr.frame < 0 || std::size_t(fr.frame) >= perDirection) continue;
         // В файле rotations направлений от юга (к зрителю) до севера, вторая половина
-        // круга — их отражение (сторона отражения не сверена с оригиналом).
+        // круга — их отражение (сторона отражения сверена по строю на Skirmish18: направление 32 — к юго-востоку).
         int sprite = 0;
         bool mirror = false;
         if (rotations > 1) {
