@@ -31,7 +31,7 @@ opencossacks-2/
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
 ├── cmake/
-│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers
+│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers, VMA
 │   └── Packaging.cmake     — пакеты CPack: .deb и .rpm (Linux), .zip (Windows)
 ├── packaging/linux/        — ярлык .desktop
 ├── src/
@@ -43,7 +43,9 @@ opencossacks-2/
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
-│   └── render/vulkan_context.* — экземпляр и устройство Vulkan, цепочка обмена, цикл кадров
+│   └── render/
+│       ├── vulkan_context.* — экземпляр и устройство Vulkan, распределитель памяти VMA, цепочка обмена, цикл кадров
+│       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
 ├── tests/                  — тесты на синтетических данных (check.hpp — мини-набор проверок)
 ├── tools/oc2-extract/      — утилита: выгрузка спрайтов в PNG, проверка чтения всех файлов
 ├── tools/ghidra_scripts/

@@ -30,7 +30,7 @@ add_executable(opencossacks2
     src/platform/window.cpp
     src/render/vulkan_context.cpp
 )
-target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk)
+target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk vma)
 if(WIN32)
     set_target_properties(opencossacks2 PROPERTIES WIN32_EXECUTABLE ON)
 endif()

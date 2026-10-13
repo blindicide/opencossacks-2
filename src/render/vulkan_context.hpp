@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <volk.h>
+#include <vk_mem_alloc.h>
 
 namespace oc2::platform { class Window; }
 
@@ -39,6 +40,7 @@ private:
     void createInstance();
     void pickPhysicalDevice();
     void createDevice();
+    void createAllocator();
     void createSwapchain();
     void destroySwapchain();
     void recreateSwapchain();
@@ -54,6 +56,7 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     std::uint32_t queueFamily_ = 0;
     VkQueue queue_ = VK_NULL_HANDLE;
+    VmaAllocator allocator_ = VK_NULL_HANDLE;
     std::string deviceName_;
 
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;

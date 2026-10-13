@@ -46,6 +46,7 @@ VulkanContext::VulkanContext(platform::Window& window) : window_(window) {
     surface_ = window_.createSurface(instance_);
     pickPhysicalDevice();
     createDevice();
+    createAllocator();
     createSwapchain();
     createFrames();
 }
@@ -59,6 +60,7 @@ VulkanContext::~VulkanContext() {
     }
     destroySwapchain();
     vkDestroyRenderPass(device_, renderPass_, nullptr);
+    if (allocator_) vmaDestroyAllocator(allocator_);
     vkDestroyDevice(device_, nullptr);
     vkDestroySurfaceKHR(instance_, surface_, nullptr);
     if (messenger_) vkDestroyDebugUtilsMessengerEXT(instance_, messenger_, nullptr);
@@ -166,6 +168,21 @@ void VulkanContext::createDevice() {
     check(vkCreateDevice(physical_, &ci, nullptr, &device_), "не удалось создать логическое устройство");
     volkLoadDevice(device_);
     vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
+}
+
+void VulkanContext::createAllocator() {
+    // Функции Vulkan загружены volk; VMA получает их через два указателя.
+    VmaVulkanFunctions fn{};
+    fn.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    fn.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo ci{};
+    ci.vulkanApiVersion = VK_API_VERSION_1_2;
+    ci.physicalDevice = physical_;
+    ci.device = device_;
+    ci.instance = instance_;
+    ci.pVulkanFunctions = &fn;
+    check(vmaCreateAllocator(&ci, &allocator_), "не удалось создать распределитель памяти");
 }
 
 void VulkanContext::createSwapchain() {
