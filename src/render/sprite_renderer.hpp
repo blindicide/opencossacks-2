@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -40,6 +41,15 @@ public:
     void drawTriangles(TextureId texture, std::span<const SpriteVertex> vertices,
                        std::span<const std::uint16_t> indices);
 
+    // Прямоугольник с текстурой целиком; color — цвет вершин (0x80 — без изменений).
+    void drawQuad(TextureId texture, float x, float y, float w, float h,
+                  std::array<std::uint8_t, 4> color = {128, 128, 128, 255});
+
+    // Область отсечения для следующих вызовов drawTriangles() (пиксели экрана).
+    // Сбрасывается в flush().
+    void setClip(int x1, int y1, int x2, int y2);
+    void resetClip() { clip_.reset(); }
+
     // Записывает накопленное в буфер команд текущего кадра и очищает очередь.
     void flush(VkCommandBuffer cmd);
 
@@ -54,6 +64,7 @@ private:
     struct Batch {
         TextureId texture;
         std::uint32_t firstIndex, indexCount;
+        std::optional<VkRect2D> clip;
     };
     struct Buffer {
         VkBuffer buffer = VK_NULL_HANDLE;
@@ -77,6 +88,7 @@ private:
     std::uint32_t setsLeftInPool_ = 0;
 
     std::vector<Texture> textures_;
+    std::optional<VkRect2D> clip_;
     std::vector<SpriteVertex> vertices_;
     std::vector<std::uint32_t> indices_;
     std::vector<Batch> batches_;

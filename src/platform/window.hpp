@@ -36,6 +36,16 @@ public:
     // Клавиши (SDL_Keycode), нажатые с прошлого вызова pumpEvents().
     std::vector<std::uint32_t> pressedKeys;
 
+    // Положение мыши в пикселях области рисования; false, пока мышь не входила в окно.
+    bool mouseInside = false;
+    float mouseX = 0.0f, mouseY = 0.0f;
+    // Нажатия кнопок мыши с прошлого вызова pumpEvents() (1 — левая, 3 — правая).
+    struct Click {
+        int button;
+        float x, y;
+    };
+    std::vector<Click> clicks;
+
 private:
     SDL_Window* window_ = nullptr;
 };

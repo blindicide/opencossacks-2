@@ -26,9 +26,26 @@ Window::~Window() {
 
 bool Window::pumpEvents() {
     pressedKeys.clear();
+    clicks.clear();
+    // Координаты событий SDL — в точках окна, рисуем же в пикселях.
+    const float density = SDL_GetWindowPixelDensity(window_) > 0.0f ? SDL_GetWindowPixelDensity(window_) : 1.0f;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
+        case SDL_EVENT_MOUSE_MOTION:
+            mouseInside = true;
+            mouseX = e.motion.x * density;
+            mouseY = e.motion.y * density;
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            mouseInside = true;
+            mouseX = e.button.x * density;
+            mouseY = e.button.y * density;
+            clicks.push_back({int(e.button.button), mouseX, mouseY});
+            break;
+        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+            mouseInside = false;
+            break;
         case SDL_EVENT_KEY_DOWN:
             pressedKeys.push_back(e.key.key);
             break;

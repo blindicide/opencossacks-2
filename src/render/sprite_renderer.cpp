@@ -1,5 +1,6 @@
 #include "render/sprite_renderer.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -283,11 +284,37 @@ void SpriteRenderer::drawTriangles(TextureId texture, std::span<const SpriteVert
         if (i >= vertices.size()) throw std::runtime_error("индекс вершины вне массива");
         indices_.push_back(base + i);
     }
-    // Подряд идущие треугольники с одной текстурой рисуются одним вызовом.
-    if (!batches_.empty() && batches_.back().texture == texture)
+    // Подряд идущие треугольники с одной текстурой и областью отсечения рисуются одним вызовом.
+    auto sameClip = [&](const std::optional<VkRect2D>& c) {
+        if (c.has_value() != clip_.has_value()) return false;
+        return !c || (c->offset.x == clip_->offset.x && c->offset.y == clip_->offset.y &&
+                      c->extent.width == clip_->extent.width && c->extent.height == clip_->extent.height);
+    };
+    if (!batches_.empty() && batches_.back().texture == texture && sameClip(batches_.back().clip))
         batches_.back().indexCount += static_cast<std::uint32_t>(indices.size());
     else
-        batches_.push_back({texture, first, static_cast<std::uint32_t>(indices.size())});
+        batches_.push_back({texture, first, static_cast<std::uint32_t>(indices.size()), clip_});
+}
+
+void SpriteRenderer::drawQuad(TextureId texture, float x, float y, float w, float h,
+                              std::array<std::uint8_t, 4> color) {
+    const std::array<SpriteVertex, 4> v{{
+        {x, y, 0.0f, 0.0f, color},
+        {x + w, y, 1.0f, 0.0f, color},
+        {x + w, y + h, 1.0f, 1.0f, color},
+        {x, y + h, 0.0f, 1.0f, color},
+    }};
+    const std::array<std::uint16_t, 6> idx{0, 1, 2, 0, 2, 3};
+    drawTriangles(texture, v, idx);
+}
+
+void SpriteRenderer::setClip(int x1, int y1, int x2, int y2) {
+    x1 = std::max(x1, 0);
+    y1 = std::max(y1, 0);
+    VkRect2D r{};
+    r.offset = {x1, y1};
+    r.extent = {std::uint32_t(std::max(x2 - x1, 0)), std::uint32_t(std::max(y2 - y1, 0))};
+    clip_ = r;
 }
 
 void SpriteRenderer::ensureBuffer(Buffer& b, VkDeviceSize size, VkBufferUsageFlags usage) {
@@ -343,6 +370,18 @@ void SpriteRenderer::flush(VkCommandBuffer cmd) {
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb.buffer, &offset);
     vkCmdBindIndexBuffer(cmd, ib.buffer, 0, VK_INDEX_TYPE_UINT32);
     for (const Batch& b : batches_) {
+        if (b.clip) {
+            // Отсечение не может выходить за кадр.
+            VkRect2D c = *b.clip;
+            const auto right = std::min<std::int64_t>(std::int64_t(c.offset.x) + c.extent.width, extent.width);
+            const auto bottom = std::min<std::int64_t>(std::int64_t(c.offset.y) + c.extent.height, extent.height);
+            c.extent.width = std::uint32_t(std::max<std::int64_t>(right - c.offset.x, 0));
+            c.extent.height = std::uint32_t(std::max<std::int64_t>(bottom - c.offset.y, 0));
+            if (c.extent.width == 0 || c.extent.height == 0) continue;
+            vkCmdSetScissor(cmd, 0, 1, &c);
+        } else {
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+        }
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &textures_[b.texture].set,
                                 0, nullptr);
         vkCmdDrawIndexed(cmd, b.indexCount, 1, b.firstIndex, 0, 0);
@@ -351,6 +390,7 @@ void SpriteRenderer::flush(VkCommandBuffer cmd) {
     vertices_.clear();
     indices_.clear();
     batches_.clear();
+    clip_.reset();
 }
 
 } // namespace oc2::render
