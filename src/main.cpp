@@ -27,6 +27,7 @@
 #include "render/sprite_sheet.hpp"
 #include "render/vulkan_context.hpp"
 #include "assets/text_table.hpp"
+#include "assets/text_encoding.hpp"
 #include "assets/xml_tree.hpp"
 #include "render/gp_images.hpp"
 #include "assets/image_decode.hpp"
@@ -68,7 +69,7 @@ const char* kHelp =
     "  --produce <зд>,<юнит> с --map: у крестьян игрока 0 ставится готовое здание <зд>, в нём заказано 3 <юнит>\n"
     "  --mine                с --map: крестьяне игрока 0 идут в ближайшую шахту (для проверок)\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
-    "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
+    "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (в игре — пикселей окна; для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
     "  --mute                без звука и музыки\n"
@@ -418,6 +419,13 @@ struct MapView {
         }
         const bool ok = world.canPlace(*placing, x, y) && world.affordable(*placing, player);
         objects->drawGhost(*placing, x, y, camera, ok ? 0xB080FF80 : 0xB0FF6060);
+    }
+
+    // Кнопка панели под курсором (для подсказки).
+    std::optional<PanelButton> hoveredButton(float mx, float my, VkExtent2D e) const {
+        for (const auto& b : panel(e))
+            if (mx >= b.x && my >= b.y && mx < b.x + b.size && my < b.y + b.size) return b;
+        return std::nullopt;
     }
 
     // Нажатие на панели; true — поглощено.
@@ -936,6 +944,33 @@ struct Screen {
     float toVirtualY(float py) const { return (py - view.oy) / view.scale; }
 };
 
+// Подсказка над кнопкой панели: текст из mdlist (разметка {C …}, {F…}) и строка цены.
+void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc& desc, float mx, float my,
+                   oc2::render::SpriteRenderer& sprites) {
+    std::string upper = desc.name;
+    for (char& c : upper) c = char(std::toupper(static_cast<unsigned char>(c)));
+    const std::string key = "UNITSMD\\" + upper + ".MD.HINT";
+    std::string text = screen.texts.lookup(key);
+    if (text == key) text = desc.name;
+    static constexpr const char* kNames[] = {"дерево", "золото", "камень", "еда", "железо", "уголь"};
+    std::string price;
+    for (std::size_t r = 0; r < desc.price.size(); ++r)
+        if (desc.price[r] > 0) price += (price.empty() ? "" : ", ") + std::string(kNames[r]) + " " + std::to_string(desc.price[r]);
+    if (!price.empty()) text += "\\{C FF203060}Цена: " + price;
+    const std::string cp = oc2::assets::utf8ToCp1251(text);
+    const oc2::ui::Font* font = screen.fonts->findTagged("S");
+    if (!font) return;
+    const oc2::ui::View& v = screen.hudView;
+    constexpr int kWidth = 300;
+    const auto size = screen.text->measure(*font, cp, kWidth, oc2::ui::Align::Left);
+    const float w = float(size.width + 16) * v.scale, h = float(size.height + 12) * v.scale;
+    const float x = std::max(4.0f, mx - w), y = std::max(4.0f, my - h - 8.0f);
+    sprites.fillRect(x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, 0xFF5A4630);
+    sprites.fillRect(x, y, w, h, 0xFFE8DCB8);
+    screen.text->draw(*font, cp, int((x + 8.0f * v.scale) / v.scale), int((y + 6.0f * v.scale) / v.scale), kWidth,
+                      oc2::ui::Align::Left, v);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1143,6 +1178,11 @@ int main(int argc, char** argv) {
 
             if (mapView) {
                 oc2::ui::Menus& menus = *screen->menus;
+                if (opts->mouse) { // в игре — пиксели окна
+                    window.mouseX = (*opts->mouse)[0];
+                    window.mouseY = (*opts->mouse)[1];
+                    window.mouseInside = true;
+                }
                 // Итог боя показан — карта стоит, нажатия идут окну итога.
                 const bool resultOpen = mapView->ended && !menus.empty() && menus.currentName() == "EndGameMessage";
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
@@ -1180,6 +1220,9 @@ int main(int argc, char** argv) {
                 mapView->drawPanel(sprites, e);
                 screen->updateHud(mapView->world, mapView->player);
                 if (hud) hud->draw(screen->hudView);
+                // Подсказка кнопки панели: «UNITSMD\ИМЯ.MD.HINT» из Text/mdlist.txt и цена.
+                if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave)
+                    drawPanelHint(*screen, *b->desc, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
                     const bool open = runMenu();
                     if (menus.takeBackToMain()) {
