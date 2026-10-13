@@ -12,6 +12,9 @@
 #include "assets/game_paths.hpp"
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
+#include "assets/text_encoding.hpp"
+#include "assets/text_table.hpp"
+#include "assets/xml_tree.hpp"
 #include "check.hpp"
 
 #include <bzlib.h>
@@ -431,6 +434,74 @@ TEST_CASE("g16: повреждённые файлы") {
     Bytes cut(good.begin(), good.end() - 3); // поток альфы обрезан
     put<std::uint32_t>(cut, 4, std::uint32_t(cut.size()));
     CHECK_THROWS_AS(G16File::parse(cut).decodeTiles(0), FormatError);
+}
+
+TEST_CASE("XML: диалект диалогов") {
+    const std::string doc = "<>\n"
+                            " <Hint section></Hint section>\n"
+                            " <HintX>512</HintX>\n"
+                            " <ChildDialogs>\n"
+                            "  <BitPicture>\n"
+                            "   <FileName>Interf3\\background\\main_menu.JPG</FileName>\n"
+                            "   <Position&Width></Position&Width>\n"
+                            "   <Visible>true</Visible>\n"
+                            "   <Color>FFFFFFFF</Color>\n"
+                            "   <ScaleX>1.500000</ScaleX>\n"
+                            "  </BitPicture>\n"
+                            "//комментарий между элементами\n"
+                            "  <TextButton>\n"
+                            "   <Message>//#MM_Hint &lt;a&gt; &amp;</Message>\n"
+                            "   <Text>строка 1\nстрока 2</Text>\n"
+                            "  </TextButton>\n"
+                            " </ChildDialogs>\n"
+                            "</>\n";
+    XmlNode root = parseXml(doc);
+    CHECK(root.name.empty());
+    CHECK(root.intValue("HintX") == 512L);
+    CHECK(root.value("Hint section") == std::string());
+    const XmlNode* kids = root.child("ChildDialogs");
+    CHECK(kids && kids->children.size() == 2);
+    const XmlNode& pic = kids->children[0];
+    CHECK(pic.name == "BitPicture");
+    CHECK(pic.value("FileName") == std::string("Interf3\\background\\main_menu.JPG"));
+    CHECK(pic.child("Position&Width") != nullptr);
+    CHECK(pic.boolValue("Visible") == true);
+    CHECK(pic.hexValue("Color") == 0xFFFFFFFFul);
+    CHECK(pic.floatValue("ScaleX") == 1.5);
+    CHECK(!pic.intValue("Nothing"));
+    const XmlNode& btn = kids->children[1];
+    CHECK(btn.value("Message") == std::string("//#MM_Hint <a> &"));
+    CHECK(btn.value("Text") == std::string("строка 1\nстрока 2"));
+}
+
+TEST_CASE("XML: атрибуты и ошибки") {
+    XmlNode n = parseXml("<State>\n <Stage Index=\"0\" Op=\"a&amp;b\">\n  <X>1</X>\n </Stage>\n</State>");
+    const XmlNode* st = n.child("Stage");
+    CHECK(st && st->attributes.size() == 2 && st->attributes[1].second == "a&b");
+    CHECK_THROWS_AS(parseXml("<A>\n <B>1</B>\n"), FormatError);
+    CHECK_THROWS_AS(parseXml("<A>\n <B>1</C>\n</A>"), FormatError);
+    CHECK_THROWS_AS(parseXml("<A>1</A><B>2</B>"), FormatError);
+}
+
+TEST_CASE("Кодировка Windows-1251") {
+    CHECK(cp1251ToUtf8("abc") == "abc");
+    CHECK(cp1251ToUtf8("\xC3\xEB\xE0\xE2\xED\xEE\xE5") == "Главное");
+    CHECK(cp1251ToUtf8("\xA8\xB8\xB9") == "Ёё№");
+}
+
+TEST_CASE("Таблица текстов") {
+    TextTable t;
+    // Входные данные — байты Windows-1251 (исходник теста в UTF-8, поэтому кириллица — кодами).
+    t.addFile("#MAIN_MENU_Window \xC3\xCB\xC0\xC2\xCD\xCE\xC5 \xCC\xC5\xCD\xDE\r\n"
+              "\r\n"
+              "#TWO   leading spaces are trimmed\r\n"
+              "#MAIN_MENU_Window the second definition is ignored\r\n");
+    t.addFile("#TWO also from another file\n");
+    CHECK(t.lookup("#MAIN_MENU_Window") == "ГЛАВНОЕ МЕНЮ");
+    CHECK(t.lookup("#TWO") == "leading spaces are trimmed");
+    CHECK(t.lookup("#NOPE") == "#NOPE");
+    CHECK(t.lookup("Plain text") == "Plain text");
+    CHECK(t.size() == 2);
 }
 
 int main() { return oc2::test::runAll(); }
