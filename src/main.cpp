@@ -37,6 +37,7 @@
 #include "assets/mission_options.hpp"
 #include "assets/sprite_list.hpp"
 #include "render/map_objects.hpp"
+#include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
 #include "world/unit_catalog.hpp"
 #include "world/world.hpp"
@@ -275,6 +276,7 @@ struct MapView {
     oc2::render::GpImages* images = nullptr;
     std::unique_ptr<oc2::world::UnitCatalog> units;
     std::vector<std::unique_ptr<oc2::world::StrategicAi>> ais;
+    std::unique_ptr<oc2::world::Settlements> settlements;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
     std::unique_ptr<oc2::render::Effects> effects;
@@ -606,6 +608,8 @@ struct MapView {
                 std::fprintf(stderr, "%s: %s\n", k.list, e.what());
             }
         }
+        settlements = std::make_unique<oc2::world::Settlements>(world, *units, data);
+        std::printf("поселений: %zu\n", settlements->list().size());
         startAi(data, false);
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
@@ -642,6 +646,7 @@ struct MapView {
     // Шаг мира и раздумья ИИ.
     void stepWorld() {
         world.step();
+        if (settlements) settlements->step();
         for (auto& ai : ais) ai->update();
     }
 

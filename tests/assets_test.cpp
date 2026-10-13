@@ -30,6 +30,7 @@
 #include "assets/weapon_list.hpp"
 #include "assets/xml_tree.hpp"
 #include "check.hpp"
+#include "world/settlements.hpp"
 #include "world/world.hpp"
 
 #include <bzlib.h>
@@ -1144,4 +1145,61 @@ TEST_CASE("Поселение: описание .dip.xml") {
     CHECK(d.resource() == 3 && d.obozResAmount[3] == 1000 && d.maxResAmount[1] == 1000 && d.peonMaxAmount[3] == 15);
     CHECK(d.peonTimeOnProduce[3] == 10 && d.obozId == "HGu(NE)");
     CHECK(d.upgrades.size() == 1 && d.upgrades[0].effect[3] == 10 && d.upgrades[0].price[0] == 3000);
+}
+
+TEST_CASE("Поселения: захват, доход, разорение") {
+    using namespace oc2::world;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "oc2_settlements_test";
+    fs::create_directories(root);
+    UnitCatalog catalog(root); // пустой: охраны не будет
+    const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n");
+    const UnitDesc house = UnitDesc::parse("NAME H\nBUILDING\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
+    World w;
+    w.team = {0, 1, 2, 3, 4, 5, 6, 7};
+    const std::size_t core = w.addUnit(house, 7, 1000, 1000, 0);
+    const std::size_t dom = w.addUnit(house, 7, 1300, 1000, 0);
+    Settlements::Settlement s;
+    s.desc.peonMaxAmount[1] = 5;
+    s.desc.peonTimeOnProduce[1] = 2;
+    s.desc.obozResAmount[1] = 20;
+    s.desc.maxResAmount[1] = 30;
+    s.core = core;
+    s.buildings = {core, dom};
+    std::vector<Settlements::Settlement> list{s};
+    Settlements st(w, catalog, std::move(list));
+    CHECK(st.list()[0].resource == 1 && st.owned(7) == 1);
+
+    // Чужие юниты двух команд — захвата нет; остался один — его.
+    const std::size_t a = w.addUnit(soldier, 0, 900, 1000, 0);
+    const std::size_t b = w.addUnit(soldier, 1, 1100, 1000, 0);
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(st.owned(7) == 1);
+    w.units()[b].dead = true;
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(st.owned(0) == 1 && w.units()[core].player == 0 && w.units()[dom].player == 0);
+
+    // Доход: 5 крестьян раз в 2 шага, обоз 20 → +20 за 8 шагов; выше 30 — не растёт.
+    w.resources[0][1] = 0;
+    for (int i = 0; i < 8; ++i) w.step(), st.step();
+    CHECK(w.resources[0][1] == 20);
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(w.resources[0][1] == 40);
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(w.resources[0][1] == 40);
+
+    // kMinDefenders защитников владельца не дают захватить; перебиты — поселение уходит.
+    std::vector<std::size_t> guards{a};
+    for (int i = 1; i < Settlements::kMinDefenders; ++i) guards.push_back(w.addUnit(soldier, 0, 900, 900 + 20 * i, 0));
+    w.addUnit(soldier, 1, 1000, 1100, 0);
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(st.owned(0) == 1);
+    for (std::size_t g : guards) w.units()[g].dead = true;
+    for (int i = 0; i < 16; ++i) w.step(), st.step();
+    CHECK(st.owned(1) == 1 && w.units()[core].player == 1);
+
+    // Все постройки разрушены — поселение ничьё и не действует.
+    w.units()[core].dead = w.units()[dom].dead = true;
+    st.step();
+    CHECK(st.owned(1) == 0 && !st.list()[0].active);
 }
