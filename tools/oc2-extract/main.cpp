@@ -15,6 +15,7 @@
 #include "assets/byte_reader.hpp"
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
+#include "assets/image_decode.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
 #include "core/version.hpp"
@@ -32,8 +33,10 @@ void usage() {
                 "      страницы и/или кадры в PNG (по умолчанию — и то и другое)\n"
                 "  oc2-extract g16 <файл.g16|.g17> <папка>\n"
                 "      кадры в PNG\n"
+                "  oc2-extract image <файл.jpg|.tga|.bmp> <файл.png>\n"
+                "      перевести изображение в PNG\n"
                 "  oc2-extract check <папка игры> [--render]\n"
-                "      прочитать все .g2d, .g16, .g17, .xml и тексты; с --render ещё и собрать кадры .g2d\n",
+                "      прочитать все .g2d, .g16, .g17, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
 }
 
@@ -82,17 +85,24 @@ int extractG16(const fs::path& file, const fs::path& outDir) {
 
 int check(const fs::path& root, bool render) {
     const auto start = std::chrono::steady_clock::now();
-    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0;
+    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0, pictures = 0;
     std::uintmax_t bytes = 0;
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
         const bool isG16 = hasExtension(entry.path(), ".g16") || hasExtension(entry.path(), ".g17");
         const bool isXml = hasExtension(entry.path(), ".xml");
-        if (!isG16 && !isXml && !hasExtension(entry.path(), ".g2d")) continue;
+        const bool isPicture = hasExtension(entry.path(), ".jpg") || hasExtension(entry.path(), ".tga") ||
+                               hasExtension(entry.path(), ".bmp");
+        if (!isG16 && !isXml && !isPicture && !hasExtension(entry.path(), ".g2d")) continue;
         ++files;
         try {
             auto data = readFile(entry.path());
             bytes += data.size();
+            if (isPicture) {
+                (void)oc2::assets::decodeImage(data);
+                ++pictures;
+                continue;
+            }
             if (isXml) {
                 const std::string text(data.begin(), data.end());
                 (void)oc2::assets::parseXml(text);
@@ -119,7 +129,7 @@ int check(const fs::path& root, bool render) {
     if (render) std::printf(", кадров: %zu", frames);
     oc2::assets::TextTable texts;
     texts.loadGame(root);
-    std::printf(", XML: %zu, строк текста: %zu", xmlFiles, texts.size());
+    std::printf(", XML: %zu, изображений: %zu, строк текста: %zu", xmlFiles, pictures, texts.size());
     std::printf(", время: %.1f с\n", seconds);
     return failed == 0 ? 0 : 1;
 }
@@ -145,6 +155,10 @@ int main(int argc, char** argv) {
             return extractG2d(args[1], args[2], pages, frames);
         }
         if (args.size() >= 3 && args[0] == "g16") return extractG16(args[1], args[2]);
+        if (args.size() >= 3 && args[0] == "image") {
+            oc2::assets::writePng(args[2], oc2::assets::decodeImage(readFile(args[1])));
+            return 0;
+        }
         if (args.size() >= 2 && args[0] == "check") {
             bool render = flag("--render");
             return check(args[1], render);
