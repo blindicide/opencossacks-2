@@ -4,7 +4,8 @@
 
 ## Архитектура
 
-Проект на стадии исследования: код движка ещё не написан.
+Сейчас движок умеет открыть окно (SDL3) и выводить кадры через Vulkan 1.2.
+Остальные подсистемы восстанавливаются по декомпилированному коду оригинала.
 
 ```mermaid
 flowchart LR
@@ -25,9 +26,12 @@ opencossacks-2/
 ├── docs/                   — заметки о форматах и поведении движка
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
+├── cmake/Dependencies.cmake — загрузка зависимостей: SDL3, volk, Vulkan-Headers
 ├── src/
-│   ├── main.cpp            — точка входа, ключ --version
-│   └── core/version.hpp    — единственный источник версии и названия продукта
+│   ├── main.cpp            — точка входа: ключи --version и --frames N, главный цикл
+│   ├── core/version.hpp    — единственный источник версии и названия продукта
+│   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
+│   └── render/vulkan_context.* — экземпляр и устройство Vulkan, цепочка обмена, цикл кадров
 ├── tools/ghidra_scripts/
 │   ├── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
 │   ├── RunAnalysis.java    — автоанализ с замером времени анализаторов и отменой по флагу
@@ -38,6 +42,9 @@ opencossacks-2/
 
 ## Основные модули
 
+- `oc2::platform::Window` (`src/platform/window.hpp`): окно SDL3; `pumpEvents()` обрабатывает события, `createSurface()` создаёт Vulkan-поверхность.
+- `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; `drawFrame()` рисует кадр.
+
 - `tools/ghidra_scripts/ExportDecomp.java`: скрипт Ghidra, записывает `functions.tsv` (адрес, размер, имя) и `engine.c` (декомпилированный код всех функций).
 
 ## Сборка и запуск
@@ -46,6 +53,7 @@ opencossacks-2/
 cmake --preset linux
 cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
+./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
 ```
 
 ## Запуск анализа в Ghidra
@@ -58,6 +66,10 @@ analyzeHeadless re/project engine \
 ```
 
 ## С чего начать и подводные камни
+
+- Первая настройка CMake скачивает и собирает SDL3 (около полутора минут); дальше работает кэш.
+- В отладочной сборке слой проверки Vulkan включается автоматически, если установлен (`vulkan-validationlayers`).
+- Сообщения о `validity error` в wayland-протоколах при сборке SDL безвредны.
 
 - Ghidra требует полноценный JDK 21 (не только JRE); путь задаётся в `support/launch.properties` → `JAVA_HOME_OVERRIDE`.
 - `engine.exe` (GOG-сборка) импортирует `X3D8.DLL` вместо `d3d8.dll`: это GOG-прокладка, которая просто загружает системный `d3d8.dll` и делает паузу 500 мс после `CreateDevice`.
