@@ -5,7 +5,7 @@
 ## Архитектура
 
 Сейчас движок умеет открыть окно (SDL3) и выводить кадры через Vulkan 1.2,
-а библиотека `oc2_assets` читает пакеты спрайтов `.g2d`.
+а библиотека `oc2_assets` читает спрайты `.g2d`, `.g16` и `.g17`.
 Остальные подсистемы восстанавливаются по декомпилированному коду оригинала.
 
 ```mermaid
@@ -33,7 +33,7 @@ opencossacks-2/
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
 ├── cmake/
-│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers, VMA
+│   ├── Dependencies.cmake  — загрузка зависимостей: SDL3, volk, Vulkan-Headers, VMA, bzip2
 │   └── Packaging.cmake     — пакеты CPack: .deb и .rpm (Linux), .zip (Windows)
 ├── packaging/linux/        — ярлык .desktop
 ├── src/
@@ -41,7 +41,8 @@ opencossacks-2/
 │   ├── core/version.hpp    — единственный источник версии и названия продукта
 │   ├── assets/             — чтение форматов игры (библиотека oc2_assets, без графики)
 │   │   ├── byte_reader.hpp — чтение little-endian с проверкой границ, FormatError
-│   │   ├── compression.*   — распаковка FLZ и блоков со стандартным заголовком
+│   │   ├── compression.*   — распаковка FLZ, LZO1X, bzip2 и блоков со стандартным заголовком
+│   │   ├── g16.*           — спрайты .g16/.g17: разделы, блоки, плитки, сборка кадров
 │   │   ├── g2d.*           — пакеты спрайтов .g2d: таблицы, страницы, сборка кадров
 │   │   ├── png.*           — запись PNG без внешних библиотек
 │   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
@@ -69,7 +70,8 @@ opencossacks-2/
 
 - `oc2::platform::Window` (`src/platform/window.hpp`): окно SDL3; `pumpEvents()` обрабатывает события, `createSurface()` создаёт Vulkan-поверхность.
 - `oc2::assets::G2dFile` (`src/assets/g2d.hpp`): `parse()` читает пакет спрайтов и проверяет ссылки между таблицами; `decodePage()` даёт страницу-атлас в RGBA8, `renderFrame()` собирает кадр из треугольных частей.
-- `oc2::assets::unpackBlock()` / `flzDecompress()` (`src/assets/compression.hpp`): распаковка сжатых блоков движка (метод 4, FLZ).
+- `oc2::assets::G16File` (`src/assets/g16.hpp`): `parse()` читает `.g16` и `.g17`, `decodeTiles()` даёт плитки кадра, `decodeFrame()` — собранный кадр в RGBA8.
+- `oc2::assets::unpackBlock()` (`src/assets/compression.hpp`): распаковка сжатых блоков движка (1 — bzip2, 2/3 — LZO1X, 4 — FLZ); отдельно `flzDecompress()`, `lzo1xDecompress()`, `bzip2Decompress()`.
 - `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; кадр — между `beginFrame()` и `endFrame()`, `submitNow()` выполняет команды загрузки, `requestScreenshot()` сохраняет кадр в PNG.
 - `oc2::render::SpriteRenderer` (`src/render/sprite_renderer.hpp`): `createTexture()` загружает изображение, `drawTriangles()` ставит треугольники в очередь, `flush()` записывает их в кадр.
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
@@ -131,4 +133,6 @@ analyzeHeadless re/project engine \
 - После правки `shaders/` запустить `tools/compile_shaders.sh` и закоммитить `src/render/shaders/`: CI сверяет их.
 - Текстуры и экран — в sRGB, поэтому смешивание идёт в линейном пространстве (в оригинале — в гамма-пространстве); на полупрозрачных краях возможна небольшая разница.
 - Сжатие FLZ копирует 32-битными словами: при перекрывающихся ссылках побайтовое копирование даёт другой результат.
+- В `.g16` первое u32 блока — размер буфера плиток, а не длина распаковки LZO; её ограничивает поле заголовка.
+- `most.g16` и `mostshp.g16` используют метод блока 5, который не поддерживает и оригинал.
 - Заголовок `.g2d` версии 5 на байт короче (нет байта флагов), таблица кадров начинается с 0x39.

@@ -26,11 +26,13 @@ include(cmake/Dependencies.cmake)
 # Чтение форматов игры; без зависимостей от окна и графики, чтобы им пользовались утилиты и тесты.
 add_library(oc2_assets STATIC
     src/assets/compression.cpp
+    src/assets/g16.cpp
     src/assets/g2d.cpp
     src/assets/game_paths.cpp
     src/assets/png.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
+target_link_libraries(oc2_assets PRIVATE bz2)
 
 add_executable(opencossacks2
     src/main.cpp

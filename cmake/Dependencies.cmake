@@ -19,6 +19,12 @@ FetchContent_Declare(VulkanMemoryAllocator
     GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  none) # только заголовок; реализация — в src/render/vma.cpp
 
+# bzip2: исходники официального выпуска; собираем только библиотеку (ниже).
+FetchContent_Declare(bzip2
+    URL      https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+    URL_HASH SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+    SOURCE_SUBDIR none)
+
 FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG        release-3.4.18
@@ -31,7 +37,7 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_VULKAN ON CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(Vulkan-Headers SDL3 volk VulkanMemoryAllocator)
+FetchContent_MakeAvailable(Vulkan-Headers SDL3 volk VulkanMemoryAllocator bzip2)
 
 # volk сам загружает Vulkan во время выполнения; линковать libvulkan не нужно.
 add_library(volk STATIC ${volk_SOURCE_DIR}/volk.c)
@@ -50,3 +56,21 @@ add_library(vma STATIC ${PROJECT_SOURCE_DIR}/src/render/vma.cpp)
 target_include_directories(vma SYSTEM PUBLIC ${vulkanmemoryallocator_SOURCE_DIR}/include)
 target_link_libraries(vma PUBLIC volk)
 target_compile_definitions(vma PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=1)
+
+# libbz2 для распаковки .g17 (метод 1 сжатых блоков движка).
+add_library(bz2 STATIC
+    ${bzip2_SOURCE_DIR}/blocksort.c
+    ${bzip2_SOURCE_DIR}/huffman.c
+    ${bzip2_SOURCE_DIR}/crctable.c
+    ${bzip2_SOURCE_DIR}/randtable.c
+    ${bzip2_SOURCE_DIR}/compress.c
+    ${bzip2_SOURCE_DIR}/decompress.c
+    ${bzip2_SOURCE_DIR}/bzlib.c)
+target_include_directories(bz2 SYSTEM PUBLIC ${bzip2_SOURCE_DIR})
+set_target_properties(bz2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    target_compile_definitions(bz2 PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(bz2 PRIVATE /w)
+else()
+    target_compile_options(bz2 PRIVATE -w)
+endif()
