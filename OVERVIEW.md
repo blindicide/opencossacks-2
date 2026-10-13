@@ -23,9 +23,16 @@ opencossacks-2/
 ├── OVERVIEW.md             — этот файл
 ├── CHANGELOG.md            — история изменений
 ├── docs/                   — заметки о форматах и поведении движка
-├── src/                    — исходники реимплементации (пока пусто)
+├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
+├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
+├── src/
+│   ├── main.cpp            — точка входа, ключ --version
+│   └── core/version.hpp    — единственный источник версии и названия продукта
 ├── tools/ghidra_scripts/
-│   └── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
+│   ├── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
+│   ├── RunAnalysis.java    — автоанализ с замером времени анализаторов и отменой по флагу
+│   ├── Coverage.java       — отчёт о покрытии кода функциями
+│   └── SelectiveFix.java   — выборочный доанализ проблемных функций
 └── re/                     — локально, в .gitignore: проект Ghidra, логи, вывод
 ```
 
@@ -33,7 +40,15 @@ opencossacks-2/
 
 - `tools/ghidra_scripts/ExportDecomp.java`: скрипт Ghidra, записывает `functions.tsv` (адрес, размер, имя) и `engine.c` (декомпилированный код всех функций).
 
-## Точка входа и запуск анализа
+## Сборка и запуск
+
+```sh
+cmake --preset linux
+cmake --build --preset linux-debug
+./build/linux/Debug/opencossacks2 --version
+```
+
+## Запуск анализа в Ghidra
 
 ```sh
 analyzeHeadless re/project engine \
