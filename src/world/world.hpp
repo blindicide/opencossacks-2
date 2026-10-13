@@ -89,6 +89,13 @@ public:
 
     std::uint64_t stepCount() const { return steps_; }
 
+    // Звуки, случившиеся за шаги (кадр анимации с SOUND); забирает и очищает вывод.
+    struct SoundEvent {
+        std::string group;
+        int x, y;
+    };
+    std::vector<SoundEvent> soundEvents;
+
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};
 
@@ -101,6 +108,7 @@ private:
     void pathTo(Unit& u, int x, int y);
     void updateCombat(std::size_t index);
     void hit(Unit& target, int damage);
+    void emitSounds(const Unit& u);
 
     std::vector<Unit> units_;
     LockMap lock_;

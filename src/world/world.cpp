@@ -130,6 +130,14 @@ void World::hit(Unit& t, int damage) {
     }
 }
 
+void World::emitSounds(const Unit& u) {
+    const assets::UnitDesc& d = *u.desc;
+    if (d.sounds.empty() || !u.animation || d.animations.empty()) return;
+    const std::size_t anim = std::size_t(u.animation - d.animations.data());
+    for (const auto& s : d.sounds)
+        if (s.animation == anim && s.frame == u.frame) soundEvents.push_back({s.group, u.x(), u.y()});
+}
+
 void World::updateCombat(std::size_t index) {
     Unit& u = units_[index];
     const assets::UnitDesc& d = *u.desc;
@@ -195,7 +203,9 @@ void World::step() {
             if (r > 0) --r;
         if (u.dead) continue; // лежит неподвижно
         if (u.dying) {
-            if (++u.frame >= int(u.animation->frames.size())) {
+            ++u.frame;
+            emitSounds(u);
+            if (u.frame >= int(u.animation->frames.size())) {
                 u.dying = false;
                 u.dead = true;
                 u.animation = namedAnimation(*u.desc, "DEATHLIE1");
@@ -206,6 +216,7 @@ void World::step() {
         if (u.attacking) {
             const int frames = int(u.animation->frames.size());
             ++u.frame;
+            emitSounds(u);
             if (!u.damageDone && u.frame >= frames / 2) {
                 u.damageDone = true;
                 const auto w = std::size_t(u.weapon);
@@ -248,8 +259,10 @@ void World::step() {
         }
         setAnimation(u, u.moving ? moveAnimation(*u.desc) : idleAnimation(*u.desc));
         // Один кадр за шаг при GameSpeed = 256 (OneObject::SetNextFrame).
-        if (u.animation && !u.animation->frames.empty())
+        if (u.animation && !u.animation->frames.empty()) {
             u.frame = (u.frame + 1) % int(u.animation->frames.size());
+            emitSounds(u);
+        }
     }
 }
 

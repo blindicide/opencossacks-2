@@ -35,7 +35,7 @@ struct UnitAnimation {
 // Описание типа юнита (.md): пока — то, что нужно для вывода.
 // Ключевые слова оригинала — классы MD<КЛЮЧ> с разбором по строке; здесь
 // читаются NAME, BUILDING, GEOMETRY, UNITRADIUS, LOCKPOINTS, USERLC, SETANMPARAM, LIFE, DAMAGE,
-// ATTACK_RADIUS, ATTACK_PAUSE, SEARCH_ENEMY_RADIUS и строки анимаций,
+// ATTACK_RADIUS, ATTACK_PAUSE, SEARCH_ENEMY_RADIUS, SOUND, SELECT_SOUND, ORDER_SOUND и строки анимаций,
 // остальное пропускается.
 struct UnitDesc {
     std::string name;
@@ -58,6 +58,15 @@ struct UnitDesc {
     std::array<int, kWeapons> attackMax{};
     std::array<int, kWeapons> attackPause{};   // ATTACK_PAUSE w шаги перезарядки
     int searchEnemyRadius = 0;                 // SEARCH_ENEMY_RADIUS
+
+    // Звуки: «SOUND кадр #АНИМАЦИЯ ГРУППА» — на кадре анимации (номер в animations).
+    struct Sound {
+        int frame = 0;
+        std::size_t animation = 0;
+        std::string group;
+    };
+    std::vector<Sound> sounds;
+    std::string selectSound, orderSound; // SELECT_SOUND, ORDER_SOUND
     std::vector<UnitSpriteFile> files;
     std::vector<UnitAnimation> animations;
 

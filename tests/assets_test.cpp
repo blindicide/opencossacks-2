@@ -677,12 +677,14 @@ TEST_CASE("Описание юнита .md и члены нации .nds") {
                                        "SETANMPARAM -275 -235 1 0\r\n"
                                        "@MOTION_L  9 1 0 3\r\n"
                                        "@UATTACK2 9 6 3 1\r\n"
-                                       "GEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nDAMAGE 1 100\r\nATTACK_RADIUS 1 0 900\r\n"
+                                       "SOUND 2 #REST ARMY\r\nSELECT_SOUND SEL\r\nORDER_SOUND ORD\r\nGEOMETRY 1 10 40\r\nUNITRADIUS 8\r\nDAMAGE 1 100\r\nATTACK_RADIUS 1 0 900\r\n"
                                        "ATTACK_PAUSE 1 800\r\nSEARCH_ENEMY_RADIUS 900\r\nLOCKPOINTS 2 4 31 5 32\r\n/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
     CHECK(d.name == "Dom" && d.building);
     CHECK(d.radius2 == 10 && d.step == 40 && d.unitRadius == 8);
     CHECK(d.life == 300 && d.damage[1] == 100 && d.attackMax[1] == 900 && d.attackPause[1] == 800 &&
           d.searchEnemyRadius == 900);
+    CHECK(d.sounds.size() == 1 && d.sounds[0].frame == 2 && d.animations[d.sounds[0].animation].name == "#REST" &&
+          d.sounds[0].group == "ARMY" && d.selectSound == "SEL" && d.orderSound == "ORD");
     CHECK(d.lockPoints.size() == 2 && d.lockPoints[1].first == 5 && d.lockPoints[1].second == 32);
     CHECK(d.pictureDx == -275 && d.pictureDy == -235);
     CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);

@@ -245,6 +245,7 @@ struct MapView {
     oc2::world::World world;
     bool showLocks = false; // L — показать закрытые клетки
     int player = 0;         // за кого играем: приказы слушают только его юниты
+    oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
@@ -372,6 +373,25 @@ struct MapView {
         camera.y = cy - float(e.height) / camera.zoom / 2.0f;
     }
 
+    // Звуки юнитов за кадр: только видимые, одна группа — один раз, не больше восьми;
+    // панорама — по положению на экране.
+    void playSounds(oc2::platform::SoundBank* bank, VkExtent2D e) {
+        auto& events = world.soundEvents;
+        if (bank) {
+            std::vector<std::string> played;
+            for (const auto& ev : events) {
+                if (played.size() >= 8) break;
+                const float sx = (float(ev.x) - camera.x) * camera.zoom;
+                const float sy = (float(ev.y / 2 - mapData->heightAt(ev.x, ev.y)) - camera.y) * camera.zoom;
+                if (sx < -64.0f || sy < -64.0f || sx > float(e.width) + 64.0f || sy > float(e.height) + 64.0f) continue;
+                if (std::find(played.begin(), played.end(), ev.group) != played.end()) continue;
+                played.push_back(ev.group);
+                bank->play(ev.group, 1.0f, (sx / float(e.width)) * 2.0f - 1.0f);
+            }
+        }
+        events.clear();
+    }
+
     // Закрытые клетки на экране (отладка, клавиша L): полупрозрачные красные квадраты.
     void drawLocks(oc2::render::SpriteRenderer& sprites, VkExtent2D e) const {
         if (!showLocks) return;
@@ -439,6 +459,10 @@ struct MapView {
             dragStart = std::array<float, 2>{c.x, c.y};
         } else if (c.button == 3) {
             // Правая кнопка на враге — атаковать его.
+            const oc2::assets::UnitDesc* ordered = nullptr;
+            for (const auto& u : us)
+                if (u.selected && u.player == player && !ordered) ordered = u.desc;
+            if (ordered && sounds) sounds->play(ordered->orderSound);
             if (auto t = pick(c.x, c.y); t && world.enemies(player, us[*t].player)) {
                 for (std::size_t i = 0; i < us.size(); ++i)
                     if (us[i].selected && us[i].player == player) world.orderAttack(i, *t);
@@ -466,16 +490,22 @@ struct MapView {
         auto& us = world.units();
         if (std::abs(c.x - x0) < 5.0f && std::abs(c.y - y0) < 5.0f) {
             for (auto& u : us) u.selected = false;
-            if (auto i = pick(c.x, c.y)) us[*i].selected = true;
+            if (auto i = pick(c.x, c.y)) {
+                us[*i].selected = true;
+                if (sounds && us[*i].player == player) sounds->play(us[*i].desc->selectSound);
+            }
             return;
         }
         const float x1 = std::min(x0, c.x), x2 = std::max(x0, c.x), y1 = std::min(y0, c.y), y2 = std::max(y0, c.y);
+        const oc2::assets::UnitDesc* first = nullptr;
         for (auto& u : us) {
             const float gx = (objects->groundX(u) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(u) - camera.y) * camera.zoom;
             u.selected = !u.building() && u.alive() && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 &&
                          gy <= y2;
+            if (u.selected && !first) first = u.desc;
         }
+        if (first && sounds) sounds->play(first->selectSound);
     }
 
     void drawDragBox(oc2::render::SpriteRenderer& sprites, const oc2::platform::Window& window) const {
@@ -621,6 +651,7 @@ int main(int argc, char** argv) {
             mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map, screen->images.get());
             mapView->centerOn(vulkan.extent());
             mapView->showLocks = opts->locks;
+            mapView->sounds = sounds.get();
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
             if (opts->move) {
                 auto& us = mapView->world.units();
@@ -679,6 +710,7 @@ int main(int argc, char** argv) {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart,
                                                         screen->images.get());
                     mapView->centerOnPlayer(0, vulkan.extent());
+                    mapView->sounds = sounds.get();
                 } catch (const std::exception& ex) {
                     std::fprintf(stderr, "не удалось начать игру: %s\n", ex.what());
                 }
@@ -713,6 +745,7 @@ int main(int argc, char** argv) {
                     if (!overHud) mapView->handleClick(click);
                 for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 mapView->advance(dt);
+                mapView->playSounds(sounds.get(), e);
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
                 mapView->drawLocks(sprites, e);

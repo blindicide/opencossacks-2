@@ -72,6 +72,11 @@ UnitDesc UnitDesc::parse(std::string_view text) {
     UnitDesc d;
     int anmDx = 0, anmDy = 0; // SETANMPARAM действует на следующие анимации (FUN_018dbab0)
     bool sawAnmParam = false;
+    struct PendingSound {
+        int frame;
+        std::string anim, group;
+    };
+    std::vector<PendingSound> pendingSounds; // анимация может описываться и после SOUND
     for (const auto& w : lines(text)) {
         const std::string_view key = w[0];
         if (key == "[END]") break;
@@ -83,6 +88,12 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.radius1 = intAt(w, 1, "радиус 1");
             d.radius2 = intAt(w, 2, "радиус 2");
             d.step = intAt(w, 3, "шаг");
+        } else if (key == "SOUND" && w.size() >= 4) {
+            pendingSounds.push_back({intAt(w, 1, "кадр"), std::string(w[2]), std::string(w[3])});
+        } else if (key == "SELECT_SOUND" && w.size() >= 2) {
+            d.selectSound = std::string(w[1]);
+        } else if (key == "ORDER_SOUND" && w.size() >= 2) {
+            d.orderSound = std::string(w[1]);
         } else if (key == "LIFE") {
             d.life = intAt(w, 1, "жизнь");
         } else if (key == "SEARCH_ENEMY_RADIUS") {
@@ -147,6 +158,10 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.animations.push_back(std::move(a));
         }
     }
+    for (const PendingSound& ps : pendingSounds)
+        for (std::size_t a = 0; a < d.animations.size(); ++a)
+            if (equalsNoCase(d.animations[a].name.substr(1), std::string_view(ps.anim).substr(1)))
+                d.sounds.push_back({ps.frame, a, ps.group});
     return d;
 }
 
