@@ -79,7 +79,8 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
     w.mouseSound = node.value("MouseSound").value_or("");
     w.clickSound = node.value("ClickSound").value_or("");
     if (const assets::XmlNode* actions = node.child("v_Actions"))
-        for (const assets::XmlNode& a : actions->children) w.actions.push_back({a.name, a.value("Name").value_or("")});
+        for (const assets::XmlNode& a : actions->children)
+            w.actions.push_back({a.name, a.value("Name").value_or(""), std::make_shared<const assets::XmlNode>(a)});
 
     auto font = [&](const char* field) -> const Font* {
         const std::string fname = node.value(field).value_or("");

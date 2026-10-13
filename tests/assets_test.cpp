@@ -786,6 +786,13 @@ TEST_CASE("Мир: бой — выстрел, перезарядка, смерт
     for (int i = 0; i < 10; ++i) w.step();
     CHECK(w.units()[b].dead && w.units()[b].animation == shooter.animation("#DEATHLIE1"));
     CHECK(!w.units()[a].target); // цель мертва — приказ снят
+    CHECK(w.winningTeam() == 0); // у команды игрока 1 живых не осталось; нейтральный не в счёт
+
+    World peace;
+    peace.addUnit(shooter, 0, 100, 100, 0);
+    peace.addUnit(shooter, 2, 900, 900, 0);
+    peace.team[2] = peace.team[0]; // союзники — одна команда, итога нет
+    CHECK(!peace.winningTeam());
 }
 
 TEST_CASE("Мир: карта непроходимости и путь A*") {

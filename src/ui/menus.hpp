@@ -42,6 +42,18 @@ public:
     // Выбранная миссия (номер в missions()); по умолчанию — первая из SingleMiss.txt.
     std::optional<std::size_t> selectedMission;
 
+    // Итог игры для окна EndGameMessage (cva_VI_EndGame): true — победа.
+    void setGameResult(bool victory) {
+        gameResult_ = victory;
+        resultShown_ = false;
+    }
+    // cva_MM_BackToMain: вернуться в главное меню (игра заканчивается). Возвращается один раз.
+    bool takeBackToMain() {
+        const bool r = backToMain_;
+        backToMain_ = false;
+        return r;
+    }
+
     // Запрос начать игру (cva_MM_SinglStart): путь карты относительно данных.
     // Возвращается один раз.
     std::optional<std::string> takeStartRequest() {
@@ -67,6 +79,9 @@ private:
     std::map<std::size_t, render::TextureId> previews_;          // мини-карты VIE2 по миссиям
     std::map<std::string, std::string> activeTab_; // меню → группа нажатой вкладки
     std::optional<std::string> startRequest_;
+    std::optional<bool> gameResult_;
+    bool resultShown_ = false;
+    bool backToMain_ = false;
 };
 
 } // namespace oc2::ui

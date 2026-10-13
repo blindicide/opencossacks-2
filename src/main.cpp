@@ -67,6 +67,7 @@ const char* kHelp =
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
     "  --mute                без звука и музыки\n"
+    "  --win                 с --map: враги погибают сразу (проверка окна итога)\n"
     "  --version             версия\n"
     "\n"
     "С --data без --sprite показывается главное меню.\n"
@@ -110,7 +111,8 @@ struct Options {
     std::optional<std::array<int, 3>> move;
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
-    bool mute = false;  // без звука // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
+    bool mute = false;  // без звука
+    bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -153,6 +155,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--win") {
+            o.win = true;
         } else if (a == "--mute") {
             o.mute = true;
         } else if (a == "--locks") {
@@ -244,6 +248,7 @@ struct MapView {
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::world::World world;
     std::unique_ptr<oc2::render::Effects> effects;
+    bool ended = false; // бой окончен, показано окно итога
     bool showLocks = false; // L — показать закрытые клетки
     int player = 0;         // за кого играем: приказы слушают только его юниты
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
@@ -659,6 +664,7 @@ int main(int argc, char** argv) {
             mapView->centerOn(vulkan.extent());
             mapView->showLocks = opts->locks;
             mapView->sounds = sounds.get();
+            if (opts->win) mapView->world.killAllExcept(mapView->world.team[0]);
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
             if (opts->move) {
                 auto& us = mapView->world.units();
@@ -739,28 +745,8 @@ int main(int argc, char** argv) {
             VkCommandBuffer cmd = vulkan.beginFrame(screen || mapView ? kMenuClearColor : kClearColor);
             if (!cmd) continue;
             const VkExtent2D e = vulkan.extent();
-            if (mapView) {
-                for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
-                if (window.wheel != 0.0f) mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
-                mapView->scroll(dt, window, e);
-                // Нажатия на панели не доходят до карты.
-                screen->fitHud(e);
-                oc2::ui::Dialog* hud = screen->gameHud();
-                const float hx = window.mouseX / screen->hudView.scale, hy = window.mouseY / screen->hudView.scale;
-                oc2::ui::Widget* overHud = hud && window.mouseInside ? hud->updateHover(hx, hy) : nullptr;
-                for (const auto& click : window.clicks)
-                    if (!overHud) mapView->handleClick(click);
-                for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
-                mapView->advance(dt);
-                mapView->playSounds(sounds.get(), e);
-                mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
-                mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
-                                       mapView->effects.get());
-                mapView->drawLocks(sprites, e);
-                mapView->drawDragBox(sprites, window);
-                screen->updateHud(mapView->world, mapView->player);
-                if (hud) hud->draw(screen->hudView);
-            } else if (screen) {
+            // Меню поверх кадра: наведение, нажатия, вывод. false — меню закрыты, пора выходить.
+            auto runMenu = [&]() -> bool {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;
                 menus.update();
@@ -786,8 +772,60 @@ int main(int argc, char** argv) {
                     break; // меню могло смениться
                 }
                 if (auto start = menus.takeStartRequest()) pendingStart = std::move(start);
-                if (menus.empty()) break;
+                if (menus.empty()) return false;
                 menus.current().draw(screen->view);
+                return true;
+            };
+
+            if (mapView) {
+                oc2::ui::Menus& menus = *screen->menus;
+                // Итог боя показан — карта стоит, нажатия идут окну итога.
+                const bool resultOpen = mapView->ended && !menus.empty() && menus.currentName() == "EndGameMessage";
+                for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
+                if (window.wheel != 0.0f && !resultOpen)
+                    mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
+                if (!resultOpen) mapView->scroll(dt, window, e);
+                // Нажатия на панели не доходят до карты.
+                screen->fitHud(e);
+                oc2::ui::Dialog* hud = screen->gameHud();
+                const float hx = window.mouseX / screen->hudView.scale, hy = window.mouseY / screen->hudView.scale;
+                oc2::ui::Widget* overHud = hud && window.mouseInside ? hud->updateHover(hx, hy) : nullptr;
+                if (!resultOpen) {
+                    for (const auto& click : window.clicks)
+                        if (!overHud) mapView->handleClick(click);
+                    for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
+                }
+                if (!mapView->ended) mapView->advance(dt);
+                mapView->playSounds(sounds.get(), e);
+                // Итог: раз в секунду симуляции проверяется, осталась ли одна команда.
+                if (!mapView->ended && mapView->world.stepCount() % 25 == 0)
+                    if (auto winner = mapView->world.winningTeam()) {
+                        mapView->ended = true;
+                        mapView->dragStart.reset();
+                        menus.setGameResult(*winner == mapView->world.team[std::size_t(mapView->player)]);
+                        menus.open("EndGameMessage");
+                    }
+                mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
+                mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
+                                       mapView->effects.get());
+                mapView->drawLocks(sprites, e);
+                mapView->drawDragBox(sprites, window);
+                screen->updateHud(mapView->world, mapView->player);
+                if (hud) hud->draw(screen->hudView);
+                if (resultOpen) {
+                    const bool open = runMenu();
+                    if (menus.takeBackToMain()) {
+                        // Конец игры: к главному меню (без него, при --map, — выход).
+                        mapView.reset();
+                        while (!menus.empty() && menus.currentName() != "Main") menus.close();
+                        window.clicks.clear();
+                        if (menus.empty()) break;
+                    } else if (!open) {
+                        break;
+                    }
+                }
+            } else if (screen) {
+                if (!runMenu()) break;
             } else if (viewer) {
                 viewer->draw(e);
             } else {

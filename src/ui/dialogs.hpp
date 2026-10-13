@@ -54,6 +54,7 @@ struct Widget {
     struct Action {
         std::string type;
         std::string name;
+        std::shared_ptr<const assets::XmlNode> node; // все поля действия (VicTitle и т. п.)
     };
     std::vector<Action> actions;
     std::string hint;   // ключ подсказки

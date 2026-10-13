@@ -147,6 +147,26 @@ void Menus::update() {
                 w.hasBitmap = it->second != render::TextureId(-1);
                 w.bitmap = it->second;
             }
+            // FUN_014d4060: заголовок, текст, кнопка и картинка окна итога — из полей действия.
+            if (a.type == "cva_VI_EndGame" && gameResult_ && !resultShown_ && a.node) {
+                resultShown_ = true;
+                const bool vic = *gameResult_;
+                auto text = [&](const char* field) {
+                    return assets::utf8ToCp1251(ctx_.texts.lookup(a.node->value(field).value_or("")));
+                };
+                auto ref = [&](const char* field) -> Widget* {
+                    const assets::XmlNode* r = a.node->child(field);
+                    return r ? dialog.find(r->value("RefName").value_or("")) : nullptr;
+                };
+                if (Widget* t = ref("dTitle")) t->text = text(vic ? "VicTitle" : "DefTitle");
+                if (Widget* m = ref("dMessage")) m->text = text(vic ? "VicMessage" : "DefMessage");
+                if (Widget* b = ref("dButton")) b->text = text(vic ? "VicButton" : "DefButton");
+                if (Widget* p = ref("dPicture"); p && p->kind == WidgetKind::GPPicture) {
+                    p->gp = ctx_.images.id(a.node->value("gpFile").value_or(""));
+                    p->hasGp = true;
+                    p->sprite = int(a.node->intValue(vic ? "VicSprite" : "DefSprite").value_or(0));
+                }
+            }
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
             // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки
             // состава игроков и команд оригинала ещё не перенесены.
@@ -183,6 +203,11 @@ void Menus::click(Widget& w) {
                 startRequest_ = gamePath(missions_.missions[*selectedMission].map);
             else
                 std::fprintf(stderr, "не выбрана карта (нет Missions/Missions.txt?)\n");
+            return;
+        }
+        if (a.type == "cva_MM_BackToMain") { // FUN_013d8540: конец игры, затем закрыть окно
+            backToMain_ = true;
+            close();
             return;
         }
         if (a.type == "cva_MM_Close") { // FUN_013d8510

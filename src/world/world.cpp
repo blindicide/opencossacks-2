@@ -194,6 +194,31 @@ void World::updateCombat(std::size_t index) {
     }
 }
 
+std::optional<int> World::winningTeam() const {
+    std::array<bool, 8> alive{}, present{};
+    for (const Unit& u : units_) {
+        if (u.building() || u.player == 7 || u.desc->life <= 0) continue;
+        const auto t = std::size_t(team[std::size_t(u.player & 7)] & 7);
+        present[t] = true;
+        if (u.alive()) alive[t] = true;
+    }
+    int teamsPresent = 0, teamsAlive = 0, last = -1;
+    for (int t = 0; t < 8; ++t) {
+        teamsPresent += present[std::size_t(t)];
+        if (alive[std::size_t(t)]) {
+            ++teamsAlive;
+            last = t;
+        }
+    }
+    if (teamsPresent >= 2 && teamsAlive == 1) return last;
+    return std::nullopt;
+}
+
+void World::killAllExcept(int keep) {
+    for (Unit& u : units_)
+        if (!u.building() && u.player != 7 && team[std::size_t(u.player & 7)] != keep && u.alive()) hit(u, u.life + 1);
+}
+
 void World::step() {
     ++steps_;
     for (std::size_t index = 0; index < units_.size(); ++index) {
