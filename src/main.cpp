@@ -400,9 +400,22 @@ struct MapView {
 
     // Выбор места здания: призрак под курсором, зелёный — можно, красный — нельзя.
     const oc2::assets::UnitDesc* placing = nullptr;
-    void drawPlacement(float mx, float my) {
+    void drawPlacement(oc2::render::SpriteRenderer& sprites, float mx, float my) {
         if (!placing) return;
         const auto [x, y] = screenToWorld(mx, my);
+        if (placing->spriteObject) { // посев: метки клеток будущего поля
+            constexpr int B = oc2::world::World::kFieldBlock, S = oc2::world::World::kFieldStep;
+            const std::uint32_t c = world.affordable(*placing, player) ? 0xC080FF80 : 0xC0FF6060;
+            for (int j = 0; j < B; ++j)
+                for (int i = 0; i < B; ++i) {
+                    const int fx = x + (i - B / 2) * S, fy = y + (j - B / 2) * S;
+                    const float sx = (float(fx) - camera.x) * camera.zoom;
+                    const float sy = (float((fy >> 1) - mapData->heightAt(fx, fy)) - camera.y) * camera.zoom;
+                    sprites.fillRect(sx - 12.0f * camera.zoom, sy - 3.0f * camera.zoom, 24.0f * camera.zoom,
+                                     6.0f * camera.zoom, c);
+                }
+            return;
+        }
         const bool ok = world.canPlace(*placing, x, y) && world.affordable(*placing, player);
         objects->drawGhost(*placing, x, y, camera, ok ? 0xB080FF80 : 0xB0FF6060);
     }
@@ -416,8 +429,8 @@ struct MapView {
                     if (world.units()[i].selected && !world.units()[i].occupants.empty()) world.leaveMine(i);
                 return true;
             }
-            if (c.button == 1 && b.desc->building) placing = b.desc;
-            if (c.button == 1 && !b.desc->building)
+            if (c.button == 1 && (b.desc->building || b.desc->spriteObject)) placing = b.desc;
+            if (c.button == 1 && !b.desc->building && !b.desc->spriteObject)
                 if (const auto who = producer(); who && world.orderProduce(*who, *b.desc) && sounds)
                     sounds->play(b.desc->selectSound);
             return true;
@@ -428,6 +441,10 @@ struct MapView {
     // Заложить выбранное здание в точке экрана; выбранные крестьяне идут строить.
     void place(float sx, float sy) {
         const auto [x, y] = screenToWorld(sx, sy);
+        if (placing->spriteObject) {
+            if (world.sowField(*placing, player, x, y) > 0) placing = nullptr;
+            return;
+        }
         const auto b = world.placeBuilding(*placing, player, x, y);
         if (!b) return; // место занято или не хватает ресурсов — выбор остаётся
         placing = nullptr;
@@ -1156,7 +1173,7 @@ int main(int argc, char** argv) {
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
                                        mapView->effects.get());
-                mapView->drawPlacement(window.mouseX, window.mouseY);
+                mapView->drawPlacement(sprites, window.mouseX, window.mouseY);
                 mapView->drawLocks(sprites, e);
                 mapView->drawDragBox(sprites, window);
                 mapView->drawMinimap(sprites, e);

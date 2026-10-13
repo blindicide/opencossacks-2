@@ -360,6 +360,26 @@ std::size_t World::addObject(int object, int x, int y) {
     return sources.size() - 1;
 }
 
+int World::sowField(const assets::UnitDesc& desc, int player, int x, int y) {
+    const int stage = rules_.find(desc.exSprite);
+    if (!desc.spriteObject || stage < 0 || !affordable(desc, player)) return 0;
+    std::vector<std::pair<int, int>> spots;
+    for (int j = 0; j < kFieldBlock; ++j)
+        for (int i = 0; i < kFieldBlock; ++i) {
+            const int fx = x + (i - kFieldBlock / 2) * kFieldStep, fy = y + (j - kFieldBlock / 2) * kFieldStep;
+            if (lock_.width() > 0 && lock_.locked(fx / LockMap::kCell, fy / LockMap::kCell)) continue;
+            bool taken = false;
+            for (const Source& s : sources)
+                if (std::abs(s.x - fx) < kFieldStep / 2 && std::abs(s.y - fy) < kFieldStep / 2) taken = true;
+            if (!taken) spots.emplace_back(fx, fy);
+        }
+    if (spots.empty()) return 0;
+    auto& have = resources[std::size_t(player & 7)];
+    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
+    for (const auto& [fx, fy] : spots) addObject(stage, fx, fy);
+    return int(spots.size());
+}
+
 void World::updateObjects() {
     for (Source& s : sources) {
         if (s.object < 0) continue;

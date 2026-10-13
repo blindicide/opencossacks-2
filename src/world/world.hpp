@@ -133,6 +133,11 @@ public:
     const ObjectRules& objectRules() const { return rules_; }
     // Объект с переходами в точке (стадия object — номер в rules.list); номер источника.
     std::size_t addObject(int object, int x, int y);
+    // Посеять поле (SPRITEOBJECT, EXSPRITES): цена PRICE, квадрат 3×3 объектов первой
+    // стадии через 64 единицы с центром в (x, y), на закрытых клетках не сеется (своя
+    // раскладка: числа EXSPRITES не разобраны). Число посеянных; 0 — нельзя.
+    static constexpr int kFieldBlock = 3, kFieldStep = 64;
+    int sowField(const assets::UnitDesc& desc, int player, int x, int y);
     // Ближайший источник к мировой точке в пределах maxDistance.
     std::optional<std::size_t> sourceNear(int x, int y, int maxDistance) const;
     // Приказ добывать: идти к источнику, работать TAKERESSTAGES циклов анимации

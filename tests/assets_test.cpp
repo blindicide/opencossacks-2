@@ -919,6 +919,14 @@ TEST_CASE("Мир: поля — рост по времени, жатва раб�
     for (int i = 0; i < 10; ++i) w.step();
     CHECK(w.sources[f].object == 2 && w.sources[f].resource == -1); // две работы — сжато
     CHECK(w.units()[p].carry == 50); // унёс, хотя циклов было меньше TAKERESSTAGES
+
+    const UnitDesc field = UnitDesc::parse("NAME Field\nSPRITEOBJECT\nEXSPRITES  FG0 3 6 44 0\nPRICE 1 GOLD 1\n");
+    CHECK(field.spriteObject && field.exSprite == "FG0");
+    CHECK(w.sowField(field, 0, 1000, 1000) == 0); // золота нет
+    w.resources[0][1] = 1;
+    const std::size_t before = w.sources.size();
+    CHECK(w.sowField(field, 0, 1000, 1000) == 9 && w.sources.size() == before + 9 && w.resources[0][1] == 0);
+    CHECK(w.sources.back().object == 0 && w.sources.back().x == 1064 && w.sources.back().y == 1064);
 }
 
 TEST_CASE("Список миссий Missions.txt и выборки") {
