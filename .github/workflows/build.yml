@@ -1,0 +1,108 @@
+# Сборка Linux (.deb, .rpm) и Windows (.zip с .exe) на каждый push и PR.
+# Для тегов vX.Y.Z дополнительно создаётся GitHub Release с заметками из коммитов.
+name: Сборка
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Зависимости
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build rpm \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
+            libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libdbus-1-dev libudev-dev \
+            mesa-vulkan-drivers xvfb
+
+      - name: Сборка
+        run: |
+          cmake --preset linux
+          cmake --build --preset linux-release
+
+      # Программный Vulkan (lavapipe) и виртуальный X-сервер: проверяем, что кадры рисуются.
+      - name: Дымовая проверка
+        run: |
+          ./build/linux/Release/opencossacks2 --version
+          xvfb-run -a ./build/linux/Release/opencossacks2 --frames 30
+
+      - name: Пакеты
+        working-directory: build/linux
+        run: cpack -C Release -G "DEB;RPM"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-packages
+          path: |
+            build/linux/*.deb
+            build/linux/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Сборка
+        run: |
+          cmake --preset windows-msvc
+          cmake --build --preset windows-release
+
+      - name: Пакет
+        working-directory: build/windows-msvc
+        run: cpack -C Release -G ZIP
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-package
+          path: build/windows-msvc/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Заметки к релизу
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: release-notes.md
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Публикация
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "OpenCossacks 2 ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md $prerelease

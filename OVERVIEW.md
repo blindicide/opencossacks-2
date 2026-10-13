@@ -22,7 +22,9 @@ flowchart LR
 opencossacks-2/
 ├── README.md               — описание проекта
 ├── OVERVIEW.md             — этот файл
-├── CHANGELOG.md            — история изменений
+├── CHANGELOG.md            — история изменений (генерируется git-cliff, вручную не правится)
+├── cliff.toml              — настройки git-cliff: группы коммитов на русском
+├── .github/workflows/build.yml — CI: Linux (.deb/.rpm) и Windows (.zip), релизы по тегам vX.Y.Z
 ├── docs/                   — заметки о форматах и поведении движка
 ├── CMakeLists.txt          — сборка (C++20); версия читается из src/core/version.hpp
 ├── CMakePresets.json       — пресеты: linux (Ninja), windows-msvc (Visual Studio 2022)
@@ -65,6 +67,15 @@ cmake --build --preset linux-debug
 cmake --build --preset linux-release
 cd build/linux && cpack -G DEB -C Release   # .rpm требует rpmbuild (собирается в CI)
 ```
+
+## CI и релизы
+
+Каждый push в `main` и каждый PR собирают Linux и Windows в GitHub Actions; на Linux
+движок проверяется на программном Vulkan (lavapipe) под виртуальным X-сервером.
+Тег `vX.Y.Z` дополнительно создаёт GitHub Release с пакетами и заметками из коммитов;
+теги с суффиксом (`-alpha.1` и т. п.) публикуются как предварительные выпуски.
+
+Обновить журнал изменений: `npx git-cliff --config cliff.toml -o CHANGELOG.md`.
 
 ## Запуск анализа в Ghidra
 
