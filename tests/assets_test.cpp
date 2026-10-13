@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "assets/audio_decode.hpp"
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
 #include "assets/game_paths.hpp"
@@ -15,6 +16,7 @@
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "assets/sound_list.hpp"
 #include "assets/mission_list.hpp"
 #include "assets/mission_options.hpp"
 #include "assets/sprite_list.hpp"
@@ -821,6 +823,28 @@ TEST_CASE("Настройки миссии MOPT: команды и переда�
     CHECK(t[0] == t[2] && t[0] != t[1] && t[3] == 3 && t[7] == 7);
     CHECK(o.singleOwner(2) == 0 && o.singleOwner(1) == 1 && o.singleOwner(5) == 5);
     CHECK(MissionOptions::parse("").teams()[4] == 4);
+}
+
+TEST_CASE("Звук: WAV, перевод в стерео, список Sounds.xml") {
+    // WAV 16 бит моно 22050 Гц, 4 отсчёта.
+    Bytes wav{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0,
+              1, 0, 1, 0, 0x22, 0x56, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 16, 0, 'd', 'a', 't', 'a', 8, 0, 0, 0,
+              0, 0, 0xE8, 0x03, 0x18, 0xFC, 0xFF, 0x7F};
+    const Pcm pcm = decodeWav(wav);
+    CHECK(pcm.channels == 1 && pcm.rate == 22050 && pcm.frames() == 4);
+    CHECK(pcm.samples[1] == 1000 && pcm.samples[2] == -1000 && pcm.samples[3] == 32767);
+    const Pcm st = toStereo(pcm, 44100);
+    CHECK(st.channels == 2 && st.frames() == 8 && st.samples[2] == 500 && st.samples[3] == 500);
+    CHECK_THROWS_AS(decodeWav(Bytes{'R', 'I', 'F', 'F'}), FormatError);
+
+    const SoundList list = SoundList::parse(
+        "<>\n <SoundsList>\n  <SoundsGroup>\n   <GroupName>INTERF_NAVEL</GroupName>\n   <Volume>0.900000</Volume>\n"
+        "   <MinimalPause(sec)>2</MinimalPause(sec)>\n   <List>\n    <OneSound>\n"
+        "     <WaveFile>SOUND\\INTERFACE\\A.WAV</WaveFile>\n     <Volume>0.5</Volume>\n     <Looped>false</Looped>\n"
+        "    </OneSound>\n   </List>\n  </SoundsGroup>\n </SoundsList>\n</>\n");
+    const SoundGroup* g = list.find("interf_navel");
+    CHECK(g && g->variants.size() == 1 && g->minPause == 2.0f && g->variants[0].volume == 0.5f);
+    CHECK(g->variants[0].file == "SOUND\\INTERFACE\\A.WAV" && !list.find("NONE"));
 }
 
 int main() { return oc2::test::runAll(); }

@@ -20,6 +20,8 @@
 #include "assets/game_paths.hpp"
 #include "assets/image.hpp"
 #include "core/version.hpp"
+#include "platform/audio.hpp"
+#include "platform/sound_bank.hpp"
 #include "platform/window.hpp"
 #include "render/sprite_renderer.hpp"
 #include "render/sprite_sheet.hpp"
@@ -64,6 +66,7 @@ const char* kHelp =
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
+    "  --mute                без звука и музыки\n"
     "  --version             версия\n"
     "\n"
     "С --data без --sprite показывается главное меню.\n"
@@ -106,7 +109,8 @@ struct Options {
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
     bool click = false;
-    bool locks = false; // показать закрытые клетки с самого начала // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
+    bool locks = false; // показать закрытые клетки с самого начала
+    bool mute = false;  // без звука // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -149,6 +153,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--mute") {
+            o.mute = true;
         } else if (a == "--locks") {
             o.locks = true;
         } else if (a == "--click") {
@@ -599,6 +605,11 @@ int main(int argc, char** argv) {
         oc2::render::VulkanContext vulkan(window);
         std::printf("Видеоустройство: %s\n", vulkan.deviceName().c_str());
         oc2::render::SpriteRenderer sprites(vulkan);
+        oc2::platform::Audio audio;
+        if (opts->mute) audio.masterVolume = 0.0f;
+        std::unique_ptr<oc2::platform::SoundBank> sounds;
+        if (!opts->dataDir.empty()) sounds = std::make_unique<oc2::platform::SoundBank>(audio, opts->dataDir);
+        const oc2::ui::Widget* lastHovered = nullptr;
 
         std::optional<Viewer> viewer;
         std::unique_ptr<Screen> screen;
@@ -685,6 +696,7 @@ int main(int argc, char** argv) {
                 }
             }
 
+            if (sounds) sounds->updateMusic();
             VkCommandBuffer cmd = vulkan.beginFrame(screen || mapView ? kMenuClearColor : kClearColor);
             if (!cmd) continue;
             const VkExtent2D e = vulkan.extent();
@@ -721,10 +733,14 @@ int main(int argc, char** argv) {
                     my = screen->toVirtualY(window.mouseY);
                 }
                 oc2::ui::Widget* hovered = menus.current().updateHover(mx, my);
+                // Звук наведения — при смене элемента под курсором.
+                if (hovered != lastHovered && hovered && sounds) sounds->play(hovered->mouseSound);
+                lastHovered = hovered;
                 if (opts->click && opts->mouse && frame == 2) window.clicks.push_back({1, mx, my});
                 if (window.wheel != 0.0f) menus.current().scrollListAt(mx, my, window.wheel > 0 ? -1 : 1);
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;
+                    if (sounds) sounds->play(hovered->clickSound);
                     menus.click(*hovered);
                     break; // меню могло смениться
                 }

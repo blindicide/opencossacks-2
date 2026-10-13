@@ -25,6 +25,7 @@ include(cmake/Dependencies.cmake)
 
 # Чтение форматов игры; без зависимостей от окна и графики, чтобы им пользовались утилиты и тесты.
 add_library(oc2_assets STATIC
+    src/assets/audio_decode.cpp
     src/assets/compression.cpp
     src/assets/g16.cpp
     src/assets/g2d.cpp
@@ -34,6 +35,7 @@ add_library(oc2_assets STATIC
     src/assets/mission_list.cpp
     src/assets/mission_options.cpp
     src/assets/png.cpp
+    src/assets/sound_list.cpp
     src/assets/sprite_list.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
@@ -56,6 +58,8 @@ target_link_libraries(oc2_world PUBLIC oc2_assets)
 add_executable(opencossacks2
     src/main.cpp
     src/platform/window.cpp
+    src/platform/audio.cpp
+    src/platform/sound_bank.cpp
     src/render/vulkan_context.cpp
     src/render/sprite_renderer.cpp
     src/render/sprite_sheet.cpp

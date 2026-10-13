@@ -58,6 +58,7 @@ struct Widget {
     std::vector<Action> actions;
     std::string hint;   // ключ подсказки
     int id = 0;         // поле ID (у счётчиков ресурсов — номер ресурса)
+    std::string mouseSound, clickSound; // группы Sounds.xml (наведение, нажатие); «NONE» — без звука
 
     // Текст (TextButton, VitButton) — уже переведённый, в Windows-1251.
     std::string text;
