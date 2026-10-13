@@ -11,6 +11,7 @@
 #include <string>
 
 #include "assets/game_paths.hpp"
+#include "assets/image_decode.hpp"
 #include "assets/sprite_list.hpp"
 
 namespace oc2::render {
@@ -80,6 +81,15 @@ MapObjects::MapObjects(SpriteRenderer& renderer, GpImages& images, const std::fi
         items_.push_back(item);
     }
     std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) { return a.sortY < b.sortY; });
+    if (auto ring = assets::findCaseInsensitive(dataRoot, "textures/selection/round3.tga")) {
+        try {
+            std::ifstream in(*ring, std::ios::binary);
+            const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+            ring_ = renderer_.createTexture(assets::decodeImage(bytes));
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "кольцо выбора: %s\n", e.what());
+        }
+    }
     for (const auto& [code, n] : skipped) std::printf("объекты карты «%s»: пропущено %d\n", code.c_str(), n);
 }
 
@@ -139,6 +149,14 @@ void MapObjects::appendUnit(const world::Unit& u, std::vector<Item>& out) {
     appendFrame(*u.desc, *anim, std::size_t(u.frame) % anim->frames.size(), u.direction, u.x(), u.y(), 0, u.y(), out);
 }
 
+std::uint32_t playerColor(int player) {
+    // Цвета игроков — средние точки кадров 1…7 interf3\PlayerColor (кадр 0 — рамка);
+    // соответствие «игрок p → кадр p + 1» не сверено с кодом оригинала.
+    static constexpr std::uint32_t kColors[8] = {0xFFCC2222, 0xFF2255DD, 0xFF44AA44, 0xFF555555,
+                                                 0xFFDDDD22, 0xFF5522BB, 0xFFEEEEEE, 0xFFEEEEEE};
+    return kColors[player & 7];
+}
+
 void MapObjects::drawItem(const Item& it, const MapCamera& camera, float right, float bottom) {
     if (it.x > right || it.y > bottom || it.x + it.w < camera.x || it.y + it.h < camera.y) return;
     images_.draw(it.gp, it.frame, (it.x - camera.x) * camera.zoom, (it.y - camera.y) * camera.zoom, 0xFFFFFFFF,
@@ -149,6 +167,16 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
                       const Effects* effects) {
     const float right = camera.x + screenWidth / camera.zoom;
     const float bottom = camera.y + screenHeight / camera.zoom;
+    // Кольца выбранных — на земле под спрайтами (SelType.xml: Round — 32×32 мировых
+    // единиц, на экране сплющено вдвое), цвет игрока.
+    if (ring_)
+        for (const world::Unit& u : world.units()) {
+            if (!u.selected) continue;
+            const float r = 16.0f * camera.zoom;
+            const float sx = (groundX(u) - camera.x) * camera.zoom, sy = (groundY(u) - camera.y) * camera.zoom;
+            if (sx < -r || sy < -r || sx > screenWidth + r || sy > screenHeight + r) continue;
+            renderer_.drawQuad(*ring_, sx - r, sy - r / 2.0f, 2.0f * r, r, tintToVertexColor(playerColor(u.player)));
+        }
     dynamic_.clear();
     for (const world::Unit& u : world.units()) appendUnit(u, dynamic_);
     // Дым выстрелов — поверх стрелков (сортировка чуть ниже точки выстрела).
@@ -165,13 +193,6 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
     }
     while (d < dynamic_.size()) drawItem(dynamic_[d++], camera, right, bottom);
 
-    // Отметка выбранных: полоска над юнитом (вид оригинала ещё не перенесён).
-    for (const world::Unit& u : world.units()) {
-        if (!u.selected) continue;
-        const float sx = (groundX(u) - camera.x) * camera.zoom, sy = (groundY(u) - camera.y) * camera.zoom;
-        renderer_.fillRect(sx - 12.0f * camera.zoom, sy - 56.0f * camera.zoom, 24.0f * camera.zoom,
-                           std::max(2.0f, 3.0f * camera.zoom), 0xFF30E030);
-    }
 }
 
 } // namespace oc2::render

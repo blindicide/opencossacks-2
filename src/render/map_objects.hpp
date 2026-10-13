@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -19,6 +20,9 @@ namespace oc2::render {
 // поверхности в точке объекта. Юниты — (x + ax + fx, y/2 + ay + fy − z), где
 // (ax, ay) — SETANMPARAM анимации, (fx, fy) — SHADOW её файла USERLC.
 // Порядок вывода — по мировому Y (дальние раньше).
+// Цвет игрока 0..7 (ARGB).
+std::uint32_t playerColor(int player);
+
 class MapObjects {
 public:
     // map должна жить дольше MapObjects (по ней считается высота под юнитами).
@@ -58,6 +62,7 @@ private:
     std::vector<Item> items_;   // неподвижные, отсортированы
     std::vector<Item> dynamic_; // юниты текущего кадра
     std::unordered_map<const assets::UnitSpriteFile*, GpId> gpCache_;
+    std::optional<TextureId> ring_; // textures\selection\round3.tga (SelType.xml: Round)
 };
 
 } // namespace oc2::render
