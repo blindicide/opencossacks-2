@@ -70,8 +70,8 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
     w.enabled = node.boolValue("Enabled").value_or(true);
     w.color = std::uint32_t(node.hexValue("Color").value_or(0xFFFFFFFF));
     w.hint = node.value("Hint").value_or("");
-    if (const assets::XmlNode* actions = node.child("v_Actions"); actions && !actions->children.empty())
-        w.action = actions->children.front().name;
+    if (const assets::XmlNode* actions = node.child("v_Actions"))
+        for (const assets::XmlNode& a : actions->children) w.actions.push_back({a.name, a.value("Name").value_or("")});
 
     auto font = [&](const char* field) -> const Font* {
         const std::string fname = node.value(field).value_or("");
@@ -91,6 +91,7 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
     case WidgetKind::BitPicture: {
         const std::string file = node.value("FileName").value_or("");
         w.actualSize = node.boolValue("ActualSize").value_or(false);
+        if (file.empty()) break;
         if (auto path = assets::findCaseInsensitive(ctx_.dataRoot, gamePath(file))) {
             try {
                 const std::string bytes = readAll(*path);
@@ -167,7 +168,9 @@ Widget* Dialog::updateHover(float vx, float vy) {
     auto visit = [&](auto& self, Widget& w) -> void {
         w.hover = false;
         if (!w.visible) return;
-        const bool clickable = w.kind == WidgetKind::VitButton || w.kind == WidgetKind::TextButton;
+        // Панели с действиями (cva_M_ModalDesk) — не кнопки: их действия покадровые.
+        const bool clickable = w.kind == WidgetKind::VitButton || w.kind == WidgetKind::TextButton ||
+                               (w.kind != WidgetKind::Desk && !w.actions.empty());
         if (clickable && w.enabled && vx >= float(w.absX) && vx < float(w.absX + w.drawnW) && vy >= float(w.absY) &&
             vy < float(w.absY + w.drawnH))
             top = &w;

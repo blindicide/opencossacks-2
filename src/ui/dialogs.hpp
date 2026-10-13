@@ -39,7 +39,12 @@ struct Widget {
     bool visible = true;
     bool enabled = true;
     std::uint32_t color = 0xFFFFFFFF;
-    std::string action; // первое действие из v_Actions («cva_MM_SinStart»)
+    // Действия из v_Actions: класс («cva_MM_Start») и его поле Name («Single»).
+    struct Action {
+        std::string type;
+        std::string name;
+    };
+    std::vector<Action> actions;
     std::string hint;   // ключ подсказки
 
     // Текст (TextButton, VitButton) — уже переведённый, в Windows-1251.
@@ -87,6 +92,9 @@ public:
     Widget& root() { return root_; }
     Widget* find(std::string_view name) { return root_.find(name); }
 
+    // Обходит все элементы (для покадровых действий SetFrameState).
+    template <class F> void forEach(F&& f) { forEachIn(root_, f); }
+
     // Отмечает кнопку под курсором (виртуальные координаты); nullptr — курсор вне кнопок.
     Widget* updateHover(float vx, float vy);
     void draw(const View& view);
@@ -95,6 +103,10 @@ public:
     const std::vector<std::string>& unsupported() const { return unsupported_; }
 
 private:
+    template <class F> static void forEachIn(Widget& w, F& f) {
+        f(w);
+        for (Widget& c : w.children) forEachIn(c, f);
+    }
     Widget parse(const assets::XmlNode& node, std::string_view type);
     void drawWidget(Widget& w, int parentX, int parentY, const View& view);
     void drawVitButton(Widget& w, const View& view);
