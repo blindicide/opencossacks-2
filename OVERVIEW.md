@@ -4,8 +4,10 @@
 
 ## Архитектура
 
-Сейчас движок умеет открыть окно (SDL3) и выводить кадры через Vulkan 1.2,
-а библиотека `oc2_assets` читает спрайты `.g2d`, `.g16` и `.g17`.
+Сейчас движок открывает окно (SDL3), выводит кадры через Vulkan 1.2 и показывает
+главное меню игры, собранное из её же файлов (`Dialogs/v/M_Main.DialogsSystem.xml`):
+фон, шрифты, тексты, кнопки с подсветкой при наведении. Библиотека `oc2_assets`
+читает спрайты `.g2d`, `.g16`, `.g17`, картинки, XML и тексты.
 Остальные подсистемы восстанавливаются по декомпилированному коду оригинала.
 
 ```mermaid
@@ -48,10 +50,14 @@ opencossacks-2/
 │   │   ├── image_decode.*  — JPG, PNG, TGA, BMP через stb_image
 │   │   ├── xml_tree.*      — разбор XML-диалекта игры (диалоги, настройки, состояния шейдеров)
 │   │   ├── text_table.*    — тексты интерфейса «#КЛЮЧ текст» в порядке загрузки оригинала
-│   │   ├── text_encoding.* — Windows-1251 → UTF-8
+│   │   ├── text_encoding.* — Windows-1251 ↔ UTF-8
 │   │   ├── game_paths.*    — поиск файлов игры без учёта регистра
 │   │   └── image.hpp       — изображение RGBA8
-│   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
+│   ├── platform/window.*   — окно SDL3, события (клавиши, мышь), Vulkan-поверхность
+│   ├── ui/                 — интерфейс из данных игры
+│   │   ├── fonts.*         — шрифты по именам оригинала (MenuTitleWhite, fonBlow_A, …) и из fonts.xml
+│   │   ├── rich_text.*     — упрощённый DrawMultilineText: строки, перенос, теги {C…} {F…} {A…}
+│   │   └── dialogs.*       — окна *.DialogsSystem.xml: DialogsDesk, BitPicture, GPPicture, TextButton, VitButton
 │   └── render/
 │       ├── vulkan_context.* — экземпляр и устройство Vulkan, VMA, цепочка обмена, кадры beginFrame/endFrame, снимки экрана
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
@@ -85,6 +91,9 @@ opencossacks-2/
 - `oc2::assets::findCaseInsensitive()` (`src/assets/game_paths.hpp`): путь к файлу игры без учёта регистра (данные писались под Windows).
 - `oc2::render::GpImages` (`src/render/gp_images.hpp`): `id("interf3\\Fonts\\FontG16")` → номер; `draw()` рисует кадр с цветовым множителем.
 - `oc2::render::SpriteSheet` (`src/render/sprite_sheet.hpp`): пакет `.g2d` в видеопамяти; `draw()` рисует кадр.
+- `oc2::ui::Fonts` (`src/ui/fonts.hpp`): `find("MenuTitleWhite")` → шрифт (изображение + цвет); кадр символа = байт Windows-1251.
+- `oc2::ui::RichText` (`src/ui/rich_text.hpp`): `measure()` и `draw()` текста с разметкой внутри ширины; `View` переводит экран 1024×768 в пиксели окна.
+- `oc2::ui::Dialog` (`src/ui/dialogs.hpp`): загрузка окна из XML в дерево `Widget` (координаты относительно родителя), `updateHover()`, `draw()`.
 
 - `tools/oc2-extract/main.cpp`: утилита `oc2-extract` — `g2d <файл> <папка>` выгружает страницы и кадры в PNG, `check <папка игры>` читает все `.g2d` и сообщает об ошибках.
 
@@ -98,6 +107,8 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
 ./build/linux/Debug/opencossacks2 --screenshot shot.png   # один кадр в PNG
+./build/linux/Debug/opencossacks2 --data <папка игры>/app   # главное меню
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --mouse 512,575 --screenshot menu.png   # меню с наведением
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
@@ -146,3 +157,6 @@ analyzeHeadless re/project engine \
 - `most.g16` и `mostshp.g16` используют метод блока 5, который не поддерживает и оригинал.
 - XML диалогов — не стандартный XML: имена тегов с пробелами и «&», корень `<>`; «//» — комментарий только в начале строки. `Profile.xml` и `Shaders/DeviceStates/hud2_top_L.xml` повреждены в самих данных.
 - Заголовок `.g2d` версии 5 на байт короче (нет байта флагов), таблица кадров начинается с 0x39.
+- Разметка текста упрощена: ссылки `{R …}` и картинки `{I…}`, `{P …}`, `{G …}` пропускаются, высота строки — высота кадра «W»; оригинал (`DrawMultilineText`, `FUN_01058920`) учитывает ещё Top/Bottom/YShift из `fonts.xml`.
+- Действия кнопок (`cva_MM_SinStart` и др.) пока только печатаются в консоль; работает лишь выход (`cva_MM_Close`).
+- `grep` считает XML диалогов двоичными (Windows-1251): нужен `grep -a`.
