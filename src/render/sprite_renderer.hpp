@@ -45,6 +45,9 @@ public:
     void drawQuad(TextureId texture, float x, float y, float w, float h,
                   std::array<std::uint8_t, 4> color = {128, 128, 128, 255});
 
+    // Сплошной прямоугольник цвета ARGB (с прозрачностью).
+    void fillRect(float x, float y, float w, float h, std::uint32_t argb);
+
     // Область отсечения для следующих вызовов drawTriangles() (пиксели экрана).
     // Сбрасывается в flush().
     void setClip(int x1, int y1, int x2, int y2);
@@ -89,6 +92,7 @@ private:
 
     std::vector<Texture> textures_;
     std::optional<VkRect2D> clip_;
+    std::optional<TextureId> white_; // 1×1 белая текстура для fillRect()
     std::vector<SpriteVertex> vertices_;
     std::vector<std::uint32_t> indices_;
     std::vector<Batch> batches_;

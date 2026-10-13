@@ -308,6 +308,18 @@ void SpriteRenderer::drawQuad(TextureId texture, float x, float y, float w, floa
     drawTriangles(texture, v, idx);
 }
 
+void SpriteRenderer::fillRect(float x, float y, float w, float h, std::uint32_t argb) {
+    if (!white_) {
+        assets::Image img(1, 1);
+        img.rgba = {255, 255, 255, 255};
+        white_ = createTexture(img);
+    }
+    // Цвет вершин умножается на 2 в шейдере (0x80 — без изменений): белое × (c / 2) = c.
+    const std::array<std::uint8_t, 4> c{std::uint8_t(((argb >> 16) & 0xFF) / 2), std::uint8_t(((argb >> 8) & 0xFF) / 2),
+                                        std::uint8_t((argb & 0xFF) / 2), std::uint8_t(argb >> 24)};
+    drawQuad(*white_, x, y, w, h, c);
+}
+
 void SpriteRenderer::setClip(int x1, int y1, int x2, int y2) {
     x1 = std::max(x1, 0);
     y1 = std::max(y1, 0);
