@@ -160,6 +160,10 @@ public:
     // пока занято ≥ предела (приказ производства ждёт).
     int population(int player) const;
     int populationLimit(int player) const;
+    // Расход ресурсов (RESCONSUMER) живых юнитов игрока за минуту. Своё допущение: числа —
+    // в минуту игрового времени (код списания у оригинала не найден); списывается по
+    // частям каждый шаг, запас не уходит ниже нуля (голода пока нет).
+    std::array<int, assets::UnitDesc::kResources> consumption(int player) const;
     // Крестьянину войти в шахту (PEASANTABSORBER): свою или ничью (игрок 7) — ничья
     // при входе становится своей (своё упрощение захвата; CheckMineCaptureAbility не разобран).
     bool orderEnter(std::size_t unit, std::size_t mine);
@@ -245,7 +249,9 @@ private:
     static const assets::UnitAnimation* carryAnimation(const assets::UnitDesc& d, int resource);
     void separate();
     std::vector<std::pair<std::int64_t, std::uint32_t>> cells_;
-    ObjectRules rules_; // для separate(): клетка → юнит
+    ObjectRules rules_;
+    std::array<std::array<int, assets::UnitDesc::kResources>, 8> upkeepAccum_{}; // в 1/1500 единицы
+    void updateUpkeep(); // для separate(): клетка → юнит
 
     std::vector<Unit> units_;
     LockMap lock_;

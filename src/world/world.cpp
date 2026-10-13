@@ -188,6 +188,30 @@ int World::populationLimit(int player) const {
     return n;
 }
 
+std::array<int, assets::UnitDesc::kResources> World::consumption(int player) const {
+    std::array<int, assets::UnitDesc::kResources> out{};
+    for (const Unit& u : units_)
+        if (u.player == player && u.alive() && !u.underConstruction && u.desc->consumeResource >= 0 &&
+            u.desc->consumeResource < assets::UnitDesc::kResources)
+            out[std::size_t(u.desc->consumeResource)] += u.desc->consumeAmount;
+    return out;
+}
+
+void World::updateUpkeep() {
+    constexpr int kStepsPerMinute = 60 * 25;
+    if (steps_ % 25 != 0) return; // раз в секунду — пересчёт дорог
+    for (int p = 0; p < 7; ++p) {
+        const auto need = consumption(p);
+        for (std::size_t r = 0; r < need.size(); ++r) {
+            upkeepAccum_[std::size_t(p)][r] += need[r] * 25;
+            const int whole = upkeepAccum_[std::size_t(p)][r] / kStepsPerMinute;
+            upkeepAccum_[std::size_t(p)][r] %= kStepsPerMinute;
+            int& have = resources[std::size_t(p)][r];
+            have = std::max(0, have - whole);
+        }
+    }
+}
+
 void World::updateProduction(std::size_t index) {
     if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
     Unit& b = units_[index];
@@ -740,6 +764,7 @@ void World::killAllExcept(int keep) {
 void World::step() {
     ++steps_;
     updateObjects();
+    updateUpkeep();
     for (std::size_t index = 0; index < units_.size(); ++index) {
         Unit& u = units_[index];
         if (u.building()) { // кадры зданий — слои, не время

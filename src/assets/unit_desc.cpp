@@ -140,6 +140,9 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                 if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.producerResources |= std::uint8_t(1u << r);
             d.producerBase = intAt(w, 2 + std::size_t(n), "a");
             d.producerPerPeasant = intAt(w, 3 + std::size_t(n), "b");
+        } else if (key == "RESCONSUMER" && w.size() >= 3) {
+            d.consumeResource = resourceId(w[1]);
+            d.consumeAmount = intAt(w, 2, "расход");
         } else if (key == "SPRITEOBJECT") {
             d.spriteObject = true;
         } else if (key == "EXSPRITES" && w.size() >= 2) {

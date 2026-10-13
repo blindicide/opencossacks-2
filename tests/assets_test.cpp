@@ -859,6 +859,18 @@ TEST_CASE("Мир: производство — очередь, цена, точ
     // Мест одно (MFARM 1), и оно занято: второй солдат ждёт; крестьянин (NOFARM) места не занимает.
     w.addUnit(peasant, 0, 0, 0, 0);
     CHECK(w.population(0) == 1 && w.populationLimit(0) == 1);
+    const UnitDesc eater = UnitDesc::parse("NAME E\nNOFARM\nRESCONSUMER FOOD 8\nUSERLC 0 G\n@REST 9 0 0 3\n");
+    CHECK(eater.consumeResource == 3 && eater.consumeAmount == 8);
+    {
+        World u;
+        for (int i = 0; i < 3; ++i) u.addUnit(eater, 2, 100 * i, 0, 0);
+        u.resources[2][3] = 100;
+        CHECK(u.consumption(2)[3] == 24);
+        for (int i = 0; i < 1500; ++i) u.step(); // минута: 3 × 8
+        CHECK(u.resources[2][3] == 76);
+        for (int i = 0; i < 1500 * 4; ++i) u.step();
+        CHECK(u.resources[2][3] == 0); // не ниже нуля
+    }
     w.resources[0][3] = 20;
     CHECK(w.orderProduce(k, soldier));
     for (int i = 0; i < 10; ++i) w.step();

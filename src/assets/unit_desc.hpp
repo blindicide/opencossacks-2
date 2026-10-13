@@ -78,6 +78,9 @@ struct UnitDesc {
     // занимает (флаг 0x340 & 0x20; у крестьян, пушек, кораблей).
     int farm = 0;
     bool noFarm = false;
+    // RESCONSUMER РЕС n — расход ресурса (поля 0x15cb/0x15c9; суммы по игроку — пересчёт
+    // thunk_FUN_00dcec00, поле 0x15df5).
+    int consumeResource = -1, consumeAmount = 0;
 
     // Шахта: PEASANTABSORBER n — сколько крестьян вмещает (поле 0x372); PRODUCER k РЕС… a b —
     // какие ресурсы даёт (биты 0x36c) и доход (a + b·крестьян)·GameSpeed/8 тысячных за шаг
