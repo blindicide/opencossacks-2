@@ -94,6 +94,12 @@ public:
     // условий победы миссий (захват зон и т. п. пока не учитываются).
     std::optional<int> winningTeam() const;
 
+    // Простой тактический ИИ (своё упрощение, стратегический ИИ оригинала не перенесён):
+    // юниты команд, кроме humanTeam и нейтральных, раз в 5 секунд, если стоят без цели,
+    // идут атаковать ближайшего врага в радиусе kAiRadius. humanTeam = −1 — ИИ выключен.
+    static constexpr int kAiRadius = 2500;
+    int humanTeam = -1;
+
     // Проверочное: убить всех боевых юнитов не из команды team.
     void killAllExcept(int team);
 
@@ -123,6 +129,7 @@ private:
     void updateCombat(std::size_t index);
     void hit(Unit& target, int damage);
     void emitSounds(const Unit& u);
+    void thinkAi(std::size_t index);
 
     std::vector<Unit> units_;
     LockMap lock_;

@@ -329,6 +329,7 @@ struct MapView {
             std::fprintf(stderr, "настройки миссии (MOPT): %s\n", e.what());
         }
         world.team = mission.teams();
+        world.humanTeam = world.team[std::size_t(player)];
         std::size_t missing = 0;
         for (const oc2::assets::MapUnit& u : map.units()) {
             if (const oc2::assets::UnitDesc* desc = units->find(u.type))

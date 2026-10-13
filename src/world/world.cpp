@@ -214,6 +214,24 @@ std::optional<int> World::winningTeam() const {
     return std::nullopt;
 }
 
+void World::thinkAi(std::size_t index) {
+    Unit& u = units_[index];
+    if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam) return;
+    if (u.target || u.moving || u.attacking || u.desc->step <= 0) return;
+    long long best = (long long)kAiRadius * kAiRadius;
+    std::optional<std::size_t> target;
+    for (std::size_t j = 0; j < units_.size(); ++j) {
+        const Unit& e = units_[j];
+        if (!e.alive() || e.building() || !enemies(u.player, e.player)) continue;
+        const long long dx = e.x() - u.x(), dy = e.y() - u.y();
+        if (dx * dx + dy * dy < best) {
+            best = dx * dx + dy * dy;
+            target = j;
+        }
+    }
+    if (target) orderAttack(index, *target);
+}
+
 void World::killAllExcept(int keep) {
     for (Unit& u : units_)
         if (!u.building() && u.player != 7 && team[std::size_t(u.player & 7)] != keep && u.alive()) hit(u, u.life + 1);
@@ -262,6 +280,7 @@ void World::step() {
             }
             continue;
         }
+        if ((steps_ + index) % 125 == 0) thinkAi(index); // раз в 5 с, вразнобой
         updateCombat(index);
         if (u.attacking) continue;
         if (u.moving) {

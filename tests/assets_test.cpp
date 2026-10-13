@@ -788,6 +788,14 @@ TEST_CASE("Мир: бой — выстрел, перезарядка, смерт
     CHECK(!w.units()[a].target); // цель мертва — приказ снят
     CHECK(w.winningTeam() == 0); // у команды игрока 1 живых не осталось; нейтральный не в счёт
 
+    World ai;
+    const std::size_t me = ai.addUnit(shooter, 0, 100, 100, 0);
+    const std::size_t bot = ai.addUnit(shooter, 1, 2000, 100, 0); // дальше поиска (400), ближе kAiRadius
+    ai.humanTeam = ai.team[0];
+    for (int i = 0; i < 130; ++i) ai.step();
+    CHECK(ai.units()[bot].target == me && ai.units()[bot].x() < 2000); // ИИ пошёл в атаку
+    CHECK(!ai.units()[me].target || ai.units()[me].target == bot);
+
     World peace;
     peace.addUnit(shooter, 0, 100, 100, 0);
     peace.addUnit(shooter, 2, 900, 900, 0);
