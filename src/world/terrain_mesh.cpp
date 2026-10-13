@@ -14,6 +14,7 @@ namespace {
 constexpr int kLightX = 90, kLightY = -90, kLightZ = 200;
 
 constexpr float kFactureSpan = 64.0f; // мировых единиц на одну фактуру
+constexpr bool kRandomOffsets = false;   // случайные сдвиги текстуры, как в FUN_015590b0
 
 int heightAt(const assets::Map3d& map, int x, int y) {
     if (x < 0 || y < 0 || x >= map.vertsInLine() || y >= map.rows()) return 0;
@@ -68,27 +69,37 @@ std::vector<TerrainVertex> buildTerrainMesh(const assets::Map3d& map) {
     out.reserve(std::size_t(w - 1) * std::size_t(h - 1) * 6);
 
     auto emit = [&](std::array<std::array<int, 2>, 3> tri, std::uint32_t salt) {
-        std::uint8_t f1 = 0, f2 = 0;
-        for (const auto& p : tri) {
-            f1 = std::max(f1, map.facture(p[0], p[1]));
-            f2 = std::max(f2, map.facture2(p[0], p[1]));
+        std::uint8_t f1[3], f2[3];
+        for (int k = 0; k < 3; ++k) {
+            f1[k] = map.facture(tri[std::size_t(k)][0], tri[std::size_t(k)][1]);
+            f2[k] = map.facture2(tri[std::size_t(k)][0], tri[std::size_t(k)][1]);
         }
         // Текстура привязана к первой вершине треугольника со случайным сдвигом
         // 0..31 и 0..27 мировых единиц (FUN_015590b0). В атласе оригинала 8×8 фактур,
         // ячейка (32 единицы) занимает 32/512 атласа — половину фактуры, то есть
         // фактура покрывает 64 мировые единицы.
+        // Отступление от оригинала: случайные сдвиги дают заметные полосы между
+        // треугольниками на современных разрешениях, поэтому текстура непрерывна
+        // в мировых координатах (сдвиги можно вернуть, задав randomOffsets).
         const std::uint32_t id = std::uint32_t(map.index(tri[0][0], tri[0][1]));
-        const float offU = float(hash(id, salt) & 31u), offV = float(hash(id, salt + 2) % 28u);
-        const float ox = map.worldX(tri[0][0]), oy = map.worldY(tri[0][0], tri[0][1]);
-        for (const auto& p : tri) {
+        float offU = 0.0f, offV = 0.0f, ox = 0.0f, oy = 0.0f;
+        if (kRandomOffsets) {
+            offU = float(hash(id, salt) & 31u);
+            offV = float(hash(id, salt + 2) % 28u);
+            ox = map.worldX(tri[0][0]);
+            oy = map.worldY(tri[0][0], tri[0][1]);
+        }
+        for (std::uint8_t corner = 0; corner < 3; ++corner) {
+            const auto& p = tri[corner];
             TerrainVertex v{};
             v.x = map.worldX(p[0]);
             v.y = map.worldY(p[0], p[1]);
             v.z = float(map.height(p[0], p[1]));
             v.u = (v.x - ox + offU) / kFactureSpan;
             v.v = (v.y - oy + offV) / kFactureSpan;
-            v.facture1 = f1;
-            v.facture2 = f2;
+            std::copy(f1, f1 + 3, v.factures1);
+            std::copy(f2, f2 + 3, v.factures2);
+            v.corner = corner;
             v.light = light[map.index(p[0], p[1])];
             v.blend2 = std::uint8_t(std::min(255, map.blend2(p[0], p[1]) * 6 / 5));
             out.push_back(v);

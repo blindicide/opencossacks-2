@@ -234,10 +234,11 @@ struct MapView {
         if (factures.empty()) throw std::runtime_error("нет FacturesList.xml");
         // Номера фактур в карте могут выходить за список — такие вершины берут нулевую.
         std::vector<oc2::world::TerrainVertex> mesh = oc2::world::buildTerrainMesh(map);
-        for (auto& v : mesh) {
-            if (v.facture1 >= factures.size()) v.facture1 = 0;
-            if (v.facture2 >= factures.size()) v.facture2 = 0;
-        }
+        for (auto& v : mesh)
+            for (int k = 0; k < 3; ++k) {
+                if (v.factures1[k] >= factures.size()) v.factures1[k] = 0;
+                if (v.factures2[k] >= factures.size()) v.factures2[k] = 0;
+            }
         terrain = std::make_unique<oc2::render::TerrainRenderer>(vulkan);
         terrain->setFactures(factures);
         terrain->setMesh(mesh);

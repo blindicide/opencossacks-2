@@ -88,11 +88,11 @@ TerrainRenderer::TerrainRenderer(VulkanContext& vulkan) : vulkan_(vulkan) {
     pli.pPushConstantRanges = &push;
     check(vkCreatePipelineLayout(device, &pli, nullptr, &pipelineLayout_), "не удалось создать раскладку конвейера");
 
-    // Как в состоянии Facture4: увеличение и уменьшение «ближайший пиксель», между
-    // уровнями мип-карты — линейно, текстура повторяется.
+    // В оригинале (Facture4) — «ближайший пиксель»; фактуры уменьшены в 4 раза и
+    // без сглаживания рябят, поэтому здесь линейная фильтрация с мип-картами.
     VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    si.magFilter = VK_FILTER_NEAREST;
-    si.minFilter = VK_FILTER_NEAREST;
+    si.magFilter = VK_FILTER_LINEAR;
+    si.minFilter = VK_FILTER_LINEAR;
     si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     si.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     si.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -153,11 +153,12 @@ void TerrainRenderer::createPipeline() {
 
     using V = world::TerrainVertex;
     VkVertexInputBindingDescription binding{0, sizeof(V), VK_VERTEX_INPUT_RATE_VERTEX};
-    std::array<VkVertexInputAttributeDescription, 4> attrs{{
+    std::array<VkVertexInputAttributeDescription, 5> attrs{{
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(V, x)},
         {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(V, u)},
-        {2, 0, VK_FORMAT_R8G8B8A8_UINT, offsetof(V, facture1)},
-        {3, 0, VK_FORMAT_R8G8B8A8_UNORM, offsetof(V, light)},
+        {2, 0, VK_FORMAT_R8G8B8A8_UINT, offsetof(V, factures1)},
+        {3, 0, VK_FORMAT_R8G8B8A8_UINT, offsetof(V, factures2)},
+        {4, 0, VK_FORMAT_R8G8B8A8_UNORM, offsetof(V, light)},
     }};
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
