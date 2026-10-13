@@ -15,6 +15,8 @@
 #include "assets/byte_reader.hpp"
 #include "assets/g16.hpp"
 #include "assets/g2d.hpp"
+#include "assets/text_table.hpp"
+#include "assets/xml_tree.hpp"
 #include "core/version.hpp"
 #include "assets/png.hpp"
 
@@ -31,7 +33,7 @@ void usage() {
                 "  oc2-extract g16 <файл.g16|.g17> <папка>\n"
                 "      кадры в PNG\n"
                 "  oc2-extract check <папка игры> [--render]\n"
-                "      прочитать все .g2d, .g16 и .g17; с --render ещё и собрать кадры .g2d\n",
+                "      прочитать все .g2d, .g16, .g17, .xml и тексты; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
 }
 
@@ -80,16 +82,23 @@ int extractG16(const fs::path& file, const fs::path& outDir) {
 
 int check(const fs::path& root, bool render) {
     const auto start = std::chrono::steady_clock::now();
-    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0;
+    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0;
     std::uintmax_t bytes = 0;
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
         const bool isG16 = hasExtension(entry.path(), ".g16") || hasExtension(entry.path(), ".g17");
-        if (!isG16 && !hasExtension(entry.path(), ".g2d")) continue;
+        const bool isXml = hasExtension(entry.path(), ".xml");
+        if (!isG16 && !isXml && !hasExtension(entry.path(), ".g2d")) continue;
         ++files;
         try {
             auto data = readFile(entry.path());
             bytes += data.size();
+            if (isXml) {
+                const std::string text(data.begin(), data.end());
+                (void)oc2::assets::parseXml(text);
+                ++xmlFiles;
+                continue;
+            }
             if (isG16) {
                 G16File g16 = G16File::parse(std::move(data));
                 for (std::size_t i = 0; i < g16.frameCount(); ++i, ++g16Frames) (void)g16.decodeTiles(i);
@@ -108,6 +117,9 @@ int check(const fs::path& root, bool render) {
     std::printf("файлов: %zu (%.1f МБ), с ошибками: %zu, страниц .g2d: %zu, кадров .g16/.g17: %zu", files,
                 double(bytes) / 1048576.0, failed, pages, g16Frames);
     if (render) std::printf(", кадров: %zu", frames);
+    oc2::assets::TextTable texts;
+    texts.loadGame(root);
+    std::printf(", XML: %zu, строк текста: %zu", xmlFiles, texts.size());
     std::printf(", время: %.1f с\n", seconds);
     return failed == 0 ? 0 : 1;
 }
