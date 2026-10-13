@@ -59,7 +59,8 @@ opencossacks-2/
 │   ├── platform/window.*   — окно SDL3, события (клавиши, мышь), Vulkan-поверхность
 │   ├── world/              — мир игры без графики (библиотека oc2_world)
 │   │   ├── terrain_mesh.*  — треугольники рельефа карты с освещением вершин
-│   │   └── unit_catalog.*  — типы юнитов карты → описания .md через файлы наций
+│   │   ├── unit_catalog.*  — типы юнитов карты → описания .md через файлы наций
+│   │   └── world.*         — юниты мира и шаг симуляции (40 мс): анимации, ходьба к точке
 │   ├── ui/                 — интерфейс из данных игры
 │   │   ├── fonts.*         — шрифты по именам оригинала (MenuTitleWhite, fonBlow_A, …) и из fonts.xml
 │   │   ├── rich_text.*     — упрощённый DrawMultilineText: строки, перенос, теги {C…} {F…} {A…}
@@ -69,7 +70,7 @@ opencossacks-2/
 │       ├── sprite_renderer.* — текстуры и вывод текстурированных треугольников с альфа-смешиванием
 │       ├── sprite_sheet.*  — пакет .g2d в видеопамяти: страницы-текстуры, рисование кадров
 │       ├── terrain_renderer.* — рельеф: массив фактур с мип-картами, проекция X = x, Y = y/2 − z
-│       ├── map_objects.*   — деревья, камни, стены и юниты карты поверх рельефа, по мировому Y
+│       ├── map_objects.*   — деревья, камни, стены и юниты мира поверх рельефа, по мировому Y; отметка выбранных
 │       ├── gp_images.*     — изображения по именам из данных (.g17 → .g16 → .g2d → Cash/), ленивая загрузка, окраска, отражение
 │       ├── shaders/        — SPIR-V шейдеров в виде массивов C++ (генерируется, не править вручную)
 │       └── vma.cpp         — реализация Vulkan Memory Allocator (единственная единица трансляции)
@@ -103,7 +104,8 @@ opencossacks-2/
 - `oc2::assets::SpriteList` (`src/assets/sprite_list.hpp`): `parse()` списка `.lst` — имя GP и для каждого объекта привязка (dx, dy), кадр = номер.
 - `oc2::assets::UnitDesc` (`src/assets/unit_desc.hpp`): `parse()` описания `.md`; `file(id)` — файл спрайтов USERLC, `animation("#STAND")` — кадры анимации; `parseNationMembers()` — раздел [MEMBERS] файла нации.
 - `oc2::world::UnitCatalog` (`src/world/unit_catalog.hpp`): `find("SelFraDom4_3(SFR)")` → описание типа.
-- `oc2::render::MapObjects` (`src/render/map_objects.hpp`): спрайты карты (объекты и юниты в покое), `draw()` с отсечением по экрану.
+- `oc2::world::World` (`src/world/world.hpp`): `addUnit()`, `orderMove()`, `step()` — шаг симуляции; `cos256()/sin256()` — таблицы направлений оригинала.
+- `oc2::render::MapObjects` (`src/render/map_objects.hpp`): неподвижные объекты карты и юниты мира, `draw()` сливает их по мировому Y и отсекает по экрану.
 - `oc2::world::buildTerrainMesh()` (`src/world/terrain_mesh.hpp`): треугольники рельефа построчно от дальних к ближним.
 - `oc2::render::TerrainRenderer` (`src/render/terrain_renderer.hpp`): `setFactures()`, `setMesh()`, `draw()` с `MapCamera`.
 - `oc2::ui::Fonts` (`src/ui/fonts.hpp`): `find("MenuTitleWhite")` → шрифт (изображение + цвет); кадр символа = байт Windows-1251.
@@ -126,6 +128,8 @@ cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --mouse 512,575 --screenshot menu.png   # меню с наведением
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d   # карта
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 11939,14000 --screenshot village.png
+./build/linux/Debug/opencossacks2 --data <папка игры>/app --map Missions/Skirmish/Skirmish1.m3d --at 13200,1700 --move 0,13000,1900 --frames 60 --screenshot walk.png
+# на карте: левая кнопка — выбрать юнит, правая — идти (группа сохраняет строй)
 ./build/linux/Debug/opencossacks2 --data <папка игры>/app --sprite UnitsG17/FrnPopU.g2d   # просмотр спрайтов
 ctest --test-dir build/linux -C Debug     # тесты, файлы игры не нужны
 ./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
@@ -182,4 +186,5 @@ analyzeHeadless re/project engine \
 - Часть изображений есть только в кэше `Cash/` в виде `.g16` с «_» вместо «\» (`STONES`, `WALLS`, `UnitsG17\SelFraDom4_3` → `Cash/UNITSG17_SELFRADOM4_3.g16`).
 - У зданий (`BUILDING` в .md) кадры анимации — слои одной картинки (низ с тенью и верх), у остальных юнитов — кадры во времени. Кадры направления d в файле: d·(всего/поворотов)+кадр.
 - Направление юнита 0..255: 0 — восток, по часовой стрелке (юг = 64), как в таблицах cos/sin оригинала (DAT_0216a818/DAT_0216a610). В файлах спрайтов 2·(повороты−1) направлений: от юга до севера, остальное — отражение.
+- Симуляция: один шаг = 40 мс (обычная скорость), кадр анимации за шаг; ходьба — шаг из GEOMETRY в единицах 1/16 за кадр. Поиска пути, столкновений и поворота с ограниченной скоростью (ROTATE) пока нет.
 - Составные объекты TRE2 («CO», `complex.lst`) и вода (SEA2, RIV1) пока не выводятся; цвет игрока на юнитах не накладывается.

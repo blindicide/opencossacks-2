@@ -1,17 +1,18 @@
 #pragma once
 
 #include <filesystem>
+#include <unordered_map>
 #include <vector>
 
 #include "assets/map3d.hpp"
 #include "render/gp_images.hpp"
+#include "render/sprite_renderer.hpp"
 #include "render/terrain_renderer.hpp"
-#include "world/unit_catalog.hpp"
+#include "world/world.hpp"
 
 namespace oc2::render {
 
-// Спрайты карты: объекты TRE2 (деревья, камни, ямы, стены) и юниты UNI3
-// (здания, животные, войска) в покое — первый кадр анимации стояния.
+// Спрайты карты: неподвижные объекты TRE2 (деревья, камни, ямы, стены) и юниты мира.
 // Объекты — как в выводе оригинала (FUN_00e468e0): левый верхний угол кадра =
 // (x − dx, y/2 − dy − z), где (dx, dy) — привязка из списка .lst, z — высота
 // поверхности в точке объекта. Юниты — (x + ax + fx, y/2 + ay + fy − z), где
@@ -19,14 +20,18 @@ namespace oc2::render {
 // Порядок вывода — по мировому Y (дальние раньше).
 class MapObjects {
 public:
-    // units — каталог типов юнитов; без него юниты не выводятся.
-    MapObjects(GpImages& images, const std::filesystem::path& dataRoot, const assets::Map3d& map,
-               world::UnitCatalog* units);
+    // map должна жить дольше MapObjects (по ней считается высота под юнитами).
+    MapObjects(SpriteRenderer& renderer, GpImages& images, const std::filesystem::path& dataRoot,
+               const assets::Map3d& map);
 
-    // Добавляет видимые объекты в очередь спрайтов (рисовать после рельефа).
-    void draw(const MapCamera& camera, float screenWidth, float screenHeight);
+    // Ставит в очередь спрайтов видимые объекты и юниты world (рисовать после рельефа).
+    void draw(const MapCamera& camera, float screenWidth, float screenHeight, const world::World& world);
 
-    std::size_t count() const { return items_.size(); }
+    std::size_t staticCount() const { return items_.size(); }
+
+    // Точка земли под юнитом в пикселях проекции (X = x, Y = y/2 − z).
+    float groundX(const world::Unit& u) const { return float(u.x()); }
+    float groundY(const world::Unit& u) const { return float((u.y() >> 1) - map_.heightAt(u.x(), u.y())); }
 
 private:
     struct Item {
@@ -34,14 +39,20 @@ private:
         float w, h;    // размер кадра (для отсечения)
         GpId gp;
         std::uint32_t frame;
-        int sortY;     // мировой Y объекта
+        int sortY;     // мировой Y
         bool mirror = false;
     };
 
-    void addUnits(const assets::Map3d& map, world::UnitCatalog& units);
+    void appendUnit(const world::Unit& u, std::vector<Item>& out);
+    GpId gpFor(const assets::UnitSpriteFile& file);
+    void drawItem(const Item& it, const MapCamera& camera, float right, float bottom);
 
+    SpriteRenderer& renderer_;
     GpImages& images_;
-    std::vector<Item> items_;
+    const assets::Map3d& map_;
+    std::vector<Item> items_;   // неподвижные, отсортированы
+    std::vector<Item> dynamic_; // юниты текущего кадра
+    std::unordered_map<const assets::UnitSpriteFile*, GpId> gpCache_;
 };
 
 } // namespace oc2::render

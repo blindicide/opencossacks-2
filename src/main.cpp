@@ -30,6 +30,8 @@
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
 #include "render/map_objects.hpp"
+#include "world/unit_catalog.hpp"
+#include "world/world.hpp"
 #include "render/terrain_renderer.hpp"
 #include "ui/dialogs.hpp"
 #include "ui/fonts.hpp"
@@ -56,6 +58,7 @@ const char* kHelp =
     "  --map <файл.m3d>      показать карту (путь относительно --data, например Missions/Skirmish/Skirmish1.m3d)\n"
     "  --menu <имя>          открыть меню из Dialogs/MainMenu.xml (Main, Single, Options, …)\n"
     "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
+    "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --version             версия\n"
     "\n"
@@ -97,6 +100,7 @@ struct Options {
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
+    std::optional<std::array<int, 3>> move;  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -137,6 +141,11 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--move" && hasValue) {
+            int p = 0, x = 0, y = 0;
+            if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
+                throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
+            o.move = std::array<int, 3>{p, x, y};
         } else if (a == "--frame" && hasValue) {
             o.startFrame = std::strtol(argv[++i], nullptr, 10);
         } else {
@@ -207,12 +216,15 @@ struct Viewer {
     }
 };
 
-// Просмотр карты: рельеф с фактурами, объекты карты, прокрутка и масштаб.
+// Карта в игре: рельеф, объекты, юниты мира; прокрутка, масштаб, выбор и приказы.
 struct MapView {
+    std::unique_ptr<oc2::assets::Map3d> mapData;
     std::unique_ptr<oc2::render::TerrainRenderer> terrain;
     std::unique_ptr<oc2::render::GpImages> images;
     std::unique_ptr<oc2::world::UnitCatalog> units;
     std::unique_ptr<oc2::render::MapObjects> objects;
+    oc2::world::World world;
+    double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
 
@@ -220,7 +232,8 @@ struct MapView {
             const fs::path& mapFile) {
         const auto path = oc2::assets::findCaseInsensitive(data, mapFile);
         if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
-        const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(*path));
+        mapData = std::make_unique<oc2::assets::Map3d>(oc2::assets::Map3d::parse(readFile(*path)));
+        const oc2::assets::Map3d& map = *mapData;
 
         // Фактуры — по списку FacturesList.xml (номер в карте = номер в списке).
         std::vector<oc2::assets::Image> factures;
@@ -256,11 +269,19 @@ struct MapView {
         terrain->setMesh(mesh);
         images = std::make_unique<oc2::render::GpImages>(sprites, data);
         units = std::make_unique<oc2::world::UnitCatalog>(data);
-        objects = std::make_unique<oc2::render::MapObjects>(*images, data, map, units.get());
+        objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
+        std::size_t missing = 0;
+        for (const oc2::assets::MapUnit& u : map.units()) {
+            if (const oc2::assets::UnitDesc* desc = units->find(u.type))
+                world.addUnit(*desc, u.player, u.x, u.y, u.direction);
+            else
+                ++missing;
+        }
+        if (missing) std::printf("юниты карты: не найдено типов для %zu из %zu\n", missing, map.units().size());
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
-        std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu\n", path->string().c_str(),
-                    map.vertsInLine(), map.rows(), mesh.size() / 3, objects->count());
+        std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu\n", path->string().c_str(),
+                    map.vertsInLine(), map.rows(), mesh.size() / 3, objects->staticCount(), world.units().size());
     }
 
     void centerOn(VkExtent2D e) {
@@ -287,6 +308,65 @@ struct MapView {
         }
         camera.x = cx - float(e.width) / camera.zoom / 2.0f;
         camera.y = cy - float(e.height) / camera.zoom / 2.0f;
+    }
+
+    // Шаги симуляции за прошедшее время (не больше 5 за кадр, чтобы не отставать бесконечно).
+    void advance(double dt) {
+        stepTime += dt;
+        for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
+            world.step();
+            stepTime -= oc2::world::kStepSeconds;
+        }
+        if (stepTime > oc2::world::kStepSeconds) stepTime = 0.0;
+    }
+
+    // Мировая точка под пикселем экрана: Y проекции = y/2 − z, z зависит от y — несколько уточнений.
+    std::array<int, 2> screenToWorld(float sx, float sy) const {
+        const float px = camera.x + sx / camera.zoom, py = camera.y + sy / camera.zoom;
+        const int x = int(px);
+        int y = int(py * 2.0f);
+        for (int i = 0; i < 4; ++i) y = int((py + float(mapData->heightAt(x, y))) * 2.0f);
+        return {x, y};
+    }
+
+    // Юнит под курсором: рамка примерно по фигуре пехотинца над точкой земли.
+    std::optional<std::size_t> pick(float sx, float sy) const {
+        std::optional<std::size_t> best;
+        float bestDist = 1e9f;
+        const auto& us = world.units();
+        for (std::size_t i = 0; i < us.size(); ++i) {
+            if (us[i].building()) continue;
+            const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
+            const float gy = (objects->groundY(us[i]) - camera.y) * camera.zoom;
+            const float dx = sx - gx, dy = sy - (gy - 22.0f * camera.zoom);
+            if (std::abs(dx) > 14.0f * camera.zoom || std::abs(dy) > 26.0f * camera.zoom) continue;
+            const float d = dx * dx + dy * dy;
+            if (d < bestDist) {
+                bestDist = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    // Левая кнопка — выбрать юнит (пустое место снимает выбор), правая — идти в точку.
+    // Группа сохраняет строй: каждый идёт со своим смещением от центра группы.
+    void handleClick(const oc2::platform::Window::Click& c) {
+        auto& us = world.units();
+        if (c.button == 1) {
+            for (auto& u : us) u.selected = false;
+            if (auto i = pick(c.x, c.y)) us[*i].selected = true;
+        } else if (c.button == 3) {
+            const auto [tx, ty] = screenToWorld(c.x, c.y);
+            long cx = 0, cy = 0, n = 0;
+            for (const auto& u : us)
+                if (u.selected) cx += u.x(), cy += u.y(), ++n;
+            if (n == 0) return;
+            cx /= n;
+            cy /= n;
+            for (std::size_t i = 0; i < us.size(); ++i)
+                if (us[i].selected) world.orderMove(i, tx + int(us[i].x() - cx), ty + int(us[i].y() - cy));
+        }
     }
 
     // Прокрутка: стрелки (состояние клавиш) и курсор у края окна.
@@ -367,6 +447,17 @@ int main(int argc, char** argv) {
             mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map);
             mapView->centerOn(vulkan.extent());
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
+            if (opts->move) {
+                auto& us = mapView->world.units();
+                for (auto& u : us) u.selected = u.player == (*opts->move)[0] && !u.building();
+                long cx = 0, cy = 0, n = 0;
+                for (const auto& u : us)
+                    if (u.selected) cx += u.x(), cy += u.y(), ++n;
+                for (std::size_t i = 0; n > 0 && i < us.size(); ++i)
+                    if (us[i].selected)
+                        mapView->world.orderMove(i, (*opts->move)[1] + int(us[i].x() - cx / n),
+                                                 (*opts->move)[2] + int(us[i].y() - cy / n));
+            }
         } else if (opts->sprite.empty() && !opts->dataDir.empty()) {
             screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
         } else if (!opts->sprite.empty()) {
@@ -413,8 +504,10 @@ int main(int argc, char** argv) {
             if (mapView) {
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
                 mapView->scroll(dt, window, e);
+                for (const auto& click : window.clicks) mapView->handleClick(click);
+                mapView->advance(dt);
                 mapView->terrain->draw(cmd, mapView->camera);
-                mapView->objects->draw(mapView->camera, float(e.width), float(e.height));
+                mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
             } else if (screen) {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;
