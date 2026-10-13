@@ -28,12 +28,13 @@ public:
     TerrainRenderer& operator=(const TerrainRenderer&) = delete;
 
     // Фактуры — квадратные изображения одного размера (у игры 256×256),
-    // номер в векторе = номер фактуры в карте.
-    void setFactures(const std::vector<assets::Image>& factures);
+    // номер в векторе = номер фактуры в карте. waterLayer — номер слоя с
+    // отражением для воды (облака oblaka123g1.tga), −1 — без воды.
+    void setFactures(const std::vector<assets::Image>& factures, int waterLayer = -1);
     void setMesh(const std::vector<world::TerrainVertex>& vertices);
 
-    // Записывает вывод рельефа в буфер команд кадра (до спрайтов).
-    void draw(VkCommandBuffer cmd, const MapCamera& camera);
+    // Записывает вывод рельефа в буфер команд кадра (до спрайтов); time — секунды для воды.
+    void draw(VkCommandBuffer cmd, const MapCamera& camera, float time = 0.0f);
 
 private:
     void createPipeline();
@@ -55,6 +56,7 @@ private:
     VkBuffer vertices_ = VK_NULL_HANDLE;
     VmaAllocation verticesMemory_ = VK_NULL_HANDLE;
     std::uint32_t vertexCount_ = 0;
+    int waterLayer_ = -1;
 };
 
 } // namespace oc2::render

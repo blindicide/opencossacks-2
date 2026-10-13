@@ -263,15 +263,29 @@ struct MapView {
             }
         }
         if (factures.empty()) throw std::runtime_error("нет FacturesList.xml");
+        const std::size_t groundCount = factures.size();
+        // Отражение для воды — облака, как в FUN_0168e650 (Oblaka123g1.tga), последним слоем.
+        int waterLayer = -1;
+        if (auto file = oc2::assets::findCaseInsensitive(data, "textures/oblaka123g1.tga")) {
+            try {
+                oc2::assets::Image img = oc2::assets::decodeImage(readFile(*file));
+                if (img.width == 256 && img.height == 256) {
+                    waterLayer = int(factures.size());
+                    factures.push_back(std::move(img));
+                }
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "текстура воды: %s\n", e.what());
+            }
+        }
         // Номера фактур в карте могут выходить за список — такие вершины берут нулевую.
         std::vector<oc2::world::TerrainVertex> mesh = oc2::world::buildTerrainMesh(map);
         for (auto& v : mesh)
             for (int k = 0; k < 3; ++k) {
-                if (v.factures1[k] >= factures.size()) v.factures1[k] = 0;
-                if (v.factures2[k] >= factures.size()) v.factures2[k] = 0;
+                if (v.factures1[k] >= groundCount) v.factures1[k] = 0;
+                if (v.factures2[k] >= groundCount) v.factures2[k] = 0;
             }
         terrain = std::make_unique<oc2::render::TerrainRenderer>(vulkan);
-        terrain->setFactures(factures);
+        terrain->setFactures(factures, waterLayer);
         terrain->setMesh(mesh);
         if (shared) {
             images = shared;
@@ -550,7 +564,7 @@ int main(int argc, char** argv) {
                 mapView->scroll(dt, window, e);
                 for (const auto& click : window.clicks) mapView->handleClick(click);
                 mapView->advance(dt);
-                mapView->terrain->draw(cmd, mapView->camera);
+                mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world);
             } else if (screen) {
                 screen->fit(e);

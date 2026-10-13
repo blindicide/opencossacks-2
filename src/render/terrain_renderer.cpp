@@ -80,7 +80,7 @@ TerrainRenderer::TerrainRenderer(VulkanContext& vulkan) : vulkan_(vulkan) {
     li.pBindings = &binding;
     check(vkCreateDescriptorSetLayout(device, &li, nullptr, &setLayout_), "не удалось создать раскладку дескрипторов");
 
-    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 4};
+    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) * 6};
     VkPipelineLayoutCreateInfo pli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pli.setLayoutCount = 1;
     pli.pSetLayouts = &setLayout_;
@@ -206,7 +206,8 @@ void TerrainRenderer::createPipeline() {
     check(r, "не удалось создать конвейер рельефа");
 }
 
-void TerrainRenderer::setFactures(const std::vector<assets::Image>& factures) {
+void TerrainRenderer::setFactures(const std::vector<assets::Image>& factures, int waterLayer) {
+    waterLayer_ = waterLayer;
     if (factures.empty()) throw std::runtime_error("нет фактур рельефа");
     const std::uint32_t size = factures.front().width;
     for (const assets::Image& f : factures)
@@ -328,18 +329,19 @@ void TerrainRenderer::setMesh(const std::vector<world::TerrainVertex>& vertices)
     vertexCount_ = static_cast<std::uint32_t>(vertices.size());
 }
 
-void TerrainRenderer::draw(VkCommandBuffer cmd, const MapCamera& camera) {
+void TerrainRenderer::draw(VkCommandBuffer cmd, const MapCamera& camera, float time) {
     if (!vertices_ || !view_) return;
     if (pipelinePass_ != vulkan_.renderPass()) createPipeline();
     const VkExtent2D extent = vulkan_.extent();
     VkViewport viewport{0.0f, 0.0f, float(extent.width), float(extent.height), 0.0f, 1.0f};
     VkRect2D scissor{{0, 0}, extent};
-    const float push[4] = {camera.x, camera.y, 2.0f * camera.zoom / float(extent.width),
-                           2.0f * camera.zoom / float(extent.height)};
+    const float push[6] = {camera.x, camera.y, 2.0f * camera.zoom / float(extent.width),
+                           2.0f * camera.zoom / float(extent.height), time, float(waterLayer_)};
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), push);
+    vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                       sizeof(push), push);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &set_, 0, nullptr);
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vertices_, &offset);
