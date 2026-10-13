@@ -132,6 +132,24 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             const int n = intAt(w, 1, "число ресурсов");
             for (int i = 0; i < n && 2 + std::size_t(i) < w.size(); ++i)
                 if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.resourceBase |= std::uint8_t(1u << r);
+        } else if (key == "PEASANT") {
+            d.peasant = true;
+        } else if (key == "PRICE") {
+            const int n = intAt(w, 1, "число ресурсов");
+            for (int i = 0; i < n && 3 + 2 * std::size_t(i) < w.size(); ++i)
+                if (const int r = resourceId(w[2 + 2 * std::size_t(i)]); r >= 0)
+                    d.price[std::size_t(r)] = intAt(w, 3 + 2 * std::size_t(i), "цена");
+        } else if (key == "BUILDSTAGES") {
+            d.buildStages = intAt(w, 1, "стадии");
+        } else if (key == "BIGICON" && w.size() >= 3) {
+            d.bigIconFile = std::string(w[1]);
+            d.bigIconFrame = intAt(w, 2, "кадр");
+        } else if (key == "BUILDLOCKPOINTS" || key == "BUILDPOINTS") {
+            auto& points = key == "BUILDPOINTS" ? d.buildPoints : d.buildLockPoints;
+            const int n = intAt(w, 1, "число точек");
+            points.clear();
+            for (int i = 0; i < n; ++i)
+                points.emplace_back(intAt(w, 2 + 2 * std::size_t(i), "x"), intAt(w, 3 + 2 * std::size_t(i), "y"));
         } else if (key == "ROTATE") {
             d.rotate = std::max(1, intAt(w, 1, "поворот"));
         } else if (key == "UNITRADIUS") {
@@ -201,6 +219,37 @@ std::vector<std::pair<std::string, std::string>> parseNationMembers(std::string_
             continue;
         }
         if (inMembers && w.size() >= 2) out.emplace_back(std::string(w[0]), std::string(w[1]));
+    }
+    return out;
+}
+
+std::vector<std::pair<std::string, std::vector<ProduceItem>>> parseNationProduce(std::string_view text) {
+    std::vector<std::pair<std::string, std::vector<ProduceItem>>> out;
+    bool inProduce = false;
+    int left = 0; // строк текущего производителя
+    for (const auto& w : lines(text)) {
+        if (w[0].front() == '[') {
+            inProduce = w[0] == "[FIXED_PRODUCE]";
+            left = 0;
+            continue;
+        }
+        if (!inProduce) continue;
+        if (left > 0) {
+            --left;
+            ProduceItem item;
+            item.member = std::string(w[0]);
+            if (w.size() < 4 || !toInt(w[1], item.column) || !toInt(w[2], item.row))
+                throw FormatError("[FIXED_PRODUCE]: мало чисел у " + item.member);
+            if (item.column < 0 || item.column > 11 || item.row < 0 || item.row > 8)
+                throw FormatError("[FIXED_PRODUCE]: неверное место значка у " + item.member);
+            if (w[3] != "NONE" && w[3] != "----") item.hotkey = w[3][0];
+            out.back().second.push_back(std::move(item));
+            continue;
+        }
+        int n = 0;
+        if (w.size() < 2 || !toInt(w[1], n) || n < 0) throw FormatError("[FIXED_PRODUCE]: нет числа у " + std::string(w[0]));
+        out.emplace_back(std::string(w[0]), std::vector<ProduceItem>{});
+        left = n;
     }
     return out;
 }

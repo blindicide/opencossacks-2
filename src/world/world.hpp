@@ -57,6 +57,11 @@ struct Unit {
     int workLeft = 0;        // циклов работы до полной ноши
     std::optional<std::size_t> base; // куда несёт
 
+    // Строительство: у здания — стадия (OneObject +0x99), у строителя — что строит.
+    bool underConstruction = false;
+    int stage = 0;
+    std::optional<std::size_t> buildTarget;
+
     bool alive() const { return !dying && !dead; }
     int x() const { return x16 >> 4; }
     int y() const { return y16 >> 4; }
@@ -103,6 +108,19 @@ public:
     // ATTACKn, нести PORTION к ближайшему своему зданию с RESOURCEBASE, повторять.
     // Может только тот, у кого есть PORTION этого ресурса.
     bool orderGather(std::size_t unit, std::size_t source);
+
+    // Можно ли поставить здание: свободны клетки LOCKPOINTS и BUILDLOCKPOINTS.
+    bool canPlace(const assets::UnitDesc& desc, int x, int y) const;
+    // Заложить здание игрока: проверяет место и цену (PRICE), списывает её; здание
+    // на нулевой стадии занимает BUILDLOCKPOINTS. nullopt — нельзя.
+    std::optional<std::size_t> placeBuilding(const assets::UnitDesc& desc, int player, int x, int y);
+    bool affordable(const assets::UnitDesc& desc, int player) const;
+    // Приказ строить (крестьянину своего игрока): идёт к точке BUILDPOINTS и каждым
+    // законченным циклом @WORK продвигает стройку на стадию (своё упрощение:
+    // кто вызывает NextStage у оригинала, не найдено).
+    bool orderBuild(std::size_t unit, std::size_t building);
+    // Следующая стадия стройки (OneObject::NextStage).
+    void nextStage(std::size_t building);
     // Источники из объектов карты вида kind («AG», «ST»): номер объекта → ID в списке
     // .lst → строка [SOURCES] файла .rsr. Возвращает число добавленных.
     std::size_t addSources(const assets::Map3d& map, const char (&kind)[3], const assets::SpriteList& list,
@@ -162,6 +180,8 @@ private:
     void emitSounds(const Unit& u);
     void thinkAi(std::size_t index);
     void updateGather(std::size_t index);
+    void updateBuild(std::size_t index);
+    std::pair<int, int> buildPoint(std::size_t builder, const Unit& building) const;
     std::optional<std::size_t> nearestBase(const Unit& u, int resource) const;
     static const assets::UnitAnimation* workAnimation(const assets::UnitDesc& d, int resource);
     static const assets::UnitAnimation* carryAnimation(const assets::UnitDesc& d, int resource);

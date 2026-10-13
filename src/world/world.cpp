@@ -83,6 +83,7 @@ void World::orderMove(std::size_t index, int x, int y) {
     if (!u.alive()) return;
     u.target.reset();
     u.gather = Unit::Gather::None;
+    u.buildTarget.reset();
     pathTo(u, x, y);
 }
 
@@ -92,6 +93,117 @@ void World::orderAttack(std::size_t index, std::size_t target) {
     u.target = target;
     u.repathIn = 0;
     u.gather = Unit::Gather::None;
+    u.buildTarget.reset();
+}
+
+bool World::canPlace(const assets::UnitDesc& desc, int x, int y) const {
+    if (lock_.width() == 0) return true;
+    return lock_.pointsOpen(desc, x, y, desc.lockPoints) && lock_.pointsOpen(desc, x, y, desc.buildLockPoints);
+}
+
+bool World::affordable(const assets::UnitDesc& desc, int player) const {
+    const auto& have = resources[std::size_t(player & 7)];
+    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r)
+        if (have[r] < desc.price[r]) return false;
+    return true;
+}
+
+std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, int player, int x, int y) {
+    if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player)) return std::nullopt;
+    auto& have = resources[std::size_t(player & 7)];
+    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
+    Unit u;
+    u.desc = &desc;
+    u.player = player;
+    u.x16 = x * 16;
+    u.y16 = y * 16;
+    u.underConstruction = desc.buildStages > 0;
+    u.life = u.underConstruction ? 1 : desc.life;
+    if (u.underConstruction) {
+        u.animation = namedAnimation(desc, "BUILDLO_0");
+        if (!u.animation) u.animation = idleAnimation(desc);
+        if (lock_.width() > 0) lock_.setPoints(desc, x, y, desc.buildLockPoints, true);
+    } else {
+        u.animation = idleAnimation(desc);
+        if (lock_.width() > 0) lock_.addBuilding(desc, x, y);
+    }
+    units_.push_back(u);
+    return units_.size() - 1;
+}
+
+void World::nextStage(std::size_t index) {
+    Unit& b = units_.at(index);
+    const int stages = b.desc->buildStages;
+    if (!b.underConstruction || b.stage >= stages) return;
+    ++b.stage;
+    b.life = std::max(1, b.stage * b.desc->life / stages);
+    if (b.stage == stages) {
+        b.underConstruction = false;
+        b.life = b.desc->life;
+        b.animation = idleAnimation(*b.desc);
+        if (lock_.width() > 0) {
+            lock_.setPoints(*b.desc, b.x(), b.y(), b.desc->buildLockPoints, false);
+            lock_.addBuilding(*b.desc, b.x(), b.y());
+        }
+        return;
+    }
+    if (const auto* a = namedAnimation(*b.desc, "BUILDLO_" + std::to_string(std::min(3, b.stage * 4 / stages))))
+        b.animation = a;
+}
+
+bool World::orderBuild(std::size_t index, std::size_t building) {
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.building() || !u.desc->peasant || building >= units_.size()) return false;
+    const Unit& b = units_[building];
+    if (!b.underConstruction || !b.alive() || b.player != u.player) return false;
+    u.target.reset();
+    u.attacking = false;
+    u.gather = Unit::Gather::None;
+    u.buildTarget = building;
+    const auto [px, py] = buildPoint(index, b);
+    pathTo(u, px, py);
+    return true;
+}
+
+std::pair<int, int> World::buildPoint(std::size_t builder, const Unit& b) const {
+    const auto& pts = b.desc->buildPoints;
+    if (pts.empty()) return {b.x(), b.y()};
+    const auto [cx, cy] = LockMap::corner(*b.desc, b.x(), b.y());
+    const auto& [px, py] = pts[builder % pts.size()];
+    constexpr int C = LockMap::kCell;
+    return {(cx + px) * C + C / 2, (cy + py) * C + C / 2};
+}
+
+void World::updateBuild(std::size_t index) {
+    Unit& u = units_[index];
+    if (!u.buildTarget) return;
+    const Unit& b = units_[*u.buildTarget];
+    if (!b.underConstruction || !b.alive()) {
+        u.buildTarget.reset();
+        setAnimation(u, idleAnimation(*u.desc));
+        return;
+    }
+    if (u.moving) return;
+    const auto [px, py] = buildPoint(index, b);
+    const int dx = px - u.x(), dy = py - u.y();
+    // Дошёл до точки (или ближе не пройти, но здание рядом) — работает.
+    const int bx = b.x() - u.x(), by = b.y() - u.y();
+    if (dx * dx + dy * dy > 48 * 48 && bx * bx + by * by > 600 * 600) {
+        u.buildTarget.reset(); // не дойти
+        return;
+    }
+    const auto* work = namedAnimation(*u.desc, "WORK");
+    if (!work) work = idleAnimation(*u.desc);
+    if (u.animation != work) {
+        setAnimation(u, work);
+        u.direction = directionOf(bx, by);
+        return;
+    }
+    if (++u.frame >= int(work->frames.size())) {
+        u.frame = 0;
+        nextStage(*u.buildTarget);
+    }
+    emitSounds(u);
 }
 
 std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) const {
@@ -115,6 +227,7 @@ bool World::orderGather(std::size_t index, std::size_t source) {
     u.attacking = false;
     if (u.gather == Unit::Gather::None || u.source != source) u.carry = 0;
     u.source = source;
+    u.buildTarget.reset();
     u.gather = Unit::Gather::ToSource;
     u.moving = false;
     return true;
@@ -155,7 +268,9 @@ std::optional<std::size_t> World::nearestBase(const Unit& u, int resource) const
     long long bestD = -1;
     for (std::size_t i = 0; i < units_.size(); ++i) {
         const Unit& b = units_[i];
-        if (!b.building() || b.player != u.player || !(b.desc->resourceBase & (1u << resource))) continue;
+        if (!b.building() || b.player != u.player || b.underConstruction || !b.alive() ||
+            !(b.desc->resourceBase & (1u << resource)))
+            continue;
         const long long dx = b.x() - u.x(), dy = b.y() - u.y();
         if (bestD < 0 || dx * dx + dy * dy < bestD) {
             bestD = dx * dx + dy * dy;
@@ -459,6 +574,8 @@ void World::step() {
         if ((steps_ + index) % 125 == 0) thinkAi(index); // раз в 5 с, вразнобой
         updateCombat(index);
         if (u.attacking) continue;
+        updateBuild(index);
+        if (u.buildTarget && !u.moving) continue; // работает на стройке
         updateGather(index);
         if (u.gather == Unit::Gather::Working) {
             const int frames = int(u.animation->frames.size());

@@ -796,6 +796,44 @@ TEST_CASE("Мир: добыча — работа, ноша, сдача в зда
     CHECK(w.units()[p].gather == Unit::Gather::None);
 }
 
+TEST_CASE("Мир: стройка — цена, стадии, клетки стройки и готового здания") {
+    using namespace oc2::world;
+    const auto produce = oc2::assets::parseNationProduce("[MEMBERS]\nUnitKri(RU) RusKri\n[FIXED_PRODUCE]\n"
+                                                         "BldCen(RU) 1\nUnitKri(RU) 0 1 A\nUnitKri(RU) 2\n"
+                                                         "BldCen(RU) 0 0 A\nBldSkl(RU) 11 8 NONE\n[ENABLED]\nX\n");
+    if (produce.size() != 2) { CHECK(produce.size() == 2); return; }
+    CHECK(produce[1].first == "UnitKri(RU)" && produce[1].second.size() == 2 && produce[1].second[1].member == "BldSkl(RU)" &&
+          produce[1].second[1].column == 11 && produce[1].second[1].row == 8 && produce[1].second[1].hotkey == 0 &&
+          produce[1].second[0].hotkey == 'A');
+    CHECK_THROWS_AS(oc2::assets::parseNationProduce("[FIXED_PRODUCE]\nA 1\nB 12 0 A\n"), FormatError);
+
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nPEASANT\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\n@WORK 9 0 10 12\n");
+    const UnitDesc store = UnitDesc::parse("NAME H\nBUILDING\nUSERLC 0 H\nLIFE 1000\nPRICE 2 WOOD 100 STONE 50\n"
+                                           "BUILDSTAGES 4\nLOCKPOINTS 1 1 1\nBUILDLOCKPOINTS 1 2 2\nBUILDPOINTS 1 0 4\n"
+                                           "#STANDLO 1 1 0 0\n#BUILDLO_0 1 1 0 1\n#BUILDLO_2 1 1 0 2\n");
+    CHECK(store.price[0] == 100 && store.price[2] == 50 && store.buildStages == 4 && peasant.peasant);
+    World w;
+    w.setLockMap(LockMap(64, 64));
+    const std::size_t p = w.addUnit(peasant, 0, 100, 130, 0);
+    CHECK(!w.placeBuilding(store, 0, 160, 160)); // нет ресурсов
+    w.resources[0][0] = 150;
+    w.resources[0][2] = 50;
+    const auto b = w.placeBuilding(store, 0, 160, 160); // угол — клетка (10, 10)
+    if (!b) { CHECK(b); return; }
+    CHECK(w.resources[0][0] == 50 && w.resources[0][2] == 0);
+    CHECK(w.lockMap().locked(12, 12) && !w.lockMap().locked(11, 11));
+    CHECK(!w.canPlace(store, 160, 160));
+    CHECK(w.units()[*b].underConstruction && w.units()[*b].animation == store.animation("#BUILDLO_0"));
+    CHECK(w.orderBuild(p, *b));
+    for (int i = 0; i < 400 && w.units()[*b].underConstruction; ++i) w.step();
+    const Unit& done = w.units()[*b];
+    CHECK(!done.underConstruction && done.stage == 4 && done.life == 1000 && done.animation == store.animation("#STANDLO"));
+    CHECK(w.lockMap().locked(11, 11) && !w.lockMap().locked(12, 12)); // клетки стройки сменились клетками здания
+    w.step();
+    CHECK(!w.units()[p].buildTarget); // стройка кончилась — строитель свободен
+}
+
 TEST_CASE("Список миссий Missions.txt и выборки") {
     const MissionList list = MissionList::parse("#TUTORIAL\r\nTutorial\r\n-\r\nMissions\\Campains\\27x.m3d\r\n-\r\n0\r\n"
                                                 "#Skirmish18\r\n#Skirmish18_TXT\r\n-\r\nMissions\\Skirmish\\Skirmish18.m3d\r\n"

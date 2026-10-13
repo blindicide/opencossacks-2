@@ -70,6 +70,17 @@ struct UnitDesc {
     std::array<int, kResources> portion{};     // PORTION n РЕС кол-во … — сколько несёт за ходку
     std::array<int, kResources> workCycles{};  // TAKERESSTAGES РЕС id циклы x — циклов работы на ходку
     std::uint8_t resourceBase = 0;             // RESOURCEBASE n РЕС… — какие ресурсы принимает (биты)
+    bool peasant = false;                      // PEASANT
+
+    // Строительство и производство.
+    std::array<int, kResources> price{};       // PRICE n РЕС кол-во …
+    // BUILDSTAGES: у здания — стадий стройки (OneObject::NextStage: жизнь = стадия·LIFE/стадий,
+    // картинка #BUILDLO_k, k = стадия·4/стадий); у юнита — время производства.
+    int buildStages = 0;
+    std::vector<std::pair<int, int>> buildLockPoints; // BUILDLOCKPOINTS — клетки стройки (как LOCKPOINTS)
+    std::vector<std::pair<int, int>> buildPoints;     // BUILDPOINTS — где стоят строители (клетки от угла)
+    std::string bigIconFile;                   // BIGICON файл кадр — значок на панели
+    int bigIconFrame = 0;
 
     // Звуки: «SOUND кадр #АНИМАЦИЯ ГРУППА» — на кадре анимации (номер в animations).
     struct Sound {
@@ -91,5 +102,15 @@ struct UnitDesc {
 
 // Раздел [MEMBERS] файла нации .nds: пары «тип юнита на карте → имя .md».
 std::vector<std::pair<std::string, std::string>> parseNationMembers(std::string_view text);
+
+// [FIXED_PRODUCE] файла нации (разбор — FUN_015c2040, раздел 10):
+// «ПРОИЗВОДИТЕЛЬ n», затем n строк «ЧЛЕН столбец строка клавиша»; значок —
+// строка·12 + столбец на панели (столбец < 12, строка ≤ 8), клавиша NONE/---- — нет.
+struct ProduceItem {
+    std::string member;
+    int column = 0, row = 0;
+    char hotkey = 0;
+};
+std::vector<std::pair<std::string, std::vector<ProduceItem>>> parseNationProduce(std::string_view text);
 
 } // namespace oc2::assets

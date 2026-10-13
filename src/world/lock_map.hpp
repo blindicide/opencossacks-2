@@ -40,6 +40,15 @@ public:
     // Клетки здания в мировой точке (x, y): угол — (x + ax, y + 2·ay) / 16
     // (OneObject::GetCornerXY), к нему — LOCKPOINTS.
     void addBuilding(const assets::UnitDesc& desc, int x, int y);
+    // То же для произвольного списка клеток от угла (BUILDLOCKPOINTS стройки); value = false — открыть.
+    void setPoints(const assets::UnitDesc& desc, int x, int y, const std::vector<std::pair<int, int>>& points,
+                   bool value);
+    // Все клетки списка от угла здания свободны.
+    bool pointsOpen(const assets::UnitDesc& desc, int x, int y, const std::vector<std::pair<int, int>>& points) const;
+    // Угол здания в клетках: (x + ax, y + 2·ay) / 16.
+    static std::pair<int, int> corner(const assets::UnitDesc& desc, int x, int y) {
+        return {(x + desc.pictureDx) >> 4, (y + 2 * desc.pictureDy) >> 4};
+    }
 
     // Ближайшая открытая клетка к (cx, cy) в радиусе maxRadius клеток (по квадратам).
     std::optional<std::pair<int, int>> nearestOpen(int cx, int cy, int maxRadius) const;

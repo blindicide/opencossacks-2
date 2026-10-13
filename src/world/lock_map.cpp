@@ -23,9 +23,20 @@ LockMap LockMap::fromTerrain(const assets::Map3d& map) {
     return lm;
 }
 
-void LockMap::addBuilding(const assets::UnitDesc& desc, int x, int y) {
-    const int cornerX = (x + desc.pictureDx) >> 4, cornerY = (y + 2 * desc.pictureDy) >> 4;
-    for (const auto& [lx, ly] : desc.lockPoints) setLocked(cornerX + lx, cornerY + ly);
+void LockMap::addBuilding(const assets::UnitDesc& desc, int x, int y) { setPoints(desc, x, y, desc.lockPoints, true); }
+
+void LockMap::setPoints(const assets::UnitDesc& desc, int x, int y, const std::vector<std::pair<int, int>>& points,
+                        bool value) {
+    const auto [cx, cy] = corner(desc, x, y);
+    for (const auto& [lx, ly] : points) setLocked(cx + lx, cy + ly, value);
+}
+
+bool LockMap::pointsOpen(const assets::UnitDesc& desc, int x, int y,
+                         const std::vector<std::pair<int, int>>& points) const {
+    const auto [cx, cy] = corner(desc, x, y);
+    for (const auto& [lx, ly] : points)
+        if (locked(cx + lx, cy + ly)) return false;
+    return true;
 }
 
 std::optional<std::pair<int, int>> LockMap::nearestOpen(int cx, int cy, int maxRadius) const {

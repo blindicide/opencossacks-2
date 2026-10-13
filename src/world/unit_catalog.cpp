@@ -31,8 +31,15 @@ UnitCatalog::UnitCatalog(std::filesystem::path dataRoot) : root_(std::move(dataR
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(root_, ec)) {
         if (!entry.is_regular_file() || !isNationFile(entry.path())) continue;
-        for (auto& [type, md] : assets::parseNationMembers(readText(entry.path())))
+        const std::string text = readText(entry.path());
+        for (auto& [type, md] : assets::parseNationMembers(text))
             mdNames_.emplace(std::move(type), std::move(md)); // при повторе остаётся первое
+        try {
+            for (auto& [producer, items] : assets::parseNationProduce(text))
+                if (!produce_.count(producer)) produce_.emplace(std::move(producer), std::move(items));
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "%s: %s\n", entry.path().string().c_str(), e.what());
+        }
     }
 }
 
@@ -56,10 +63,22 @@ const assets::UnitDesc* UnitCatalog::find(std::string_view type) {
     }
     try {
         slot = std::make_unique<assets::UnitDesc>(assets::UnitDesc::parse(readText(*path)));
+        types_.emplace(slot.get(), key);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s: %s\n", path->string().c_str(), e.what());
     }
     return slot.get();
+}
+
+const std::vector<assets::ProduceItem>& UnitCatalog::produces(std::string_view type) const {
+    static const std::vector<assets::ProduceItem> none;
+    const auto it = produce_.find(std::string(type));
+    return it == produce_.end() ? none : it->second;
+}
+
+std::string_view UnitCatalog::typeOf(const assets::UnitDesc* desc) const {
+    const auto it = types_.find(desc);
+    return it == types_.end() ? std::string_view() : std::string_view(it->second);
 }
 
 } // namespace oc2::world

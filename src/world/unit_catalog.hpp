@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "assets/unit_desc.hpp"
 
@@ -22,10 +23,17 @@ public:
 
     std::size_t typeCount() const { return mdNames_.size(); }
 
+    // Что производит или строит тип ([FIXED_PRODUCE]); пусто — ничего.
+    const std::vector<assets::ProduceItem>& produces(std::string_view type) const;
+    // Имя типа описания, полученного через find (у каждого типа своё описание).
+    std::string_view typeOf(const assets::UnitDesc* desc) const;
+
 private:
     std::filesystem::path root_;
     std::unordered_map<std::string, std::string> mdNames_; // тип → имя .md
     std::unordered_map<std::string, std::unique_ptr<assets::UnitDesc>> loaded_; // тип → описание (или nullptr)
+    std::unordered_map<std::string, std::vector<assets::ProduceItem>> produce_;
+    std::unordered_map<const assets::UnitDesc*, std::string> types_;
 };
 
 } // namespace oc2::world
