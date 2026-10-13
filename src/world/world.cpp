@@ -80,16 +80,17 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
 
 void World::orderMove(std::size_t index, int x, int y) {
     Unit& u = units_.at(index);
-    if (!u.alive()) return;
+    if (!u.alive() || u.inside) return;
     u.target.reset();
     u.gather = Unit::Gather::None;
     u.buildTarget.reset();
+    u.mine.reset();
     pathTo(u, x, y);
 }
 
 void World::orderAttack(std::size_t index, std::size_t target) {
     Unit& u = units_.at(index);
-    if (!u.alive() || u.building() || target >= units_.size() || target == index) return;
+    if (!u.alive() || u.inside || u.building() || target >= units_.size() || target == index) return;
     u.target = target;
     u.repathIn = 0;
     u.gather = Unit::Gather::None;
@@ -209,9 +210,76 @@ void World::updateProduction(std::size_t index) {
     if (born.size() >= 2) orderMove(u, cx * LockMap::kCell + born[1].first, cy * LockMap::kCell + born[1].second);
 }
 
+bool World::orderEnter(std::size_t index, std::size_t mineIndex) {
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.inside || !u.desc->peasant || mineIndex >= units_.size()) return false;
+    const Unit& m = units_[mineIndex];
+    if (!m.alive() || m.underConstruction || m.desc->peasantAbsorber <= 0 || (m.player != u.player && m.player != 7))
+        return false;
+    u.target.reset();
+    u.attacking = false;
+    u.gather = Unit::Gather::None;
+    u.buildTarget.reset();
+    u.mine = mineIndex;
+    pathTo(u, m.x(), m.y());
+    return true;
+}
+
+void World::updateEnter(std::size_t index) {
+    Unit& u = units_[index];
+    if (!u.mine || u.inside) return;
+    Unit& m = units_[*u.mine];
+    const int dx = m.x() - u.x(), dy = m.y() - u.y();
+    const int d2 = dx * dx + dy * dy;
+    // Входит, дойдя до конца пути у шахты (центр закрыт клетками здания) или оказавшись
+    // совсем рядом с центром (идущих к одной точке расталкивает — им не остановиться).
+    if (u.moving && d2 > 48 * 48) return;
+    const bool near = d2 <= 600 * 600;
+    if (m.player == 7 && near) m.player = u.player; // ничья шахта — захват
+    if (!near || !m.alive() || m.player != u.player || int(m.occupants.size()) >= m.desc->peasantAbsorber) {
+        u.mine.reset();
+        return;
+    }
+    u.inside = true;
+    u.selected = false;
+    u.moving = false;
+    u.path.clear();
+    m.occupants.push_back(index);
+}
+
+bool World::leaveMine(std::size_t mineIndex) {
+    Unit& m = units_.at(mineIndex);
+    if (m.occupants.empty()) return false;
+    const std::size_t index = m.occupants.back();
+    m.occupants.pop_back();
+    Unit& u = units_[index];
+    u.inside = false;
+    u.mine.reset();
+    constexpr int C = LockMap::kCell;
+    int x = m.x(), y = m.y();
+    if (lock_.width() > 0)
+        if (const auto open = lock_.nearestOpen(x / C, y / C, 40)) x = open->first * C + C / 2, y = open->second * C + C / 2;
+    u.x16 = x * 16;
+    u.y16 = y * 16;
+    u.moving = false;
+    u.path.clear();
+    return true;
+}
+
+void World::updateMine(std::size_t index) {
+    Unit& m = units_[index];
+    if (m.occupants.empty() || !m.desc->producerResources) return;
+    const int n = std::min(int(m.occupants.size()), m.desc->peasantAbsorber);
+    m.mineAccum += (m.desc->producerBase + m.desc->producerPerPeasant * n) * 256 / 8;
+    int res = 0;
+    while (!(m.desc->producerResources & (1u << res))) ++res;
+    resources[std::size_t(m.player & 7)][std::size_t(res)] += m.mineAccum / 1000;
+    m.mineAccum %= 1000;
+}
+
 bool World::orderBuild(std::size_t index, std::size_t building) {
     Unit& u = units_.at(index);
-    if (!u.alive() || u.building() || !u.desc->peasant || building >= units_.size()) return false;
+    if (!u.alive() || u.inside || u.building() || !u.desc->peasant || building >= units_.size()) return false;
     const Unit& b = units_[building];
     if (!b.underConstruction || !b.alive() || b.player != u.player) return false;
     u.target.reset();
@@ -279,7 +347,7 @@ std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) cons
 
 bool World::orderGather(std::size_t index, std::size_t source) {
     Unit& u = units_.at(index);
-    if (!u.alive() || u.building() || source >= sources.size()) return false;
+    if (!u.alive() || u.inside || u.building() || source >= sources.size()) return false;
     if (u.desc->portion[std::size_t(sources[source].resource)] <= 0) return false;
     u.target.reset();
     u.attacking = false;
@@ -441,7 +509,7 @@ void World::updateCombat(std::size_t index) {
         long long best = (long long)d.searchEnemyRadius * d.searchEnemyRadius;
         for (std::size_t j = 0; j < units_.size(); ++j) {
             const Unit& e = units_[j];
-            if (!e.alive() || e.building() || !enemies(u.player, e.player)) continue;
+            if (!e.alive() || e.inside || e.building() || !enemies(u.player, e.player)) continue;
             const long long dx = e.x() - u.x(), dy = e.y() - u.y();
             if (dx * dx + dy * dy <= best) {
                 best = dx * dx + dy * dy;
@@ -515,7 +583,7 @@ void World::thinkAi(std::size_t index) {
     std::optional<std::size_t> target;
     for (std::size_t j = 0; j < units_.size(); ++j) {
         const Unit& e = units_[j];
-        if (!e.alive() || e.building() || !enemies(u.player, e.player)) continue;
+        if (!e.alive() || e.inside || e.building() || !enemies(u.player, e.player)) continue;
         const long long dx = e.x() - u.x(), dy = e.y() - u.y();
         if (dx * dx + dy * dy < best) {
             best = dx * dx + dy * dy;
@@ -533,7 +601,7 @@ void World::separate() {
     cells_.clear();
     for (std::size_t i = 0; i < units_.size(); ++i) {
         const Unit& u = units_[i];
-        if (u.building() || !u.alive()) continue;
+        if (u.building() || !u.alive() || u.inside) continue;
         const std::int64_t key = (std::int64_t(u.y() >> kCellShift) << 32) | std::uint32_t(u.x() >> kCellShift);
         cells_.emplace_back(key, std::uint32_t(i));
     }
@@ -592,8 +660,10 @@ void World::step() {
         Unit& u = units_[index];
         if (u.building()) { // кадры зданий — слои, не время
             updateProduction(index);
+            updateMine(index);
             continue;
         }
+        if (u.inside) continue; // в шахте
         for (int& r : u.reload)
             if (r > 0) --r;
         if (u.dead) continue; // лежит неподвижно
@@ -637,6 +707,8 @@ void World::step() {
         if (u.attacking) continue;
         updateBuild(index);
         if (u.buildTarget && !u.moving) continue; // работает на стройке
+        updateEnter(index);
+        if (u.inside) continue;
         updateGather(index);
         if (u.gather == Unit::Gather::Working) {
             const int frames = int(u.animation->frames.size());

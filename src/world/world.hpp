@@ -65,6 +65,12 @@ struct Unit {
     // приказ производства прибавляет GameSpeed = 256 к счётчику до стадий·256, FUN_00e4fe60).
     std::vector<const assets::UnitDesc*> queue;
     int produced = 0;
+    // Шахта: крестьяне внутри (номера юнитов) и накопитель дохода в тысячных.
+    std::vector<std::size_t> occupants;
+    int mineAccum = 0;
+    // Крестьянин идёт в шахту (mine) или уже внутри (inside: не виден, не выбирается).
+    std::optional<std::size_t> mine;
+    bool inside = false;
 
     bool alive() const { return !dying && !dead; }
     int x() const { return x16 >> 4; }
@@ -128,6 +134,11 @@ public:
     // пока занято ≥ предела (приказ производства ждёт).
     int population(int player) const;
     int populationLimit(int player) const;
+    // Крестьянину войти в шахту (PEASANTABSORBER): свою или ничью (игрок 7) — ничья
+    // при входе становится своей (своё упрощение захвата; CheckMineCaptureAbility не разобран).
+    bool orderEnter(std::size_t unit, std::size_t mine);
+    // Выпустить одного крестьянина из шахты рядом с ней. false — внутри никого.
+    bool leaveMine(std::size_t mine);
     // Заказать юнит в здании: списывает PRICE, ставит в очередь. false — нельзя.
     bool orderProduce(std::size_t building, const assets::UnitDesc& unit);
     // Следующая стадия стройки (OneObject::NextStage).
@@ -195,6 +206,8 @@ private:
     void updateGather(std::size_t index);
     void updateBuild(std::size_t index);
     void updateProduction(std::size_t index);
+    void updateEnter(std::size_t index);
+    void updateMine(std::size_t index);
     // Юниты в закрытых клетках (под новым зданием) уходят к ближайшей открытой.
     void pushOutOfLocks();
     std::pair<int, int> buildPoint(std::size_t builder, const Unit& building) const;

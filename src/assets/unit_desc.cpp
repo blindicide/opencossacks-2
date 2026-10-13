@@ -132,6 +132,14 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             const int n = intAt(w, 1, "число ресурсов");
             for (int i = 0; i < n && 2 + std::size_t(i) < w.size(); ++i)
                 if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.resourceBase |= std::uint8_t(1u << r);
+        } else if (key == "PEASANTABSORBER") {
+            d.peasantAbsorber = intAt(w, 1, "вместимость");
+        } else if (key == "PRODUCER") {
+            const int n = intAt(w, 1, "число ресурсов");
+            for (int i = 0; i < n && 2 + std::size_t(i) < w.size(); ++i)
+                if (const int r = resourceId(w[2 + std::size_t(i)]); r >= 0) d.producerResources |= std::uint8_t(1u << r);
+            d.producerBase = intAt(w, 2 + std::size_t(n), "a");
+            d.producerPerPeasant = intAt(w, 3 + std::size_t(n), "b");
         } else if (key == "MFARM") {
             d.farm = intAt(w, 1, "места");
         } else if (key == "NOFARM") {

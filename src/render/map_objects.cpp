@@ -135,7 +135,7 @@ void MapObjects::appendFrame(const assets::UnitDesc& desc, const assets::UnitAni
 
 void MapObjects::appendUnit(const world::Unit& u, std::vector<Item>& out) {
     const assets::UnitAnimation* anim = u.animation;
-    if (!u.desc || !anim || anim->frames.empty()) return;
+    if (!u.desc || !anim || anim->frames.empty() || u.inside) return;
     // У зданий кадры анимации — слои одной картинки (у дома: низ с тенью и
     // верх), у остальных — кадры во времени.
     if (u.building()) {
@@ -180,7 +180,7 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
     // единиц, на экране сплющено вдвое), цвет игрока.
     if (ring_)
         for (const world::Unit& u : world.units()) {
-            if (!u.selected) continue;
+            if (!u.selected || u.inside) continue;
             const float r = 16.0f * camera.zoom;
             const float sx = (groundX(u) - camera.x) * camera.zoom, sy = (groundY(u) - camera.y) * camera.zoom;
             if (sx < -r || sy < -r || sx > screenWidth + r || sy > screenHeight + r) continue;

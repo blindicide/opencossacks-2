@@ -865,6 +865,33 @@ TEST_CASE("Мир: производство — очередь, цена, точ
     CHECK(w.units().size() == 3 && w.units()[k].queue.size() == 1 && w.units()[k].produced == 0);
 }
 
+TEST_CASE("Мир: шахта — вход крестьян, захват ничьей, доход, выход") {
+    using namespace oc2::world;
+    const UnitDesc peasant = UnitDesc::parse("NAME P\nPEASANT\nNOFARM\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\n");
+    const UnitDesc mineDesc = UnitDesc::parse("NAME M\nBUILDING\nUSERLC 0 H\nLIFE 100\n#STANDLO 1 1 0 0\n"
+                                              "PEASANTABSORBER 2\nPRODUCER        1 GOLD 0 5\n");
+    CHECK(mineDesc.peasantAbsorber == 2 && mineDesc.producerResources == 0b10 && mineDesc.producerPerPeasant == 5);
+    World w;
+    const std::size_t m = w.addUnit(mineDesc, 7, 400, 400, 0);
+    std::size_t p[3];
+    for (int i = 0; i < 3; ++i) p[i] = w.addUnit(peasant, 0, 380 + i, 380, 0);
+    for (std::size_t i : p) CHECK(w.orderEnter(i, m));
+    for (int i = 0; i < 80; ++i) w.step(); // дойти до шахты: разворот и шаги по 2,5 единицы
+    CHECK(w.units()[m].player == 0 && w.units()[m].occupants.size() == 2); // захвачена, мест два
+    int inside = 0;
+    for (std::size_t i : p) inside += w.units()[i].inside ? 1 : 0;
+    CHECK(inside == 2);
+    const int gold = w.resources[0][1];
+    for (int i = 0; i < 25; ++i) w.step(); // (0 + 5·2)·256/8 = 320 тысячных за шаг → 8 за 25 шагов
+    CHECK(w.resources[0][1] - gold == 8);
+    const std::size_t out = w.units()[m].occupants.back(), stays = w.units()[m].occupants.front();
+    const bool left = w.leaveMine(m);
+    CHECK(left && !w.units()[out].inside && w.units()[m].occupants.size() == 1);
+    w.orderMove(stays, 0, 0);
+    CHECK(!w.units()[stays].moving); // изнутри не ходят
+}
+
 TEST_CASE("Список миссий Missions.txt и выборки") {
     const MissionList list = MissionList::parse("#TUTORIAL\r\nTutorial\r\n-\r\nMissions\\Campains\\27x.m3d\r\n-\r\n0\r\n"
                                                 "#Skirmish18\r\n#Skirmish18_TXT\r\n-\r\nMissions\\Skirmish\\Skirmish18.m3d\r\n"

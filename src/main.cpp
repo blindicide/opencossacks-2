@@ -66,6 +66,7 @@ const char* kHelp =
     "  --move <и>,<x>,<y>    с --map: юниты игрока <и> идут строем в точку карты (для проверок)\n"
     "  --build <тип>         с --map: крестьяне игрока 0 закладывают рядом здание <тип> и строят (для проверок)\n"
     "  --produce <зд>,<юнит> с --map: у крестьян игрока 0 ставится готовое здание <зд>, в нём заказано 3 <юнит>\n"
+    "  --mine                с --map: крестьяне игрока 0 идут в ближайшую шахту (для проверок)\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
@@ -116,6 +117,7 @@ struct Options {
     std::optional<int> gather;
     std::string build;
     std::string produce;
+    bool mine = false;
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
@@ -175,6 +177,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--mine") {
+            o.mine = true;
         } else if (a == "--produce" && hasValue) {
             o.produce = argv[++i];
         } else if (a == "--build" && hasValue) {
@@ -285,7 +289,7 @@ struct MapView {
         sprites.fillRect(r.x - 2.0f, r.y - 2.0f, r.w + 4.0f, r.h + 4.0f, 0xFF201810);
         sprites.drawQuad(*minimapTexture, r.x, r.y, r.w, r.h);
         for (const auto& u : world.units()) {
-            if (!u.alive() || u.player == 7) continue;
+            if (!u.alive() || u.player == 7 || u.inside) continue;
             const float px = r.x + float(u.x()) / worldSize * r.w, py = r.y + float(u.y()) / worldSize * r.h;
             sprites.fillRect(px - 1.0f, py - 1.0f, 2.0f, 2.0f, oc2::render::playerColor(u.player));
         }
@@ -317,6 +321,7 @@ struct MapView {
     struct PanelButton {
         const oc2::assets::UnitDesc* desc;
         float x, y, size;
+        bool leave = false; // выпустить крестьянина из шахты
     };
     // Выбранный свой юнит или здание, у которого есть [FIXED_PRODUCE].
     std::optional<std::size_t> producer() const {
@@ -331,12 +336,19 @@ struct MapView {
 
     std::vector<PanelButton> panel(VkExtent2D e) const {
         std::vector<PanelButton> out;
+        const float cell = std::floor(48.0f * std::max(0.5f, float(e.height) / 768.0f));
+        // Выбрана своя шахта с крестьянами — значок крестьянина выпускает одного.
+        for (const auto& u : world.units())
+            if (u.selected && u.player == player && !u.occupants.empty()) {
+                out.push_back({world.units()[u.occupants.back()].desc, float(e.width) - 12.0f * cell - 8.0f,
+                               float(e.height) - cell - 8.0f, cell, true});
+                return out;
+            }
         const auto who = producer();
         if (!who) return out;
         const std::vector<oc2::assets::ProduceItem>* items = &units->produces(units->typeOf(world.units()[*who].desc));
         int rows = 1;
         for (const auto& it : *items) rows = std::max(rows, it.row + 1);
-        const float cell = std::floor(48.0f * std::max(0.5f, float(e.height) / 768.0f));
         const float x0 = float(e.width) - 12.0f * cell - 8.0f, y0 = float(e.height) - float(rows) * cell - 8.0f;
         for (const auto& it : *items)
             if (const oc2::assets::UnitDesc* d = units->find(it.member))
@@ -399,6 +411,11 @@ struct MapView {
     bool panelClick(const oc2::platform::Window::Click& c, VkExtent2D e) {
         for (const auto& b : panel(e)) {
             if (c.x < b.x || c.y < b.y || c.x >= b.x + b.size || c.y >= b.y + b.size) continue;
+            if (b.leave) {
+                for (std::size_t i = 0; i < world.units().size(); ++i)
+                    if (world.units()[i].selected && !world.units()[i].occupants.empty()) world.leaveMine(i);
+                return true;
+            }
             if (c.button == 1 && b.desc->building) placing = b.desc;
             if (c.button == 1 && !b.desc->building)
                 if (const auto who = producer(); who && world.orderProduce(*who, *b.desc) && sounds)
@@ -639,7 +656,7 @@ struct MapView {
         float bestDist = 1e9f;
         const auto& us = world.units();
         for (std::size_t i = 0; i < us.size(); ++i) {
-            if (us[i].building() || !us[i].alive()) continue;
+            if (us[i].building() || !us[i].alive() || us[i].inside) continue;
             const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(us[i]) - camera.y) * camera.zoom;
             const float dx = sx - gx, dy = sy - (gy - 22.0f * camera.zoom);
@@ -699,6 +716,13 @@ struct MapView {
                 return;
             }
             const auto [tx, ty] = screenToWorld(c.x, c.y);
+            // Правая кнопка на шахте (своей или ничьей) — крестьяне входят в неё.
+            if (auto m = pickBuilding(c.x, c.y); m && us[*m].desc->peasantAbsorber > 0) {
+                bool any = false;
+                for (std::size_t i = 0; i < us.size(); ++i)
+                    if (us[i].selected && us[i].player == player && world.orderEnter(i, *m)) any = true;
+                if (any) return;
+            }
             // Правая кнопка у своей стройки — достраивать.
             for (std::size_t b = 0; b < us.size(); ++b) {
                 if (!us[b].underConstruction || us[b].player != player) continue;
@@ -750,7 +774,7 @@ struct MapView {
         for (auto& u : us) {
             const float gx = (objects->groundX(u) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(u) - camera.y) * camera.zoom;
-            u.selected = !u.building() && u.alive() && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 &&
+            u.selected = !u.building() && u.alive() && !u.inside && u.player == player && gx >= x1 && gx <= x2 && gy >= y1 &&
                          gy <= y2;
             if (u.selected && !first) first = u.desc;
         }
@@ -940,6 +964,29 @@ int main(int argc, char** argv) {
                     std::printf("стройка: %s не заложить\n", what.c_str());
                 }
             }
+            if (opts->mine) {
+                auto& w = mapView->world;
+                std::optional<std::size_t> best;
+                long long bestD = 0;
+                for (std::size_t i = 0; i < w.units().size(); ++i) {
+                    const auto& m = w.units()[i];
+                    if (m.desc->peasantAbsorber <= 0 || !m.desc->producerResources) continue;
+                    for (const auto& u : w.units())
+                        if (u.player == 0 && u.desc->peasant) {
+                            const long long dx = m.x() - u.x(), dy = m.y() - u.y(), d = dx * dx + dy * dy;
+                            if (!best || d < bestD) best = i, bestD = d;
+                            break;
+                        }
+                }
+                int sent = 0;
+                for (std::size_t i = 0; best && i < w.units().size(); ++i)
+                    if (w.units()[i].player == 0 && w.orderEnter(i, *best)) ++sent;
+                if (best) {
+                    std::printf("шахта %s (%d,%d): послано %d\n", w.units()[*best].desc->name.c_str(), w.units()[*best].x(),
+                                w.units()[*best].y(), sent);
+                    mapView->lookAt(float(w.units()[*best].x()), float(w.units()[*best].y()), vulkan.extent());
+                }
+            }
             if (opts->gather) {
                 auto& w = mapView->world;
                 int ordered = 0;
@@ -1127,10 +1174,11 @@ int main(int argc, char** argv) {
                     ++people;
             std::printf("юнитов игрока 0: %d\n", people);
         }
-        if (mapView && opts->gather) {
-            const auto& r = mapView->world.resources[std::size_t(*opts->gather & 7)];
+        if (mapView && (opts->gather || opts->mine)) {
+            const int who = opts->gather ? *opts->gather : 0;
+            const auto& r = mapView->world.resources[std::size_t(who & 7)];
             std::printf("ресурсы игрока %d: дерево %d, золото %d, камень %d, еда %d, железо %d, уголь %d\n",
-                        *opts->gather, r[0], r[1], r[2], r[3], r[4], r[5]);
+                        who, r[0], r[1], r[2], r[3], r[4], r[5]);
         }
     } catch (const std::exception& e) {
         showError(e.what());

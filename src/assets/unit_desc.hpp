@@ -76,6 +76,13 @@ struct UnitDesc {
     int farm = 0;
     bool noFarm = false;
 
+    // Шахта: PEASANTABSORBER n — сколько крестьян вмещает (поле 0x372); PRODUCER k РЕС… a b —
+    // какие ресурсы даёт (биты 0x36c) и доход (a + b·крестьян)·GameSpeed/8 тысячных за шаг
+    // (FUN_01596b80; 0x36e = a, 0x370 = b).
+    int peasantAbsorber = 0;
+    std::uint8_t producerResources = 0;
+    int producerBase = 0, producerPerPeasant = 0;
+
     // Строительство и производство.
     std::array<int, kResources> price{};       // PRICE n РЕС кол-во …
     // BUILDSTAGES: у здания — стадий стройки (OneObject::NextStage: жизнь = стадия·LIFE/стадий,
