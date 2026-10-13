@@ -18,23 +18,35 @@ endif()
 
 include(cmake/Dependencies.cmake)
 
+# Чтение форматов игры; без зависимостей от окна и графики, чтобы им пользовались утилиты и тесты.
+add_library(oc2_assets STATIC
+    src/assets/compression.cpp
+    src/assets/g2d.cpp
+)
+target_include_directories(oc2_assets PUBLIC src)
+
 add_executable(opencossacks2
     src/main.cpp
     src/platform/window.cpp
     src/render/vulkan_context.cpp
 )
-target_link_libraries(opencossacks2 PRIVATE SDL3::SDL3-static volk)
+target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk)
 if(WIN32)
     set_target_properties(opencossacks2 PROPERTIES WIN32_EXECUTABLE ON)
 endif()
 target_include_directories(opencossacks2 PRIVATE src)
 
-if(MSVC)
-    target_compile_options(opencossacks2 PRIVATE /W4 /utf-8 /permissive-)
-else()
-    # Vulkan-структуры инициализируются как {VK_STRUCTURE_TYPE_...}, остальное — нулями намеренно.
-    target_compile_options(opencossacks2 PRIVATE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
-endif()
+# Предупреждения для наших целей (не для сторонних библиотек).
+function(oc2_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /utf-8 /permissive-)
+    else()
+        # Vulkan-структуры инициализируются как {VK_STRUCTURE_TYPE_...}, остальное — нулями намеренно.
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
+    endif()
+endfunction()
+oc2_warnings(oc2_assets)
+oc2_warnings(opencossacks2)
 
 # Установка и пакеты. Пакеты содержат только наш движок: данные игры
 # пользователь берёт из своей легальной копии.
