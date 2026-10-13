@@ -48,10 +48,18 @@ endfunction()
 oc2_warnings(oc2_assets)
 oc2_warnings(opencossacks2)
 
+# Утилита выгрузки ресурсов в PNG и проверки чтения форматов.
+add_executable(oc2-extract
+    tools/oc2-extract/main.cpp
+    tools/oc2-extract/png_writer.cpp
+)
+target_link_libraries(oc2-extract PRIVATE oc2_assets)
+oc2_warnings(oc2-extract)
+
 # Установка и пакеты. Пакеты содержат только наш движок: данные игры
 # пользователь берёт из своей легальной копии.
 include(GNUInstallDirs)
-install(TARGETS opencossacks2 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS opencossacks2 oc2-extract RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/opencossacks2.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 endif()

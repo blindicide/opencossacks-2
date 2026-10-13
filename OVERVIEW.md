@@ -44,6 +44,7 @@ opencossacks-2/
 │   │   └── image.hpp       — изображение RGBA8
 │   ├── platform/window.*   — окно SDL3, события, Vulkan-поверхность
 │   └── render/vulkan_context.* — экземпляр и устройство Vulkan, цепочка обмена, цикл кадров
+├── tools/oc2-extract/      — утилита: выгрузка спрайтов в PNG, проверка чтения всех файлов
 ├── tools/ghidra_scripts/
 │   ├── ExportDecomp.java   — выгрузка декомпилированного C-кода и индекса функций
 │   ├── RunAnalysis.java    — автоанализ с замером времени анализаторов и отменой по флагу
@@ -59,6 +60,8 @@ opencossacks-2/
 - `oc2::assets::unpackBlock()` / `flzDecompress()` (`src/assets/compression.hpp`): распаковка сжатых блоков движка (метод 4, FLZ).
 - `oc2::render::VulkanContext` (`src/render/vulkan_context.hpp`): выбор GPU (Vulkan 1.2+, дискретная карта в приоритете), цепочка обмена с пересозданием при изменении размера; `drawFrame()` рисует кадр.
 
+- `tools/oc2-extract/main.cpp`: утилита `oc2-extract` — `g2d <файл> <папка>` выгружает страницы и кадры в PNG, `check <папка игры>` читает все `.g2d` и сообщает об ошибках.
+
 - `tools/ghidra_scripts/ExportDecomp.java`: скрипт Ghidra, записывает `functions.tsv` (адрес, размер, имя) и `engine.c` (декомпилированный код всех функций).
 
 ## Сборка и запуск
@@ -68,6 +71,8 @@ cmake --preset linux
 cmake --build --preset linux-debug
 ./build/linux/Debug/opencossacks2 --version
 ./build/linux/Debug/opencossacks2 --frames 120   # дымовая проверка: 120 кадров и выход
+./build/linux/Debug/oc2-extract check <папка игры>/app   # прочитать все спрайты .g2d
+./build/linux/Debug/oc2-extract g2d <файл.g2d> out/       # страницы и кадры в PNG
 ```
 
 ## Пакеты
