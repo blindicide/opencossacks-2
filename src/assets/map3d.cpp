@@ -125,6 +125,31 @@ Map3d Map3d::parse(std::span<const std::uint8_t> file) {
             m.objects_.push_back(o);
         }
     }
+    // UNI3: u32 количество, записи «u8 игрок, u16 номер, i32 x·16, i32 y·16, u16 жизнь,
+    // u16, i16, i16, u8 направление, u8 признаки, char[33] тип».
+    if (const MapSection* uni = m.section("UNI3"); uni && uni->size >= 4) {
+        const ByteReader t(m.sectionData(*uni));
+        const auto n = t.read<std::uint32_t>(0);
+        if (std::uint64_t(n) * 54 > uni->size - 4) throw FormatError("раздел UNI3 короче заявленного числа юнитов");
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const std::size_t p = 4 + std::size_t(i) * 54;
+            MapUnit u;
+            u.player = t.read<std::uint8_t>(p);
+            u.id = t.read<std::uint16_t>(p + 1);
+            u.x = t.read<std::int32_t>(p + 3) >> 4;
+            u.y = t.read<std::int32_t>(p + 7) >> 4;
+            u.life = t.read<std::uint16_t>(p + 11);
+            u.field2 = t.read<std::uint16_t>(p + 13);
+            u.field3 = t.read<std::int16_t>(p + 15);
+            u.field4 = t.read<std::int16_t>(p + 17);
+            u.direction = t.read<std::uint8_t>(p + 19);
+            u.flags = t.read<std::uint8_t>(p + 20);
+            const auto name = t.slice(p + 21, 33);
+            u.type.assign(reinterpret_cast<const char*>(name.data()),
+                          std::find(name.begin(), name.end(), std::uint8_t(0)) - name.begin());
+            m.units_.push_back(std::move(u));
+        }
+    }
     return m;
 }
 

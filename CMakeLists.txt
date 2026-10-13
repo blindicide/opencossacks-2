@@ -35,6 +35,7 @@ add_library(oc2_assets STATIC
     src/assets/sprite_list.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
+    src/assets/unit_desc.cpp
     src/assets/xml_tree.cpp
 )
 target_include_directories(oc2_assets PUBLIC src)
@@ -43,6 +44,7 @@ target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 # Мир игры без графики: построение рельефа и (дальше) логика.
 add_library(oc2_world STATIC
     src/world/terrain_mesh.cpp
+    src/world/unit_catalog.cpp
 )
 target_include_directories(oc2_world PUBLIC src)
 target_link_libraries(oc2_world PUBLIC oc2_assets)

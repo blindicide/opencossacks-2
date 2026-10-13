@@ -18,6 +18,7 @@
 #include "assets/sprite_list.hpp"
 #include "assets/text_encoding.hpp"
 #include "assets/text_table.hpp"
+#include "assets/unit_desc.hpp"
 #include "assets/xml_tree.hpp"
 #include "check.hpp"
 
@@ -646,6 +647,51 @@ TEST_CASE("Список спрайтов .lst") {
     CHECK(SpriteList::parse("COMPLEX 105\n//x\n").complex);
     CHECK_THROWS_AS(SpriteList::parse(""), FormatError);
     CHECK_THROWS_AS(SpriteList::parse("TREES 1\nD00 1 x 3\n"), FormatError);
+}
+
+TEST_CASE("Описание юнита .md и члены нации .nds") {
+    const UnitDesc d = UnitDesc::parse("NAME  Dom\r\nBUILDING\r\n"
+                                       "USERLC 0 UnitsG17\\Dom SHADOW -10 -20   //комментарий\r\n"
+                                       "USERLC 4 UnitsG17\\DomH shadow 1 2\r\n"
+                                       "#REST 9 2 0 5 4 7\r\n"
+                                       "SETANMPARAM -275 -235 1 0\r\n"
+                                       "@MOTION_L  9 1 0 3\r\n"
+                                       "/FIRES\r\nLIFE 300\r\n[END]\r\n#AFTER 1 1 0 0\r\n");
+    CHECK(d.name == "Dom" && d.building);
+    CHECK(d.files.size() == 2 && d.file(4) && d.file(4)->dx == 1 && d.file(0)->dy == -20);
+    CHECK(d.file(0)->path == "UnitsG17\\Dom");
+    CHECK(d.animations.size() == 2); // после [END] не читается
+    const UnitAnimation* rest = d.animation("#rest");
+    CHECK(rest && rest->rotations == 9 && rest->frames.size() == 2 && rest->dx == 0);
+    CHECK(rest->frames[1].file == 4 && rest->frames[1].frame == 7);
+    const UnitAnimation* motion = d.animation("@MOTION_L");
+    CHECK(motion && motion->frames.size() == 4 && motion->frames[3].frame == 3 && motion->dx == -275 &&
+          motion->dy == -235);
+    CHECK_THROWS_AS(UnitDesc::parse("#STAND 9 2 0 0\n"), FormatError); // кадров меньше заявленного
+
+    const auto members = parseNationMembers("[MEMBERS]\r\nA(SFR)  A\r\nB(SFR) Bmd\r\n\r\n[COUNTRY]\r\nSELFRA 23\r\n");
+    CHECK(members.size() == 2 && members[1].first == "B(SFR)" && members[1].second == "Bmd");
+}
+
+TEST_CASE("Карта .m3d: юниты UNI3") {
+    Bytes m = tinyMap();
+    m.resize(m.size() - 7); // без мусора в конце
+    Bytes uni{1, 0, 0, 0};
+    uni.push_back(7);              // игрок
+    uni.insert(uni.end(), {0xB5, 0x02}); // номер 693
+    for (int v : {191024, 236128})
+        for (int i = 0; i < 4; ++i) uni.push_back(std::uint8_t(v >> (8 * i)));
+    uni.insert(uni.end(), {0x88, 0x13, 100, 0, 0, 0, 0, 0, 176, 3}); // жизнь 5000, …, направление, признаки
+    const char name[] = "SelFraDom4_3(SFR)";
+    Bytes field(33, 0);
+    std::memcpy(field.data(), name, sizeof(name) - 1);
+    uni.insert(uni.end(), field.begin(), field.end());
+    appendSection(m, "UNI3", uni);
+    const Map3d map = Map3d::parse(m);
+    CHECK(map.units().size() == 1);
+    const MapUnit& u = map.units()[0];
+    CHECK(u.player == 7 && u.id == 693 && u.x == 11939 && u.y == 14758 && u.life == 5000);
+    CHECK(u.direction == 176 && u.flags == 3 && u.type == "SelFraDom4_3(SFR)");
 }
 
 int main() { return oc2::test::runAll(); }

@@ -22,6 +22,19 @@ struct MapObject {
     bool is(const char (&k)[3]) const { return kind[0] == k[0] && kind[1] == k[1]; }
 };
 
+// Юнит или здание из раздела UNI3 (FUN_00f9ad00), запись 54 байта.
+struct MapUnit {
+    int player = 0;       // 0..7 (7 — обычно нейтральные: дома, животные)
+    int id = 0;           // номер юнита в карте
+    int x = 0, y = 0;     // мировые координаты (в файле — с 4 дробными битами)
+    int life = 0;
+    int field2 = 0;       // ещё не опознаны
+    int field3 = 0, field4 = 0;
+    int direction = 0;    // 0..255, полный оборот
+    int flags = 0;
+    std::string type;     // имя типа из [MEMBERS] файлов наций (.nds)
+};
+
 // Раздел карты: четыре буквы метки и данные.
 struct MapSection {
     std::string tag;
@@ -34,7 +47,7 @@ struct MapSection {
 // Порядок разбора разделов — FUN_00fa0bf0. Пока читается рельеф:
 //  SURF — высоты вершин (int16), TILE — фактура вершины,
 //  TIL2 — вторая фактура и вес её смешивания (по байту на вершину),
-//  TRE2 — спрайт-объекты (деревья, камни, стены).
+//  TRE2 — спрайт-объекты (деревья, камни, стены), UNI3 — юниты и здания.
 // Сетка вершин — vertsInLine × rows (513 × 512 для обычной карты): номер
 // вершины = x + y·vertsInLine; мировые координаты: X = x·32, Y = y·32, у нечётных
 // столбцов Y меньше на 16 (FUN_00dfc3d0, FUN_00dfc430).
@@ -63,6 +76,7 @@ public:
     int heightAt(int x, int y) const;
 
     const std::vector<MapObject>& objects() const { return objects_; }
+    const std::vector<MapUnit>& units() const { return units_; }
 
     float worldX(int x) const { return float(x * kCell); }
     float worldY(int x, int y) const { return float(y * kCell - ((x & 1) ? kCell / 2 : 0)); }
@@ -81,6 +95,7 @@ private:
     std::vector<std::int16_t> heights_;
     std::vector<std::uint8_t> facture_, facture2_, blend2_;
     std::vector<MapObject> objects_;
+    std::vector<MapUnit> units_;
 };
 
 } // namespace oc2::assets

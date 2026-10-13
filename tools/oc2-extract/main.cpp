@@ -17,6 +17,7 @@
 #include "assets/g2d.hpp"
 #include "assets/image_decode.hpp"
 #include "assets/map3d.hpp"
+#include "assets/unit_desc.hpp"
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
 #include "core/version.hpp"
@@ -39,7 +40,7 @@ void usage() {
                 "  oc2-extract map <файл.m3d> <файл.png>\n"
                 "      разделы карты и вид рельефа сверху (тени по высотам)\n"
                 "  oc2-extract check <папка игры> [--render]\n"
-                "      прочитать все .g2d, .g16, .g17, .m3d, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
+                "      прочитать все .g2d, .g16, .g17, .m3d, .md, .nds, .xml, .jpg, .tga, .bmp и тексты; с --render ещё и собрать кадры .g2d\n",
                 oc2::kVersion);
 }
 
@@ -111,7 +112,7 @@ int extractMap(const fs::path& file, const fs::path& png) {
 
 int check(const fs::path& root, bool render) {
     const auto start = std::chrono::steady_clock::now();
-    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0, pictures = 0, maps = 0;
+    std::size_t files = 0, failed = 0, pages = 0, frames = 0, g16Frames = 0, xmlFiles = 0, pictures = 0, maps = 0, units = 0;
     std::uintmax_t bytes = 0;
     for (const auto& entry : fs::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
@@ -120,7 +121,8 @@ int check(const fs::path& root, bool render) {
         const bool isPicture = hasExtension(entry.path(), ".jpg") || hasExtension(entry.path(), ".tga") ||
                                hasExtension(entry.path(), ".bmp");
         const bool isMap = hasExtension(entry.path(), ".m3d");
-        if (!isG16 && !isXml && !isPicture && !isMap && !hasExtension(entry.path(), ".g2d")) continue;
+        const bool isUnit = hasExtension(entry.path(), ".md") || hasExtension(entry.path(), ".nds");
+        if (!isG16 && !isXml && !isPicture && !isMap && !isUnit && !hasExtension(entry.path(), ".g2d")) continue;
         ++files;
         try {
             auto data = readFile(entry.path());
@@ -128,6 +130,15 @@ int check(const fs::path& root, bool render) {
             if (isMap) {
                 (void)oc2::assets::Map3d::parse(data);
                 ++maps;
+                continue;
+            }
+            if (isUnit) {
+                const std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+                if (hasExtension(entry.path(), ".md"))
+                    (void)oc2::assets::UnitDesc::parse(text);
+                else
+                    (void)oc2::assets::parseNationMembers(text);
+                ++units;
                 continue;
             }
             if (isPicture) {
@@ -161,7 +172,8 @@ int check(const fs::path& root, bool render) {
     if (render) std::printf(", кадров: %zu", frames);
     oc2::assets::TextTable texts;
     texts.loadGame(root);
-    std::printf(", XML: %zu, изображений: %zu, карт: %zu, строк текста: %zu", xmlFiles, pictures, maps, texts.size());
+    std::printf(", XML: %zu, изображений: %zu, карт: %zu, описаний юнитов: %zu, строк текста: %zu", xmlFiles, pictures,
+                maps, units, texts.size());
     std::printf(", время: %.1f с\n", seconds);
     return failed == 0 ? 0 : 1;
 }
