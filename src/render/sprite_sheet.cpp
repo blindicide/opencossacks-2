@@ -21,7 +21,7 @@ SpriteSheet::SpriteSheet(SpriteRenderer& renderer, assets::G2dFile file)
     }
 }
 
-void SpriteSheet::draw(std::size_t frame, float x, float y, float scale, std::uint32_t tint) const {
+void SpriteSheet::draw(std::size_t frame, float x, float y, float scale, std::uint32_t tint, bool mirror) const {
     if (frame >= frameCount()) throw std::out_of_range("нет кадра " + std::to_string(frame));
     const assets::G2dFrame& fr = file_.frames()[frame];
     std::vector<SpriteVertex> vertices;
@@ -34,7 +34,7 @@ void SpriteSheet::draw(std::size_t frame, float x, float y, float scale, std::ui
         for (std::uint32_t k = 0; k < part.vertexCount; ++k) {
             const assets::G2dVertex& v = file_.vertices()[part.firstVertex + k];
             SpriteVertex sv{};
-            sv.x = x + float(v.x) * scale;
+            sv.x = x + float(mirror ? int(width()) - v.x : v.x) * scale;
             sv.y = y + float(v.y) * scale;
             sv.u = float(v.u) / float(page.width);
             sv.v = float(v.v) / float(page.height);

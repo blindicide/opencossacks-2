@@ -20,8 +20,10 @@ public:
     std::uint16_t height() const { return file_.height(); }
 
     // Рисует кадр так, что левый верхний угол рамки спрайта — в (x, y) пикселях экрана.
-    // tint — ARGB-множитель цвета (0xFFFFFFFF — без изменений).
-    void draw(std::size_t frame, float x, float y, float scale = 1.0f, std::uint32_t tint = 0xFFFFFFFF) const;
+    // tint — ARGB-множитель цвета (0xFFFFFFFF — без изменений); mirror — отражение
+    // по горизонтали в пределах рамки спрайта.
+    void draw(std::size_t frame, float x, float y, float scale = 1.0f, std::uint32_t tint = 0xFFFFFFFF,
+              bool mirror = false) const;
 
 private:
     SpriteRenderer& renderer_;

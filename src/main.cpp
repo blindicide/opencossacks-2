@@ -55,6 +55,7 @@ const char* kHelp =
     "  --screenshot <файл>   сохранить последний кадр в PNG (по умолчанию после одного кадра)\n"
     "  --map <файл.m3d>      показать карту (путь относительно --data, например Missions/Skirmish/Skirmish1.m3d)\n"
     "  --menu <имя>          открыть меню из Dialogs/MainMenu.xml (Main, Single, Options, …)\n"
+    "  --at <x>,<y>          с --map: поставить камеру на точку карты (мировые координаты)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --version             версия\n"
     "\n"
@@ -95,6 +96,7 @@ struct Options {
     fs::path screenshot;
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
+    std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::string menu = "Main";
     fs::path map;
     fs::path sprite;
@@ -130,6 +132,11 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &mx, &my) != 2)
                 throw std::runtime_error("--mouse ждёт координаты вида 500,470");
             o.mouse = std::array<float, 2>{mx, my};
+        } else if (a == "--at" && hasValue) {
+            float x = 0, y = 0;
+            if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
+                throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
+            o.at = std::array<float, 2>{x, y};
         } else if (a == "--frame" && hasValue) {
             o.startFrame = std::strtol(argv[++i], nullptr, 10);
         } else {
@@ -204,6 +211,7 @@ struct Viewer {
 struct MapView {
     std::unique_ptr<oc2::render::TerrainRenderer> terrain;
     std::unique_ptr<oc2::render::GpImages> images;
+    std::unique_ptr<oc2::world::UnitCatalog> units;
     std::unique_ptr<oc2::render::MapObjects> objects;
     oc2::render::MapCamera camera;
     float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
@@ -247,7 +255,8 @@ struct MapView {
         terrain->setFactures(factures);
         terrain->setMesh(mesh);
         images = std::make_unique<oc2::render::GpImages>(sprites, data);
-        objects = std::make_unique<oc2::render::MapObjects>(*images, data, map);
+        units = std::make_unique<oc2::world::UnitCatalog>(data);
+        objects = std::make_unique<oc2::render::MapObjects>(*images, data, map, units.get());
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
         std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu\n", path->string().c_str(),
@@ -257,6 +266,12 @@ struct MapView {
     void centerOn(VkExtent2D e) {
         camera.x = (width - float(e.width) / camera.zoom) / 2.0f;
         camera.y = (height - float(e.height) / camera.zoom) / 2.0f;
+    }
+
+    // Мировая точка (x, y) — в центр экрана (высота рельефа не учитывается).
+    void lookAt(float x, float y, VkExtent2D e) {
+        camera.x = x - float(e.width) / camera.zoom / 2.0f;
+        camera.y = y / 2.0f - float(e.height) / camera.zoom / 2.0f;
     }
 
     void handleKey(std::uint32_t key, VkExtent2D e) {
@@ -351,6 +366,7 @@ int main(int argc, char** argv) {
             if (opts->dataDir.empty()) throw std::runtime_error("для --map нужен --data");
             mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map);
             mapView->centerOn(vulkan.extent());
+            if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
         } else if (opts->sprite.empty() && !opts->dataDir.empty()) {
             screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
         } else if (!opts->sprite.empty()) {

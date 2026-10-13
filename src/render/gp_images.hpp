@@ -41,9 +41,9 @@ public:
     std::uint32_t frameHeight(GpId id, std::size_t frame);
 
     // Рисует кадр левым верхним углом в (x, y). color — ARGB-множитель
-    // (0xFFFFFFFF — без изменений).
+    // (0xFFFFFFFF — без изменений); mirror — отражение по горизонтали в пределах рамки.
     void draw(GpId id, std::size_t frame, float x, float y, std::uint32_t color = 0xFFFFFFFF,
-              float scale = 1.0f);
+              float scale = 1.0f, bool mirror = false);
 
 private:
     struct Entry;

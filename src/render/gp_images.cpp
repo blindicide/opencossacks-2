@@ -124,10 +124,10 @@ std::uint32_t GpImages::frameHeight(GpId id, std::size_t frame) {
     return 0;
 }
 
-void GpImages::draw(GpId id, std::size_t frame, float x, float y, std::uint32_t color, float scale) {
+void GpImages::draw(GpId id, std::size_t frame, float x, float y, std::uint32_t color, float scale, bool mirror) {
     Entry& e = load(id);
     if (e.g2d) {
-        if (frame < e.g2d->frameCount()) e.g2d->draw(frame, x, y, scale, color);
+        if (frame < e.g2d->frameCount()) e.g2d->draw(frame, x, y, scale, color, mirror);
         return;
     }
     if (!e.g16 || frame >= e.g16->frameCount()) return;
@@ -148,11 +148,12 @@ void GpImages::draw(GpId id, std::size_t frame, float x, float y, std::uint32_t 
         it = e.frames.emplace(frame, tex).first;
     }
     const auto c = tintToVertexColor(color);
+    const float u0 = mirror ? 1.0f : 0.0f, u1 = 1.0f - u0;
     const std::array<SpriteVertex, 4> v{{
-        {x, y, 0.0f, 0.0f, c},
-        {x + w, y, 1.0f, 0.0f, c},
-        {x + w, y + h, 1.0f, 1.0f, c},
-        {x, y + h, 0.0f, 1.0f, c},
+        {x, y, u0, 0.0f, c},
+        {x + w, y, u1, 0.0f, c},
+        {x + w, y + h, u1, 1.0f, c},
+        {x, y + h, u0, 1.0f, c},
     }};
     const std::array<std::uint16_t, 6> idx{0, 1, 2, 0, 2, 3};
     renderer_.drawTriangles(it->second, v, idx);
