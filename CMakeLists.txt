@@ -39,6 +39,13 @@ add_library(oc2_assets STATIC
 target_include_directories(oc2_assets PUBLIC src)
 target_link_libraries(oc2_assets PRIVATE bz2 stb_headers)
 
+# Мир игры без графики: построение рельефа и (дальше) логика.
+add_library(oc2_world STATIC
+    src/world/terrain_mesh.cpp
+)
+target_include_directories(oc2_world PUBLIC src)
+target_link_libraries(oc2_world PUBLIC oc2_assets)
+
 add_executable(opencossacks2
     src/main.cpp
     src/platform/window.cpp
@@ -46,12 +53,13 @@ add_executable(opencossacks2
     src/render/sprite_renderer.cpp
     src/render/sprite_sheet.cpp
     src/render/gp_images.cpp
+    src/render/terrain_renderer.cpp
     src/ui/fonts.cpp
     src/ui/rich_text.cpp
     src/ui/dialogs.cpp
     src/ui/menus.cpp
 )
-target_link_libraries(opencossacks2 PRIVATE oc2_assets SDL3::SDL3-static volk vma)
+target_link_libraries(opencossacks2 PRIVATE oc2_assets oc2_world SDL3::SDL3-static volk vma)
 if(WIN32)
     set_target_properties(opencossacks2 PROPERTIES WIN32_EXECUTABLE ON)
 endif()
@@ -67,6 +75,7 @@ function(oc2_warnings target)
     endif()
 endfunction()
 oc2_warnings(oc2_assets)
+oc2_warnings(oc2_world)
 oc2_warnings(opencossacks2)
 
 # Утилита выгрузки ресурсов в PNG и проверки чтения форматов.
@@ -91,7 +100,7 @@ option(OC2_BUILD_TESTS "Собирать тесты" ON)
 if(OC2_BUILD_TESTS)
     enable_testing()
     add_executable(oc2_assets_test tests/assets_test.cpp)
-    target_link_libraries(oc2_assets_test PRIVATE oc2_assets bz2)
+    target_link_libraries(oc2_assets_test PRIVATE oc2_assets oc2_world bz2)
     oc2_warnings(oc2_assets_test)
     add_test(NAME assets COMMAND oc2_assets_test)
 endif()

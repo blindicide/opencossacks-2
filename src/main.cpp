@@ -27,6 +27,9 @@
 #include "assets/text_table.hpp"
 #include "assets/xml_tree.hpp"
 #include "render/gp_images.hpp"
+#include "assets/image_decode.hpp"
+#include "assets/map3d.hpp"
+#include "render/terrain_renderer.hpp"
 #include "ui/dialogs.hpp"
 #include "ui/fonts.hpp"
 #include "ui/menus.hpp"
@@ -49,13 +52,15 @@ const char* kHelp =
     "  --frame <N>           начальный кадр\n"
     "  --frames <N>          нарисовать N кадров и выйти (для проверок)\n"
     "  --screenshot <файл>   сохранить последний кадр в PNG (по умолчанию после одного кадра)\n"
+    "  --map <файл.m3d>      показать карту (путь относительно --data, например Missions/Skirmish/Skirmish1.m3d)\n"
     "  --menu <имя>          открыть меню из Dialogs/MainMenu.xml (Main, Single, Options, …)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (для проверок)\n"
     "  --version             версия\n"
     "\n"
     "С --data без --sprite показывается главное меню.\n"
     "Просмотр спрайтов: ←/→ — кадр, ↑/↓ — на 10 кадров, Home — первый кадр,\n"
-    "пробел — анимация, +/− — масштаб, Esc — выход.\n";
+    "пробел — анимация, +/− — масштаб, Esc — выход.\n"
+    "Карта: стрелки или край экрана — прокрутка, +/− — масштаб.\n";
 
 void showError(const std::string& message) {
     std::fprintf(stderr, "Ошибка: %s\n", message.c_str());
@@ -90,6 +95,7 @@ struct Options {
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
     std::string menu = "Main";
+    fs::path map;
     fs::path sprite;
     long startFrame = 0;
 };
@@ -114,6 +120,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.dataDir = argv[++i];
         } else if (a == "--sprite" && hasValue) {
             o.sprite = argv[++i];
+        } else if (a == "--map" && hasValue) {
+            o.map = argv[++i];
         } else if (a == "--menu" && hasValue) {
             o.menu = argv[++i];
         } else if (a == "--mouse" && hasValue) {
@@ -191,6 +199,95 @@ struct Viewer {
     }
 };
 
+// Просмотр карты: рельеф с фактурами, прокрутка и масштаб.
+struct MapView {
+    std::unique_ptr<oc2::render::TerrainRenderer> terrain;
+    oc2::render::MapCamera camera;
+    float width = 0.0f, height = 0.0f; // размер карты в пикселях проекции
+
+    MapView(oc2::render::VulkanContext& vulkan, const fs::path& data, const fs::path& mapFile) {
+        const auto path = oc2::assets::findCaseInsensitive(data, mapFile);
+        if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
+        const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(*path));
+
+        // Фактуры — по списку FacturesList.xml (номер в карте = номер в списке).
+        std::vector<oc2::assets::Image> factures;
+        if (auto list = oc2::assets::findCaseInsensitive(data, "FacturesList.xml")) {
+            const std::vector<std::uint8_t> bytes = readFile(*list);
+            const oc2::assets::XmlNode doc =
+                oc2::assets::parseXml({reinterpret_cast<const char*>(bytes.data()), bytes.size()});
+            for (const oc2::assets::XmlNode& f : doc.children) {
+                std::string name = f.value("FactureID").value_or("");
+                std::replace(name.begin(), name.end(), '\\', '/');
+                oc2::assets::Image img(256, 256);
+                if (auto file = oc2::assets::findCaseInsensitive(data, name)) {
+                    try {
+                        img = oc2::assets::decodeImage(readFile(*file));
+                    } catch (const std::exception& e) {
+                        std::fprintf(stderr, "фактура %s: %s\n", name.c_str(), e.what());
+                    }
+                }
+                if (img.width != 256 || img.height != 256) img = oc2::assets::Image(256, 256);
+                factures.push_back(std::move(img));
+            }
+        }
+        if (factures.empty()) throw std::runtime_error("нет FacturesList.xml");
+        // Номера фактур в карте могут выходить за список — такие вершины берут нулевую.
+        std::vector<oc2::world::TerrainVertex> mesh = oc2::world::buildTerrainMesh(map);
+        for (auto& v : mesh) {
+            if (v.facture1 >= factures.size()) v.facture1 = 0;
+            if (v.facture2 >= factures.size()) v.facture2 = 0;
+        }
+        terrain = std::make_unique<oc2::render::TerrainRenderer>(vulkan);
+        terrain->setFactures(factures);
+        terrain->setMesh(mesh);
+        width = map.worldX(map.vertsInLine() - 1);
+        height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
+        std::printf("%s: сетка %d×%d, треугольников %zu\n", path->string().c_str(), map.vertsInLine(), map.rows(),
+                    mesh.size() / 3);
+    }
+
+    void centerOn(VkExtent2D e) {
+        camera.x = (width - float(e.width) / camera.zoom) / 2.0f;
+        camera.y = (height - float(e.height) / camera.zoom) / 2.0f;
+    }
+
+    void handleKey(std::uint32_t key, VkExtent2D e) {
+        const float cx = camera.x + float(e.width) / camera.zoom / 2.0f;
+        const float cy = camera.y + float(e.height) / camera.zoom / 2.0f;
+        switch (key) {
+        case SDLK_EQUALS:
+        case SDLK_PLUS:
+        case SDLK_KP_PLUS: camera.zoom = std::min(camera.zoom * 2.0f, 4.0f); break;
+        case SDLK_MINUS:
+        case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
+        default: return;
+        }
+        camera.x = cx - float(e.width) / camera.zoom / 2.0f;
+        camera.y = cy - float(e.height) / camera.zoom / 2.0f;
+    }
+
+    // Прокрутка: стрелки (состояние клавиш) и курсор у края окна.
+    void scroll(double dt, const oc2::platform::Window& window, VkExtent2D e) {
+        const bool* keys = SDL_GetKeyboardState(nullptr);
+        float dx = 0.0f, dy = 0.0f;
+        if (keys[SDL_SCANCODE_LEFT]) dx -= 1.0f;
+        if (keys[SDL_SCANCODE_RIGHT]) dx += 1.0f;
+        if (keys[SDL_SCANCODE_UP]) dy -= 1.0f;
+        if (keys[SDL_SCANCODE_DOWN]) dy += 1.0f;
+        if (window.mouseInside) {
+            const float edge = 4.0f;
+            if (window.mouseX < edge) dx -= 1.0f;
+            if (window.mouseX > float(e.width) - edge) dx += 1.0f;
+            if (window.mouseY < edge) dy -= 1.0f;
+            if (window.mouseY > float(e.height) - edge) dy += 1.0f;
+        }
+        const float speed = 1200.0f / camera.zoom; // пикселей проекции в секунду
+        camera.x += dx * speed * float(dt);
+        camera.y += dy * speed * float(dt);
+    }
+};
+
 // Экран интерфейса из данных игры (пока — главное меню).
 struct Screen {
     constexpr static float kWidth = 1024.0f, kHeight = 768.0f;
@@ -241,8 +338,13 @@ int main(int argc, char** argv) {
 
         std::optional<Viewer> viewer;
         std::unique_ptr<Screen> screen;
+        std::unique_ptr<MapView> mapView;
         oc2::render::TextureId pattern = 0;
-        if (opts->sprite.empty() && !opts->dataDir.empty()) {
+        if (!opts->map.empty()) {
+            if (opts->dataDir.empty()) throw std::runtime_error("для --map нужен --data");
+            mapView = std::make_unique<MapView>(vulkan, opts->dataDir, opts->map);
+            mapView->centerOn(vulkan.extent());
+        } else if (opts->sprite.empty() && !opts->dataDir.empty()) {
             screen = std::make_unique<Screen>(sprites, opts->dataDir, opts->menu);
         } else if (!opts->sprite.empty()) {
             const fs::path path = resolveSprite(*opts);
@@ -282,10 +384,14 @@ int main(int argc, char** argv) {
                 }
             }
 
-            VkCommandBuffer cmd = vulkan.beginFrame(screen ? kMenuClearColor : kClearColor);
+            VkCommandBuffer cmd = vulkan.beginFrame(screen || mapView ? kMenuClearColor : kClearColor);
             if (!cmd) continue;
             const VkExtent2D e = vulkan.extent();
-            if (screen) {
+            if (mapView) {
+                for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
+                mapView->scroll(dt, window, e);
+                mapView->terrain->draw(cmd, mapView->camera);
+            } else if (screen) {
                 screen->fit(e);
                 oc2::ui::Menus& menus = *screen->menus;
                 menus.update();
