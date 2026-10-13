@@ -11,6 +11,7 @@
 
 #include "assets/audio_decode.hpp"
 #include "assets/ai_script.hpp"
+#include "assets/settlement.hpp"
 #include "assets/byte_reader.hpp"
 #include "assets/compression.hpp"
 #include "assets/economy.hpp"
@@ -1126,4 +1127,21 @@ TEST_CASE("рынок: обмен по ценам economy.txt и сдвиг це
     CHECK(m.buyPrice(3) == 1211);
     CHECK(m.trade(stock, 1, 3, 10) == 0); // золота нет на рынке
     CHECK_THROWS_AS(Economy::parse("btn\r\n/ всё закомментировано\r\n"), oc2::assets::FormatError);
+}
+
+TEST_CASE("Поселение: описание .dip.xml") {
+    using oc2::assets::SettlementDesc;
+    const XmlNode root = parseXml(
+        "<>\n <StartOwner>7</StartOwner>\n <MaxResAmount>\n  <Food>3000</Food>\n  <Gold>1000</Gold>\n </MaxResAmount>\n"
+        " <CopID>TempMent(FR)</CopID>\n <CopBuidTime>200</CopBuidTime>\n <CopMaxAmount>30</CopMaxAmount>\n"
+        " <PeonID>UnitKri(FR)</PeonID>\n <PeonMaxAmount>\n  <Food>15</Food>\n </PeonMaxAmount>\n"
+        " <PeonTimeOnProduce>\n  <Food>10</Food>\n </PeonTimeOnProduce>\n <ObozID>HGu(NE)</ObozID>\n"
+        " <ObozResAmount>\n  <Wood>0</Wood>\n  <Food>1000</Food>\n </ObozResAmount>\n <Upgrades>\n  <SetlUpgrade>\n"
+        "   <Duration>300</Duration>\n   <EffType>PEASANT+</EffType>\n   <Effect>\n    <Food>10</Food>\n   </Effect>\n"
+        "   <Price>\n    <Wood>3000</Wood>\n   </Price>\n  </SetlUpgrade>\n </Upgrades>\n</>\n");
+    const SettlementDesc d = SettlementDesc::parse(root);
+    CHECK(d.startOwner == 7 && d.copId == "TempMent(FR)" && d.copMaxAmount == 30 && d.peonId == "UnitKri(FR)");
+    CHECK(d.resource() == 3 && d.obozResAmount[3] == 1000 && d.maxResAmount[1] == 1000 && d.peonMaxAmount[3] == 15);
+    CHECK(d.peonTimeOnProduce[3] == 10 && d.obozId == "HGu(NE)");
+    CHECK(d.upgrades.size() == 1 && d.upgrades[0].effect[3] == 10 && d.upgrades[0].price[0] == 3000);
 }
