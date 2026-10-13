@@ -38,6 +38,8 @@ namespace {
 
 // Тёмно-синий фон.
 constexpr std::array<float, 4> kClearColor{0.04f, 0.06f, 0.12f, 1.0f};
+// Меню, как в оригинале, — на чёрном (поля по краям и места без картинок).
+constexpr std::array<float, 4> kMenuClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 constexpr double kAnimationFps = 15.0;
 
 const char* kHelp =
@@ -280,7 +282,7 @@ int main(int argc, char** argv) {
                 }
             }
 
-            VkCommandBuffer cmd = vulkan.beginFrame(kClearColor);
+            VkCommandBuffer cmd = vulkan.beginFrame(screen ? kMenuClearColor : kClearColor);
             if (!cmd) continue;
             const VkExtent2D e = vulkan.extent();
             if (screen) {
