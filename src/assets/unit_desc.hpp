@@ -79,7 +79,8 @@ struct UnitDesc {
     int farm = 0;
     bool noFarm = false;
     // RESCONSUMER РЕС n — расход ресурса (поля 0x15cb/0x15c9; суммы по игроку — пересчёт
-    // thunk_FUN_00dcec00, поле 0x15df5).
+    // thunk_FUN_00dcec00, поле 0x15df5). Поле одно: при нескольких строках (у гвардии
+    // FOOD 8 и GOLD 8) остаётся последняя, как в оригинале (FUN_018d43c0 перезаписывает).
     int consumeResource = -1, consumeAmount = 0;
 
     // Шахта: PEASANTABSORBER n — сколько крестьян вмещает (поле 0x372); PRODUCER k РЕС… a b —
