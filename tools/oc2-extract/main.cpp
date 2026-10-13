@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <map>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -110,6 +112,13 @@ int extractMap(const fs::path& file, const fs::path& png) {
     const oc2::assets::Map3d map = oc2::assets::Map3d::parse(readFile(file));
     std::printf("%s: сетка %d×%d\n", file.string().c_str(), map.vertsInLine(), map.rows());
     for (const auto& s : map.sections()) std::printf("  %-4s %10zu байт\n", s.tag.c_str(), s.size);
+    // Юниты: сколько каждого типа у каждого игрока.
+    std::map<std::pair<int, std::string>, int> counts;
+    for (const auto& u : map.units()) ++counts[{u.player, u.type}];
+    for (const auto& [key, n] : counts) std::printf("  игрок %d: %-24s %d\n", key.first, key.second.c_str(), n);
+    if (std::getenv("OC2_UNITS"))
+        for (const auto& u : map.units())
+            std::printf("    %d %-24s %6d %6d\n", u.player, u.type.c_str(), u.x, u.y);
     // Освещение как у вершин в FUN_01555110: нормаль по соседям, свет сверху-слева.
     oc2::assets::Image img(std::uint32_t(map.vertsInLine()), std::uint32_t(map.rows()));
     for (int y = 0; y < map.rows(); ++y)
