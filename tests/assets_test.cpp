@@ -751,6 +751,14 @@ TEST_CASE("Мир: таблицы направлений и ходьба") {
     w.step();
     CHECK(w.units()[p].animation == peasant.animation("@REST"));
     CHECK(w.units()[h].frame == 0); // кадры зданий не идут
+
+    // Разворот: смотрит на восток, идти на запад — сначала поворот по 16 за шаг, на месте.
+    const std::size_t t = w.addUnit(peasant, 0, 1000, 1000, 0);
+    w.orderMove(t, 900, 1000);
+    w.step();
+    CHECK(w.units()[t].x16 == 16000 && (w.units()[t].direction == 16 || w.units()[t].direction == 240));
+    for (int i = 0; i < 8; ++i) w.step();
+    CHECK(w.units()[t].direction == 128 && w.units()[t].x16 < 16000);
 }
 
 TEST_CASE("Список миссий Missions.txt и выборки") {

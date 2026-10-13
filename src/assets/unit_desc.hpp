@@ -45,6 +45,7 @@ struct UnitDesc {
     // мировых единиц (таблицы cos·шаг >> 8 в единицах 1/16).
     int radius1 = 0, radius2 = 0, step = 0;
     int unitRadius = 0; // UNITRADIUS
+    int rotate = 16;    // ROTATE — поворот за шаг в единицах направления (поле 0x15D9, по умолчанию 0x10)
     // LOCKPOINTS n x1 y1 …: занятые зданием клетки 16×16 мировых единиц от угла
     // картинки (OneObject::GetCornerXY: x + ax, y + 2·ay, где (ax, ay) — SETANMPARAM).
     std::vector<std::pair<int, int>> lockPoints;

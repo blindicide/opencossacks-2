@@ -112,6 +112,8 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                     d.attackMax[i] = intAt(w, 3, "макс");
                 }
             }
+        } else if (key == "ROTATE") {
+            d.rotate = std::max(1, intAt(w, 1, "поворот"));
         } else if (key == "UNITRADIUS") {
             d.unitRadius = intAt(w, 1, "радиус");
         } else if (key == "USERLC" && w.size() >= 3) {

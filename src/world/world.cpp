@@ -354,9 +354,16 @@ void World::step() {
                     u.path.pop_back();
                 }
             } else {
-                u.direction = directionOf(dx, dy);
-                u.x16 += (cos256(u.direction) * u.desc->step) >> 8;
-                u.y16 += (sin256(u.direction) * u.desc->step) >> 8;
+                // Поворот не быстрее ROTATE за шаг; идти — когда отклонение не больше 45°
+                // (упрощение: у оригинала поворот зависит ещё и от скорости).
+                const int want = directionOf(dx, dy);
+                const int diff = ((want - u.direction + 384) & 255) - 128; // −128…127
+                const int turn = std::clamp(diff, -u.desc->rotate, u.desc->rotate);
+                u.direction = (u.direction + turn) & 255;
+                if (std::abs(diff - turn) <= 32) {
+                    u.x16 += (cos256(u.direction) * u.desc->step) >> 8;
+                    u.y16 += (sin256(u.direction) * u.desc->step) >> 8;
+                }
             }
         }
         setAnimation(u, u.moving ? moveAnimation(*u.desc) : idleAnimation(*u.desc));
