@@ -225,6 +225,10 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             const auto bytes = readFile(argv[++i]);
             std::fputs(oc2::assets::Map3d::parse(bytes).scriptXml().c_str(), stdout);
             return std::nullopt;
+        } else if (a == "--dump-zones" && hasValue) {
+            const auto bytes = readFile(argv[++i]);
+            std::fputs(oc2::assets::Map3d::parse(bytes).zonesXml().c_str(), stdout);
+            return std::nullopt;
         } else if (a == "--bigmap") {
             o.bigMap = true;
             if (hasValue && argv[i + 1][0] != '-') o.bigNation = int(std::strtol(argv[++i], nullptr, 10));
