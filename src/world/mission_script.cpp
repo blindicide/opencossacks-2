@@ -457,7 +457,11 @@ void MissionScript::runOp(const XmlNode& op) {
         if (player(a) && player(b)) w.team[std::size_t(b)] = w.team[std::size_t(a)];
     } else if (name == "SetUpgradeDone") {
         const int p = num("Nat");
-        if (player(p)) w.researched[std::size_t(p)].insert(str("UpgradeID"));
+        if (player(p)) {
+            const assets::UpgradeDef* up = env_.catalog ? env_.catalog->upgrade(str("UpgradeID")) : nullptr;
+            if (up) w.finishResearch(p, *up);
+            else w.researched[std::size_t(p)].insert(str("UpgradeID"));
+        }
     } else if (name == "StartAIEx") {
         aiStarts.push_back({num("Nation"), num("Difficulty"), str("NameXML")});
     } else if (name == "ShowVictory") {

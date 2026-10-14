@@ -1458,3 +1458,28 @@ TEST_CASE("Сценарий миссии: правила, задачи, итог
     s->step();
     CHECK(s->var("Done") == 1 && !s->filmRunning());
 }
+
+TEST_CASE("Улучшения: жизнь, дальность, пауза, щит и стройка") {
+    using oc2::assets::UnitDesc;
+    using oc2::world::World;
+    const std::string nds = "[UPGRADE]\nUP1(PO) U1 #POSITION 0 0 #LEVEL 1 UP1(PO) #COST 1 GOLD 1 #TIME 1\n"
+                            "  LIFE GRP 1 BldTow(PO) +1000\n  LIFE GRP 1 BldTow(PO) +50%\n  SHIELD GRP 1 BldTow(PO) +80\n"
+                            "  ATTRANGE ATTINDEX 0 GRP 1 BldTow(PO) +10%\n  SINGLE_ATTPAUSE ATTINDEX 0 BldTow(PO) 30\n"
+                            "  BUILD GRP 1 BldTow(PO) -50%\n[END]\n";
+    const auto ups = oc2::assets::parseNationUpgrades(nds);
+    UnitDesc tower = UnitDesc::parse("NAME Tow\nBUILDING\nLIFE 2000\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
+    tower.typeName = "BldTow(PO)";
+    tower.attackMax[0] = 400;
+    tower.attackPause[0] = 100;
+    tower.buildStages = 10;
+    World w;
+    const std::size_t t = w.addUnit(tower, 0, 500, 500, 0);
+    const std::size_t other = w.addUnit(tower, 1, 900, 900, 0);
+    CHECK(w.maxLife(w.units()[t]) == 2000 && w.attackMax(w.units()[t], 0) == 400);
+    w.finishResearch(0, ups[0]);
+    // (2000 + 1000) · 150% = 4500; существующая башня получила прибавку жизни.
+    CHECK(w.maxLife(w.units()[t]) == 4500 && w.units()[t].life == 4500);
+    CHECK(w.attackMax(w.units()[t], 0) == 440 && w.attackPause(w.units()[t], 0) == 30 && w.buildStages(0, tower) == 5);
+    CHECK(w.maxLife(w.units()[other]) == 2000 && w.buildStages(1, tower) == 10); // у другого игрока без изменений
+    CHECK(w.modsOf(w.units()[t])->shield == 80);
+}

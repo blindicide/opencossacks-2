@@ -72,6 +72,7 @@ struct Unit {
     int produced = 0;
     // Исследование улучшения в здании: имя и шагов до конца (0 — не идёт).
     std::string research;
+    const assets::UpgradeDef* researchDef = nullptr;
     int researchLeft = 0;
     // Шахта: крестьяне внутри (номера юнитов) и накопитель дохода в тысячных.
     std::vector<std::size_t> occupants;
@@ -194,6 +195,23 @@ public:
     std::array<std::unordered_set<std::string>, 8> blocked;
     // Улучшения, исследованные игроком (по именам из [UPGRADE]).
     std::array<std::unordered_set<std::string>, 8> researched;
+    // Эффекты исследованных улучшений по игрокам и типам (typeName): строки [UPGRADE] LIFE, SHIELD,
+    // ATTRANGE, SINGLE_ATTPAUSE, BUILD. Проценты накапливаются множителями; смысл «200%» без знака
+    // (двукратная жизнь) и вычитания щита из урона — допущения. Остальные строки (COST, EFFECT_*,
+    // HEALING, RAZBROS, DAMAGE, ENABLE) пока не применяются.
+    struct Mods {
+        int lifeAdd = 0, lifePct = 100, shield = 0, buildPct = 100;
+        std::array<int, assets::UnitDesc::kWeapons> pause, rangePct;
+        Mods() { pause.fill(-1); rangePct.fill(100); }
+    };
+    std::array<std::unordered_map<std::string, Mods>, 8> mods;
+    const Mods* modsOf(const Unit& u) const;
+    int maxLife(const Unit& u) const;
+    int attackMax(const Unit& u, int weapon) const;
+    int attackPause(const Unit& u, int weapon) const;
+    int buildStages(int player, const assets::UnitDesc& d) const;
+    // Улучшение исследовано: запоминает его и применяет эффекты (в том числе к уже существующим юнитам).
+    void finishResearch(int player, const assets::UpgradeDef& upgrade);
     // Исследовать улучшение в здании: списывает цену, ставит таймер. false — нельзя (занято, уже есть, нет денег).
     bool orderResearch(std::size_t building, const assets::UpgradeDef& upgrade, int costPercent = 100);
     // Следующая стадия стройки (OneObject::NextStage).

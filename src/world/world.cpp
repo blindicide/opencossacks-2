@@ -72,7 +72,7 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
     u.animation = idleAnimation(desc);
     // Чтобы стоящие рядом не шевелились в такт — разный начальный кадр покоя.
     if (u.animation && !desc.building) u.frame = int((units_.size() * 7) % u.animation->frames.size());
-    u.life = desc.life;
+    u.life = maxLife(u);
     if (desc.building && lock_.width() > 0) lock_.addBuilding(desc, x, y);
     units_.push_back(u);
     return units_.size() - 1;
@@ -127,7 +127,7 @@ std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, in
     u.x16 = x * 16;
     u.y16 = y * 16;
     u.underConstruction = desc.buildStages > 0;
-    u.life = u.underConstruction ? 1 : desc.life;
+    u.life = u.underConstruction ? 1 : maxLife(u);
     if (u.underConstruction) {
         u.animation = namedAnimation(desc, "BUILDLO_0");
         if (!u.animation) u.animation = idleAnimation(desc);
@@ -154,13 +154,13 @@ void World::pushOutOfLocks() {
 
 void World::nextStage(std::size_t index) {
     Unit& b = units_.at(index);
-    const int stages = b.desc->buildStages;
+    const int stages = buildStages(b.player, *b.desc);
     if (!b.underConstruction || b.stage >= stages) return;
     ++b.stage;
-    b.life = std::max(1, b.stage * b.desc->life / stages);
+    b.life = std::max(1, b.stage * maxLife(b) / stages);
     if (b.stage == stages) {
         b.underConstruction = false;
-        b.life = b.desc->life;
+        b.life = maxLife(b);
         ++producedCount[std::size_t(b.player & 7)][b.desc];
         b.animation = idleAnimation(*b.desc);
         if (lock_.width() > 0) {
@@ -196,6 +196,7 @@ bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int c
         if (have[r] < up.cost[r] * costPercent / 100) return false;
     for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r) have[r] -= up.cost[r] * costPercent / 100;
     b.research = up.name;
+    b.researchDef = &up;
     b.researchLeft = std::max(1, up.time);
     return true;
 }
@@ -260,12 +261,17 @@ void World::starve() {
 
 void World::updateProduction(std::size_t index) {
     if (Unit& r = units_[index]; r.researchLeft > 0 && r.alive() && --r.researchLeft == 0)
-        researched[std::size_t(r.player & 7)].insert(r.research);
+        {
+        if (r.researchDef)
+            finishResearch(r.player, *r.researchDef);
+        else
+            researched[std::size_t(r.player & 7)].insert(r.research);
+    }
     if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
     Unit& b = units_[index];
     if (!b.queue.front()->noFarm && population(b.player) >= populationLimit(b.player)) return; // нет мест
     if (starving(b.player) && b.queue.front()->consumeResource == 3) return; // голод: едоков не обучают
-    if (++b.produced < std::max(1, b.queue.front()->buildStages)) return;
+    if (++b.produced < std::max(1, buildStages(b.player, *b.queue.front()))) return;
     const assets::UnitDesc& desc = *b.queue.front();
     b.queue.erase(b.queue.begin());
     b.produced = 0;
@@ -660,8 +666,101 @@ Unit* World::shotVictim(const Unit& u, Unit& t) {
     return best;
 }
 
+const World::Mods* World::modsOf(const Unit& u) const {
+    const auto& m = mods[std::size_t(u.player & 7)];
+    const auto it = m.find(u.desc->typeName);
+    return it == m.end() ? nullptr : &it->second;
+}
+
+int World::maxLife(const Unit& u) const {
+    const Mods* m = modsOf(u);
+    if (!m) return u.desc->life;
+    return int((long long)(u.desc->life + m->lifeAdd) * m->lifePct / 100);
+}
+
+int World::attackMax(const Unit& u, int w) const {
+    const Mods* m = modsOf(u);
+    const int base = u.desc->attackMax[std::size_t(w)];
+    return m ? int((long long)base * m->rangePct[std::size_t(w)] / 100) : base;
+}
+
+int World::attackPause(const Unit& u, int w) const {
+    const Mods* m = modsOf(u);
+    return m && m->pause[std::size_t(w)] >= 0 ? m->pause[std::size_t(w)] : u.desc->attackPause[std::size_t(w)];
+}
+
+int World::buildStages(int player, const assets::UnitDesc& d) const {
+    const auto& m = mods[std::size_t(player & 7)];
+    const auto it = m.find(d.typeName);
+    return it == m.end() ? d.buildStages : std::max(1, int((long long)d.buildStages * it->second.buildPct / 100));
+}
+
+void World::finishResearch(int player, const assets::UpgradeDef& up) {
+    const std::size_t p = std::size_t(player & 7);
+    researched[p].insert(up.name);
+    // Значение строки: «+15000» — прибавка, «+10%» — множитель 110%, «-50%» — 50%, «200%» — 200%, «80» — число.
+    struct Val { bool pct = false, sign = false; int n = 0; };
+    auto parse = [](const std::string& t) {
+        Val v;
+        v.pct = !t.empty() && t.back() == '%';
+        v.sign = !t.empty() && (t[0] == '+' || t[0] == '-');
+        try { v.n = std::stoi(t); } catch (...) { v.n = 0; }
+        return v;
+    };
+    auto factor = [](const Val& v) { return v.sign ? 100 + v.n : v.n; };
+    for (const auto& w : up.effects) {
+        if (w.size() < 3) continue;
+        const std::string& op = w[0];
+        std::vector<std::string> types;
+        std::size_t valueAt = w.size() - 1;
+        int attIndex = 0;
+        if (op == "SINGLE_ATTPAUSE") {
+            if (w.size() < 5 || w[1] != "ATTINDEX") continue;
+            attIndex = std::atoi(w[2].c_str());
+            for (std::size_t i = 3; i < valueAt; ++i) types.push_back(w[i]);
+        } else if (op == "LIFE" || op == "SHIELD" || op == "BUILD" || op == "ATTRANGE") {
+            std::size_t g = 1;
+            if (op == "ATTRANGE") {
+                if (w.size() < 6 || w[1] != "ATTINDEX") continue;
+                attIndex = std::atoi(w[2].c_str());
+                g = 3;
+            }
+            if (g + 1 >= w.size() || w[g] != "GRP") continue;
+            const std::size_t n = std::size_t(std::atoi(w[g + 1].c_str()));
+            for (std::size_t i = 0; i < n && g + 2 + i < valueAt; ++i) types.push_back(w[g + 2 + i]);
+        } else {
+            continue;
+        }
+        if (attIndex < 0 || attIndex >= assets::UnitDesc::kWeapons) continue;
+        const Val v = parse(w[valueAt]);
+        for (const std::string& type : types) {
+            Mods& m = mods[p][type];
+            const Mods before = m;
+            if (op == "LIFE") {
+                if (v.pct) m.lifePct = m.lifePct * factor(v) / 100;
+                else m.lifeAdd += v.n;
+            } else if (op == "SHIELD") {
+                m.shield += v.n;
+            } else if (op == "BUILD") {
+                m.buildPct = m.buildPct * (v.pct ? factor(v) : 100) / 100;
+            } else if (op == "ATTRANGE") {
+                m.rangePct[std::size_t(attIndex)] = m.rangePct[std::size_t(attIndex)] * (v.pct ? factor(v) : 100) / 100;
+            } else {
+                m.pause[std::size_t(attIndex)] = v.n;
+            }
+            if (op != "LIFE") continue;
+            for (Unit& u : units_) {
+                if (u.player != player || u.desc->typeName != type || !u.alive() || u.underConstruction) continue;
+                const auto lifeWith = [&](const Mods& x) { return int((long long)(u.desc->life + x.lifeAdd) * x.lifePct / 100); };
+                u.life = std::max(1, u.life + lifeWith(m) - lifeWith(before));
+            }
+        }
+    }
+}
+
 void World::hit(Unit& t, int damage) {
     if (!t.alive()) return;
+    if (const Mods* m = modsOf(t); m && m->shield > 0) damage = std::max(damage - m->shield, damage / 4);
     t.life -= damage;
     if (t.life > 0) return;
     t.life = 0;
@@ -717,10 +816,10 @@ void World::updateCombat(std::size_t index) {
     for (int w = 0; w < assets::UnitDesc::kWeapons; ++w) {
         const auto i = std::size_t(w);
         if (d.damage[i] <= 0 || d.attackMax[i] <= 0 || !attackAnimation(d, w)) continue;
-        if (dist < d.attackMin[i] || dist > d.attackMax[i]) continue;
+        if (dist < d.attackMin[i] || dist > attackMax(u, w)) continue;
         inRange = true;
         if (u.reload[i] > 0 || !canShoot(u, w)) continue;
-        if (chosen < 0 || d.attackMax[i] > d.attackMax[std::size_t(chosen)]) chosen = w;
+        if (chosen < 0 || attackMax(u, w) > attackMax(u, chosen)) chosen = w;
     }
     if (chosen >= 0) {
         u.direction = directionOf(dx, dy);
@@ -887,7 +986,7 @@ void World::step() {
             if (!u.damageDone && u.frame >= frames / 2) {
                 u.damageDone = true;
                 const auto w = std::size_t(u.weapon);
-                u.reload[w] = u.desc->attackPause[w];
+                u.reload[w] = attackPause(u, int(w));
                 // Ресурсы могли разобрать за время замаха — тогда выстрела нет.
                 if (canShoot(u, u.weapon)) {
                     auto& have = resources[std::size_t(u.player & 7)];
@@ -899,7 +998,7 @@ void World::step() {
                         Unit& t = units_[*u.target];
                         const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
                         // Цель успела уйти дальше полуторной дальности — промах.
-                        if (reach <= u.desc->attackMax[w] * 1.5)
+                        if (reach <= attackMax(u, int(w)) * 1.5)
                             if (Unit* victim = shotVictim(u, t)) hit(*victim, u.desc->damage[w]);
                     }
                 }

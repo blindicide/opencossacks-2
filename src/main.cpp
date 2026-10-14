@@ -1195,7 +1195,7 @@ void drawSelectionInfo(Screen& screen, const MapView& view, VkExtent2D e, oc2::r
         text += name + (kinds[i].second > 1 ? ": " + std::to_string(kinds[i].second) : "") + "\\";
     }
     if (kinds.size() > 5) text += "...\\";
-    if (total == 1) text += "Здоровье: " + std::to_string(first->life) + " / " + std::to_string(first->desc->life);
+    if (total == 1) text += "Здоровье: " + std::to_string(first->life) + " / " + std::to_string(view.world.maxLife(*first));
     const std::string cp = oc2::assets::utf8ToCp1251(text);
     const oc2::ui::View& v = screen.hudView;
     constexpr int kWidth = 220;
@@ -1208,7 +1208,7 @@ void drawSelectionInfo(Screen& screen, const MapView& view, VkExtent2D e, oc2::r
     screen.text->draw(*font, cp, int((x + 8.0f * v.scale) / v.scale), int((y + 6.0f * v.scale) / v.scale), kWidth,
                       oc2::ui::Align::Left, v);
     if (total == 1 && first->desc->life > 0) { // полоса здоровья под текстом
-        const float part = std::clamp(float(first->life) / float(first->desc->life), 0.0f, 1.0f);
+        const float part = std::clamp(float(first->life) / float(std::max(1, view.world.maxLife(*first))), 0.0f, 1.0f);
         sprites.fillRect(x + 4.0f, y + h - 8.0f, w - 8.0f, 4.0f, 0xFF402820);
         sprites.fillRect(x + 4.0f, y + h - 8.0f, (w - 8.0f) * part, 4.0f, part > 0.5f ? 0xFF40C040 : part > 0.25f ? 0xFFE0C040 : 0xFFE04040);
     }
