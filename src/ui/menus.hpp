@@ -59,6 +59,25 @@ public:
         if (victory) campaignWon();
         resultShown_ = false;
     }
+    // Итоговая статистика (окно PostGameStat): два столбца — победитель и проигравший.
+    struct GameStats {
+        struct Row {
+            std::string name; // UTF-8
+            int built = 0, killed = 0, lost = 0;
+        };
+        struct Side {
+            std::string name, race; // UTF-8
+            // Траты по строкам таблицы (всего, улучшения, содержание, юниты, здания, покупка, продажа) × ресурсы
+            // в порядке колонок окна: дерево, еда, камень, золото, железо, уголь.
+            std::array<std::array<int, 6>, 7> table{};
+            std::vector<Row> units, buildings;
+        };
+        Side winner, loser;
+    };
+    void setGameStats(GameStats stats) {
+        stats_ = std::move(stats);
+        statsShown_ = false;
+    }
     // cva_MM_BackToMain: вернуться в главное меню (игра заканчивается). Возвращается один раз.
     bool takeBackToMain() {
         const bool r = backToMain_;
@@ -119,6 +138,7 @@ private:
     void syncPlayerTable(Dialog& dialog);
     void syncProfiles(Dialog& dialog);
     void syncSaves(Dialog& dialog);
+    void syncStats(Dialog& dialog);
     bool saveClick(const Widget& w, const Widget::Action& a);
     bool profileClick(const Widget& w, const Widget::Action& a);
     std::string resultMessage_;
@@ -157,6 +177,8 @@ private:
     std::optional<world::SaveGame> loadRequest_;
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
+    std::optional<GameStats> stats_;
+    bool statsShown_ = false;
     bool backToMain_ = false;
     bool setupStart_ = false;
     int profilePick_ = 0;                    // выбранная строка списка профилей

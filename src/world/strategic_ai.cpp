@@ -233,7 +233,15 @@ void StrategicAi::upgradeSettlement(const assets::AiAction& a) {
 // BuyResource (FUN_015d2c10): продаёт Amount ресурса ResTypeToSell (сколько есть) за ResTypeToBuy.
 void StrategicAi::buyResource(const assets::AiAction& a) {
     if (!world_.market || a.resource < 0 || a.sellResource < 0 || a.amount <= 0) return;
-    world_.market->trade(world_.resources[std::size_t(player_ & 7)], a.sellResource, a.resource, a.amount);
+    auto& have = world_.resources[std::size_t(player_ & 7)];
+    const auto before = have;
+    world_.market->trade(have, a.sellResource, a.resource, a.amount);
+    for (std::size_t r = 0; r < 6; ++r) {
+        const int d = have[r] - before[r];
+        auto& sp = world_.spent[std::size_t(player_ & 7)];
+        if (d > 0) sp[World::SpendBuy][r] += d;
+        else sp[World::SpendSell][r] -= d;
+    }
 }
 
 std::pair<int, int> StrategicAi::baseCenter() const {

@@ -123,7 +123,10 @@ std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, in
     const auto rec = record("place", player, x, y, 0, desc.typeName);
     if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player) || !available(desc, player)) return std::nullopt;
     auto& have = resources[std::size_t(player & 7)];
-    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
+    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) {
+        have[r] -= desc.price[r];
+        spent[std::size_t(player & 7)][SpendBuildings][r] += desc.price[r];
+    }
     Unit u;
     u.desc = &desc;
     u.player = player;
@@ -198,7 +201,10 @@ bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int c
     auto& have = resources[std::size_t(b.player & 7)];
     for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r)
         if (have[r] < up.cost[r] * costPercent / 100) return false;
-    for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r) have[r] -= up.cost[r] * costPercent / 100;
+    for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r) {
+        have[r] -= up.cost[r] * costPercent / 100;
+        spent[std::size_t(b.player & 7)][SpendUpgrade][r] += up.cost[r] * costPercent / 100;
+    }
     b.research = up.name;
     b.researchDef = &up;
     b.researchLeft = std::max(1, up.time);
@@ -212,7 +218,10 @@ bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
         !available(unit, b.player))
         return false;
     auto& have = resources[std::size_t(b.player & 7)];
-    for (std::size_t r = 0; r < have.size() && r < unit.price.size(); ++r) have[r] -= unit.price[r];
+    for (std::size_t r = 0; r < have.size() && r < unit.price.size(); ++r) {
+        have[r] -= unit.price[r];
+        spent[std::size_t(b.player & 7)][SpendUnits][r] += unit.price[r];
+    }
     b.queue.push_back(&unit);
     return true;
 }
@@ -251,6 +260,7 @@ void World::updateUpkeep() {
             upkeepAccum_[std::size_t(p)][r] %= kStepsPerMinute;
             int& have = resources[std::size_t(p)][r];
             if (r == 3) starving_[std::size_t(p)] = need[r] > 0 && have <= 0;
+            spent[std::size_t(p)][SpendUpkeep][r] += std::min(have, whole);
             have = std::max(0, have - whole);
         }
     }
@@ -464,7 +474,10 @@ int World::sowField(const assets::UnitDesc& desc, int player, int x, int y) {
         }
     if (spots.empty()) return 0;
     auto& have = resources[std::size_t(player & 7)];
-    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
+    for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) {
+        have[r] -= desc.price[r];
+        spent[std::size_t(player & 7)][SpendBuildings][r] += desc.price[r];
+    }
     for (const auto& [fx, fy] : spots) addObject(stage, fx, fy);
     return int(spots.size());
 }
@@ -768,13 +781,14 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
     }
 }
 
-void World::hit(Unit& t, int damage) {
+void World::hit(Unit& t, int damage, const Unit* by) {
     if (!t.alive()) return;
     if (const Mods* m = modsOf(t); m && m->shield > 0) damage = std::max(damage - m->shield, damage / 4);
     t.life -= damage;
     if (t.life > 0) return;
     t.life = 0;
     ++lostCount[std::size_t(t.player & 7)][t.desc];
+    if (by) ++killedCount[std::size_t(by->player & 7)][by->desc];
     t.dying = true;
     t.moving = false;
     t.attacking = false;
@@ -1009,7 +1023,7 @@ void World::step() {
                         const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
                         // Цель успела уйти дальше полуторной дальности — промах.
                         if (reach <= attackMax(u, int(w)) * 1.5)
-                            if (Unit* victim = shotVictim(u, t)) hit(*victim, u.desc->damage[w]);
+                            if (Unit* victim = shotVictim(u, t)) hit(*victim, u.desc->damage[w], &u);
                     }
                 }
             }

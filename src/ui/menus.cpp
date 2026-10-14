@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <stdexcept>
 
@@ -113,6 +114,7 @@ void Menus::update() {
     syncPlayerTable(dialog);
     syncProfiles(dialog);
     syncSaves(dialog);
+    syncStats(dialog);
     bool hasTabs = false;
     dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {
@@ -309,6 +311,94 @@ void Menus::syncPlayerTable(Dialog& dialog) {
             else if (a.type == "cva_Opt_AnimQuality") fill(w, {"Низкое", "Среднее", "Высокое"}, animQuality_);
             else if (a.type == "cva_Opt_ArcadeMode") fill(w, {"Выключен", "Включён"}, arcadeMode_);
             else if (a.type == "cva_MP_Autosave") fill(w, {"Выключено", "Включено"}, autosave_);
+        }
+    });
+}
+
+// Окно итоговой статистики: таблица расходов и списки юнитов/зданий обоих игроков.
+void Menus::syncStats(Dialog& dialog) {
+    if (currentName() != "PostGameStat" || !stats_ || statsShown_) return;
+    statsShown_ = true;
+    auto cp = [](const std::string& utf8) { return assets::utf8ToCp1251(utf8); };
+    dialog.forEach([&](Widget& pd) {
+        if (!hasAction(pd, "cva_GS_Player")) return;
+        const GameStats::Side& data = pd.id == 0 ? stats_->winner : stats_->loser;
+        std::vector<Widget*> sections; // пары (заготовка секции) в порядке следования
+        std::function<void(Widget&)> visit = [&](Widget& w) {
+            if (hasAction(w, "cva_GS_PlayerName")) w.text = cp(data.name);
+            else if (hasAction(w, "cva_GS_PlayerRace")) w.text = cp(data.race);
+            else if (hasAction(w, "cva_GS_Resource")) {
+                // Строки окна: 0 — всего, 1 — улучшения, 2/7 — содержание, 3 — юниты, 4 — здания, 5 — покупка, 6 — продажа.
+                const int row = w.id == 7 ? 2 : std::clamp(w.id, 0, 6);
+                std::size_t col = 0;
+                for (Widget& c : w.children) {
+                    if (c.type != "TextButton") continue;
+                    if (col > 0 && col <= 6) c.text = std::to_string(data.table[std::size_t(row)][std::size_t(col - 1)]);
+                    ++col;
+                }
+            } else if (hasAction(w, "cva_GS_FormationDesk") || hasAction(w, "cva_GS_UnitsDesk")) {
+                sections.push_back(&w);
+                return;
+            }
+            for (Widget& c : w.children) visit(c);
+        };
+        visit(pd);
+        // Секции: формации (наших отрядов нет — скрыты), юниты, затем здания (клон секции юнитов).
+        Widget* parent = nullptr;
+        dialog.forEach([&](Widget& w) {
+            for (Widget& c : w.children)
+                if (!sections.empty() && &c == sections.front()) parent = &w;
+        });
+        if (!parent || sections.empty()) return;
+        const bool formationFirst = hasAction(*sections.front(), "cva_GS_FormationDesk");
+        Widget* unitsDesk = nullptr;
+        for (Widget* sec : sections)
+            if (hasAction(*sec, "cva_GS_UnitsDesk") && !unitsDesk) unitsDesk = sec;
+        if (!unitsDesk) return;
+        Widget buildingsDesk = *unitsDesk;
+        for (Widget& c : buildingsDesk.children)
+            if (c.name == "Title" && !c.children.empty()) c.children.front().text = cp("Здания");
+        const bool hasBuildingsDesk = sections.size() > (formationFirst ? 2u : 1u);
+        for (Widget* sec : sections)
+            if (hasAction(*sec, "cva_GS_FormationDesk")) sec->visible = false;
+        auto fillSection = [&](Widget& sec, const std::vector<GameStats::Row>& rows, int top) {
+            const Widget* tmpl = nullptr;
+            for (const Widget& c : sec.children)
+                if (hasAction(c, "cva_GS_Unit") || hasAction(c, "cva_GS_Formation")) tmpl = &c;
+            if (!tmpl) return top;
+            const Widget proto = *tmpl;
+            std::erase_if(sec.children, [&](const Widget& c) { return hasAction(c, "cva_GS_Unit"); });
+            const int step = std::max(proto.height - 5, 20);
+            int y = proto.y;
+            for (const GameStats::Row& r : rows) {
+                Widget row = proto;
+                row.y = y;
+                std::size_t col = 0;
+                for (Widget& c : row.children) {
+                    const std::string vals[4] = {cp(r.name), std::to_string(r.built), std::to_string(r.killed),
+                                                 std::to_string(r.lost)};
+                    if (col < 4) c.text = vals[col];
+                    ++col;
+                }
+                sec.children.push_back(std::move(row));
+                y += step;
+            }
+            sec.y = top;
+            sec.height = y + 8;
+            sec.visible = !rows.empty();
+            return rows.empty() ? top : top + sec.height + 8;
+        };
+        int top = fillSection(*unitsDesk, data.units, 0);
+        if (hasBuildingsDesk) {
+            for (Widget* sec : sections)
+                if (sec != unitsDesk && hasAction(*sec, "cva_GS_UnitsDesk")) {
+                    fillSection(*sec, data.buildings, top);
+                    break;
+                }
+        } else if (!data.buildings.empty()) {
+            // В окне нет секции зданий — она клонируется из секции юнитов.
+            fillSection(buildingsDesk, data.buildings, top);
+            parent->children.push_back(std::move(buildingsDesk));
         }
     });
 }

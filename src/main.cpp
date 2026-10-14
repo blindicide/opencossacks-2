@@ -1229,6 +1229,81 @@ void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc* unitDesc, const 
                       oc2::ui::Align::Left, v);
 }
 
+// Итоговая статистика: победитель и проигравший (у человека — он сам, у другой стороны — самый затратливый игрок).
+oc2::ui::Menus::GameStats buildGameStats(Screen& screen, const MapView& view, bool humanWon) {
+    using oc2::ui::Menus;
+    using World = oc2::world::World;
+    const oc2::world::World& world = view.world;
+    // Название юнита — между «{C FFxxxxxx}» и следующей разметкой в подсказке «UNITSMD\ИМЯ.MD.HINT».
+    auto unitName = [&](const oc2::assets::UnitDesc& d) {
+        std::string upper = d.name;
+        for (char& c : upper) c = char(std::toupper(static_cast<unsigned char>(c)));
+        const std::string key = "UNITSMD\\" + upper + ".MD.HINT";
+        const std::string hint = screen.texts.lookup(key);
+        if (hint == key) return d.name;
+        const auto open = hint.find("{C ");
+        const auto close = open == std::string::npos ? open : hint.find('}', open);
+        if (close == std::string::npos) return d.name;
+        const auto end = hint.find_first_of("{\\", close + 1);
+        return hint.substr(close + 1, end == std::string::npos ? std::string::npos : end - close - 1);
+    };
+    auto total = [&](int p) {
+        int sum = 0;
+        for (int k = 0; k < World::SpendBuy; ++k)
+            for (int v : world.spent[std::size_t(p)][std::size_t(k)]) sum += v;
+        return sum;
+    };
+    auto side = [&](int p) {
+        Menus::GameStats::Side out;
+        std::string nation;
+        for (const auto& u : world.units())
+            if (u.player == p) {
+                const std::string& t = u.desc->typeName;
+                const auto open = t.rfind('('), close = t.rfind(')');
+                if (open != std::string::npos && close != std::string::npos && close > open + 1) nation = t.substr(open + 1, close - open - 1);
+                break;
+            }
+        for (int n = 0; n < Menus::kNationCount; ++n)
+            if (nation == Menus::nationCode(n)) out.race = Menus::nationName(n);
+        const std::string profile = screen.menus->profileName();
+        out.name = p == view.player ? (profile.empty() ? std::string("Игрок") : profile) : "Компьютер " + std::to_string(p);
+        static constexpr int kColumn[6] = {0, 3, 2, 1, 4, 5};
+        const auto& sp = world.spent[std::size_t(p)];
+        const int rowKind[7] = {-1, World::SpendUpgrade, World::SpendUpkeep, World::SpendUnits, World::SpendBuildings,
+                                World::SpendBuy, World::SpendSell};
+        for (int c = 0; c < 6; ++c)
+            for (int r = 1; r < 7; ++r) {
+                const int v = sp[std::size_t(rowKind[r])][std::size_t(kColumn[c])];
+                out.table[std::size_t(r)][std::size_t(c)] = v;
+                if (r <= 4) out.table[0][std::size_t(c)] += v;
+            }
+        std::map<const oc2::assets::UnitDesc*, Menus::GameStats::Row> rows;
+        auto add = [&](const auto& counts, int Menus::GameStats::Row::*field) {
+            for (const auto& [desc, n] : counts[std::size_t(p & 7)]) rows[desc].*field += n;
+        };
+        add(world.producedCount, &Menus::GameStats::Row::built);
+        add(world.killedCount, &Menus::GameStats::Row::killed);
+        add(world.lostCount, &Menus::GameStats::Row::lost);
+        for (auto& [desc, row] : rows) {
+            row.name = unitName(*desc);
+            (desc->building ? out.buildings : out.units).push_back(row);
+        }
+        return out;
+    };
+    // Противник: другая команда с наибольшими тратами.
+    int enemy = -1;
+    for (int p = 0; p < 7; ++p)
+        if (p != view.player && world.team[std::size_t(p & 7)] != world.team[std::size_t(view.player & 7)] &&
+            (enemy < 0 || total(p) > total(enemy)))
+            enemy = p;
+    Menus::GameStats stats;
+    const Menus::GameStats::Side mine = side(view.player);
+    Menus::GameStats::Side theirs = enemy >= 0 ? side(enemy) : Menus::GameStats::Side{};
+    stats.winner = humanWon ? mine : theirs;
+    stats.loser = humanWon ? theirs : mine;
+    return stats;
+}
+
 // Сценарий миссии на экране: список задач слева сверху, плашка сообщения, диалог внизу (портреты не рисуем).
 void drawMissionHud(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
     if (!view.script) return;
@@ -1647,7 +1722,7 @@ int main(int argc, char** argv) {
                 }
                 // Итог боя показан — карта стоит, нажатия идут окну итога.
                 // Окно итога или меню игры открыто — карта стоит, нажатия идут окну.
-                const bool resultOpen = !menus.empty() && ((mapView->ended && menus.currentName() == "EndGameMessage") ||
+                const bool resultOpen = !menus.empty() && ((mapView->ended && (menus.currentName() == "EndGameMessage" || menus.currentName() == "PostGameStat")) ||
                                                            menus.currentName() == "F10game");
                 const bool gameMenu = resultOpen && menus.currentName() == "F10game";
                 for (std::uint32_t key : window.pressedKeys) {
@@ -1676,12 +1751,15 @@ int main(int argc, char** argv) {
                     mapView->ended = true;
                     mapView->dragStart.reset();
                     menus.setGameResult(mapView->script->ending->victory, mapView->script->ending->textId);
+                    menus.setGameStats(buildGameStats(*screen, *mapView, mapView->script->ending->victory));
                     menus.open("EndGameMessage");
                 } else if (!mapView->ended && !mapView->script && mapView->world.stepCount() % 25 == 0)
                     if (auto winner = mapView->world.winningTeam()) {
                         mapView->ended = true;
                         mapView->dragStart.reset();
-                        menus.setGameResult(*winner == mapView->world.team[std::size_t(mapView->player)]);
+                        const bool won = *winner == mapView->world.team[std::size_t(mapView->player)];
+                        menus.setGameResult(won);
+                        menus.setGameStats(buildGameStats(*screen, *mapView, won));
                         menus.open("EndGameMessage");
                     }
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));

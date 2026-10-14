@@ -291,7 +291,10 @@ public:
     std::optional<Market> market;
     // Счётчики игроков по типам для стратегического ИИ: сколько готово произведено
     // (юниты из зданий и достроенные здания) и сколько погибло.
-    std::array<std::unordered_map<const assets::UnitDesc*, int>, 8> producedCount, lostCount;
+    std::array<std::unordered_map<const assets::UnitDesc*, int>, 8> producedCount, lostCount, killedCount;
+    // Траты игрока для итоговой статистики: [игрок][статья][ресурс]. Продажа на рынке — полученное, покупка — отданное.
+    enum Spend { SpendUpgrade, SpendUpkeep, SpendUnits, SpendBuildings, SpendBuy, SpendSell, SpendKinds };
+    std::array<std::array<std::array<int, 6>, SpendKinds>, 8> spent{};
 
     // Анимация покоя (#STANDLO у зданий).
     static const assets::UnitAnimation* idleAnimation(const assets::UnitDesc& desc);
@@ -303,7 +306,7 @@ private:
     void setAnimation(Unit& u, const assets::UnitAnimation* anim);
     void pathTo(Unit& u, int x, int y);
     void updateCombat(std::size_t index);
-    void hit(Unit& target, int damage);
+    void hit(Unit& target, int damage, const Unit* by = nullptr);
     void emitSounds(const Unit& u);
     void thinkAi(std::size_t index);
     void updateGather(std::size_t index);
