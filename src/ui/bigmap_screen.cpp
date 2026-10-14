@@ -281,6 +281,18 @@ void BigMapScreen::drawSidePanel() {
     std::map<std::string, int> groups;
     for (const std::string& type : ns.army) ++groups[squadLabel(type)];
     for (const auto& [label, n] : groups) y += say("{C FF2A1C10}" + label + " x " + std::to_string(n), r.x + 14, y, int(r.w) - 16);
+    if (!g.quests().empty()) {
+        y += 10;
+        y += say("{C FF402010}Задания:", r.x + 8, y, int(r.w) - 12);
+        for (const auto& q : g.quests()) {
+            const bool attack = q.name.find("AttackNation") != std::string::npos;
+            const std::string what = attack ? std::string("Атака: ") + assets::bigNationName(q.target)
+                                     : (q.name.find("Defend") != std::string::npos ? "Защита: " : "Захват: ") + sectorName(q.sector);
+            std::string line = "{C FF2A1C10}" + what + " {C FF206020}+" + std::to_string(q.gold);
+            if (q.deadline > 0) line += " {C FF402010}(до хода " + std::to_string(q.deadline) + ")";
+            y += say(line, r.x + 14, y, int(r.w) - 16);
+        }
+    }
 }
 
 void BigMapScreen::drawSectorStrip() {
