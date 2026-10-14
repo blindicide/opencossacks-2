@@ -1584,6 +1584,34 @@ TEST_CASE("Сценарий миссии: правила, задачи, итог
     CHECK(s->var("Done") == 1 && !s->filmRunning());
 }
 
+TEST_CASE("Скрипт миссии: SpotNUnits и CreateBrigade") {
+    using namespace oc2::world;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "oc2_spot_test";
+    fs::create_directories(root / "UnitsMD");
+    std::ofstream(root / "n.nds") << "[MEMBERS]\nSold(FR) Sold\n[END]\n";
+    std::ofstream(root / "UnitsMD" / "Sold.md") << "NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n";
+    UnitCatalog catalog(root);
+    const std::string xml = R"(<>
+<lvCNode><NAME>Spawn</NAME><x>1000</x><y>1000</y><R>10</R></lvCNode>
+<lvCNode><NAME>Goal</NAME><x>3000</x><y>1000</y><R>10</R></lvCNode>
+<lvCMainScript><MAIN_SCRIPTS><lvCCondForOper><Condition></Condition><Operation>
+ <lvCSpotNUnits><parNode>Spawn</parNode><vgBildsID>Nobody</vgBildsID><aZDestPoint>Goal</aZDestPoint>
+  <TypeNum><lvTypeNum><vgUnitsID>Wave</vgUnitsID><UnitType>Sold(FR)</UnitType><Num>5</Num></lvTypeNum></TypeNum></lvCSpotNUnits>
+ <lvCCreateBrigade><vGrp>Wave</vGrp><vBrigGrp>Brig</vBrigGrp><iSize>5</iSize></lvCCreateBrigade>
+</Operation></lvCCondForOper></MAIN_SCRIPTS></lvCMainScript>
+</>)";
+    World w;
+    MissionScript::Env env;
+    env.world = &w;
+    env.catalog = &catalog;
+    auto s = MissionScript::fromXml(xml, "", env);
+    CHECK(s != nullptr);
+    s->step();
+    CHECK(w.units().size() == 5 && w.units()[0].player == 0 && w.units()[4].desc != nullptr);
+    CHECK(w.units()[0].moving || !w.units()[0].path.empty() || w.units()[0].squad >= 0);
+}
+
 TEST_CASE("Улучшения: жизнь, дальность, пауза, щит и стройка") {
     using oc2::assets::UnitDesc;
     using oc2::world::World;

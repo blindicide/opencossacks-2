@@ -446,6 +446,42 @@ void MissionScript::runOp(const XmlNode& op) {
                 grp.units.push_back(w.addUnit(*desc, p, x, y, num(squad ? "dir" : "dir")));
             }
         }
+    } else if (name == "SpotNUnits") {
+        // Подкрепление: Num юнитов типа UnitType появляются в узле/зоне, и идут в точку aZDestPoint.
+        // Владелец — хозяин здания группы vgBildsID (иначе нация игрока); ProduceTime и UGRP_ID не разобраны.
+        const XmlNode* tn = op.child("TypeNum");
+        const XmlNode* lt = tn ? tn->child("lvTypeNum") : nullptr;
+        const Zone* z = zone(str("parNode"));
+        if (lt && z) {
+            const std::string type = lt->value("UnitType").value_or("");
+            const assets::UnitDesc* desc = env_.catalog ? env_.catalog->find(type) : nullptr;
+            int p = myNation.value_or(0);
+            if (const Group* b = group(str("vgBildsID")))
+                for (std::size_t i : b->units)
+                    if (i < w.units().size() && w.units()[i].alive()) {
+                        p = w.units()[i].player;
+                        break;
+                    }
+            if (desc && player(p)) {
+                const int count = (std::min)(int(lt->intValue("Num").value_or(0)), 60);
+                Group& grp = groups_[lt->value("vgUnitsID").value_or("")];
+                std::vector<std::size_t> fresh;
+                for (int k = 0; k < count; ++k) {
+                    fresh.push_back(w.addUnit(*desc, p, z->x + (k % 12) * 40, z->y + (k / 12) * 40, 0));
+                    grp.units.push_back(fresh.back());
+                }
+                if (const Zone* d = zone(str("aZDestPoint"))) w.orderMoveGroup(fresh, d->x, d->y);
+            }
+        }
+    } else if (name == "CreateBrigade") {
+        // Бригада: отряд из юнитов группы vGrp в строй; группа vBrigGrp получает те же юниты.
+        if (const Group* g = group(str("vGrp"))) {
+            std::vector<std::size_t> ids;
+            for (std::size_t i : g->units)
+                if (i < w.units().size() && w.units()[i].alive()) ids.push_back(i);
+            if (ids.size() > 1) w.formSquad(ids, World::Formation::Line);
+            if (const std::string bg = str("vBrigGrp"); !bg.empty() && bg != str("vGrp")) groups_[bg].units = ids;
+        }
     } else if (name == "Teleport") {
         // Группа переносится в зону (смещение dX, dY не разобрано — игнорируется).
         const Zone* z = zone(str("ZoneID"));
