@@ -118,6 +118,10 @@ void Menus::update() {
     if (currentName() == "MultiRoom" && net.active()) syncNetRoom(dialog);
     else syncPlayerTable(dialog);
     if (currentName() == "Multi") syncNetMulti(dialog);
+    else if (!(currentName() == "MultiRoom" && net.active() && net.role() == net::Session::Role::Host &&
+               net.phase() == net::Session::Phase::Lobby))
+        discovery.stop();
+    discovery.pump();
     syncProfiles(dialog);
     syncSaves(dialog);
     syncStats(dialog);
@@ -740,6 +744,16 @@ void Menus::click(Widget& w) {
                             if (i.kind == WidgetKind::InputBox &&
                                 (hasAction(i, "cva_LS_SaveName") || hasAction(i, "cva_LS_LoadName")))
                                 i.text = assets::utf8ToCp1251(saves_[std::size_t(savePick_)].name);
+                        });
+                    continue;
+                }
+                if (hasAction(*list, "cva_LD_MultiGame")) { // выбранная комната подставляет IP хозяина
+                    const auto& games = discovery.games();
+                    if (w.listIndex >= 0 && std::size_t(w.listIndex) < games.size())
+                        current().forEach([&](Widget& i) {
+                            for (Widget& c : i.children)
+                                if (c.kind == WidgetKind::InputBox && hasAction(i, "cva_Multi_ManualIPServer"))
+                                    c.text = assets::utf8ToCp1251(games[std::size_t(w.listIndex)].host);
                         });
                     continue;
                 }

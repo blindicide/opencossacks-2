@@ -53,6 +53,25 @@ private:
     std::uint16_t port_;
 };
 
+// UDP-«маяк» для поиска комнат в локальной сети: рассылка и приём коротких датаграмм.
+class Beacon {
+public:
+    // nullptr, если сокет не открылся. Несколько копий на одной машине допустимы (SO_REUSEADDR).
+    static std::unique_ptr<Beacon> open(std::uint16_t port);
+    ~Beacon();
+    Beacon(const Beacon&) = delete;
+    Beacon& operator=(const Beacon&) = delete;
+    // Широковещательная рассылка (и на loopback — для двух копий на одной машине).
+    void announce(const std::string& message);
+    // Следующая принятая датаграмма и адрес отправителя.
+    bool poll(std::string& message, std::string& from);
+
+private:
+    Beacon(std::intptr_t handle, std::uint16_t port) : handle_(handle), port_(port) {}
+    std::intptr_t handle_;
+    std::uint16_t port_;
+};
+
 // Подключение к host:port (IPv4-адрес или имя); ждёт не дольше timeoutMs. nullptr — не удалось.
 std::unique_ptr<Conn> connectTo(const std::string& host, std::uint16_t port, int timeoutMs = 3000);
 

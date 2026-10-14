@@ -192,6 +192,57 @@ std::unique_ptr<Conn> connectTo(const std::string& host, std::uint16_t port, int
     return std::unique_ptr<Conn>(new Conn(std::intptr_t(s), addressText(addr)));
 }
 
+std::unique_ptr<Beacon> Beacon::open(std::uint16_t port) {
+    startup();
+    const Sock s = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (s == kBad) return nullptr;
+    const int one = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof one);
+#if defined(SO_REUSEPORT) && !defined(_WIN32)
+    setsockopt(s, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&one), sizeof one);
+#endif
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&one), sizeof one);
+    sockaddr_in a{};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    a.sin_port = htons(port);
+    if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) {
+        closeSock(s);
+        return nullptr;
+    }
+    setNonBlocking(s);
+    return std::unique_ptr<Beacon>(new Beacon(std::intptr_t(s), port));
+}
+
+Beacon::~Beacon() {
+    if (handle_ != std::intptr_t(kBad)) closeSock(Sock(handle_));
+}
+
+void Beacon::announce(const std::string& message) {
+    for (const char* ip : {"255.255.255.255", "127.0.0.1"}) {
+        sockaddr_in to{};
+        to.sin_family = AF_INET;
+        to.sin_port = htons(port_);
+        inet_pton(AF_INET, ip, &to.sin_addr);
+        ::sendto(Sock(handle_), message.data(), int(message.size()), 0, reinterpret_cast<sockaddr*>(&to), sizeof to);
+    }
+}
+
+bool Beacon::poll(std::string& message, std::string& from) {
+    char buf[1024];
+    sockaddr_in a{};
+#ifdef _WIN32
+    int len = sizeof a;
+#else
+    socklen_t len = sizeof a;
+#endif
+    const auto n = ::recvfrom(Sock(handle_), buf, sizeof buf, 0, reinterpret_cast<sockaddr*>(&a), &len);
+    if (n <= 0) return false;
+    message.assign(buf, std::size_t(n));
+    from = addressText(a);
+    return true;
+}
+
 std::string localAddress() {
 #ifdef _WIN32
     startup();

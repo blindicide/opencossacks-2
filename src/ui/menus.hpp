@@ -12,6 +12,7 @@
 #include "world/savegame.hpp"
 #include "assets/mission_list.hpp"
 #include "core/settings.hpp"
+#include "net/discovery.hpp"
 #include "net/session.hpp"
 #include "ui/dialogs.hpp"
 
@@ -141,6 +142,8 @@ public:
     int difficulty = 1;
     // Сетевая игра: сессия комнаты (создаётся окнами «Сетевая игра» и «Комната»); main.cpp ведёт ходы.
     net::Session net;
+    // Поиск комнат в локальной сети: слушает окно «Сетевая игра», объявляет хозяин в комнате.
+    net::Discovery discovery;
     // Enter в окне: отправка сообщения чата комнаты.
     void enterPressed();
     // Сообщение сети для показа в окне «Сетевая игра» (потеря связи, отказ хозяина) — UTF-8.
@@ -213,6 +216,7 @@ private:
     bool nickInit_ = false, chatDirty_ = false;
     std::string netError_;
     std::vector<std::string> chatLines_;
+    std::string gamesShown_; // подпись списка комнат, уже показанного в окне
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры
     std::optional<std::string> lastStart_; // последняя начатая карта (cva_MM_ReplayCurMiss)
 };

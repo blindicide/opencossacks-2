@@ -70,6 +70,7 @@ add_library(oc2_world STATIC
     src/world/squad.cpp
     src/world/bigmap.cpp
     src/net/socket.cpp
+    src/net/discovery.cpp
     src/net/session.cpp
 )
 target_include_directories(oc2_world PUBLIC src)

@@ -41,6 +41,7 @@
 #include "world/bigmap.hpp"
 #include "world/savegame.hpp"
 #include "world/world.hpp"
+#include "net/discovery.hpp"
 #include "net/session.hpp"
 
 #include <bzlib.h>
@@ -1882,4 +1883,26 @@ TEST_CASE("Завоевание Европы: события и задания Q
     o.attackerWon = true;
     g.apply(a, o);
     CHECK(g.quests().empty() && g.nation(0).res[1] >= before + quest.gold);
+}
+
+TEST_CASE("Сеть: объявления комнат (Discovery) и UDP-маяк") {
+    using oc2::net::Discovery;
+    Discovery::Game g;
+    const std::string text = Discovery::encode("1.2.3", 34567, 2, "Хозяин", "Missions/m.m3d");
+    CHECK(Discovery::decode(text, "1.2.3", g) && g.port == 34567 && g.humans == 2 && g.name == "Хозяин" && g.map == "Missions/m.m3d");
+    CHECK(!Discovery::decode(text, "9.9.9", g)); // чужая версия
+    CHECK(!Discovery::decode("мусор", "1.2.3", g));
+    // Маяк: объявление приходит на loopback (если сокет открылся в окружении).
+    auto a = oc2::net::Beacon::open(34571);
+    auto b = oc2::net::Beacon::open(34571);
+    if (a && b) {
+        a->announce("ping");
+        std::string msg, from;
+        bool got = false;
+        for (int i = 0; i < 100 && !got; ++i) {
+            got = b->poll(msg, from) || a->poll(msg, from);
+            if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (got) CHECK(msg == "ping"); // доставка зависит от сетевых настроек окружения
+    }
 }

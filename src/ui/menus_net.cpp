@@ -1,5 +1,6 @@
 // Сетевая игра в меню: окна «Сетевая игра» (Multi) и «Комната сетевой игры» (MultiRoom).
 #include <algorithm>
+#include <bit>
 
 #include "assets/text_encoding.hpp"
 #include "ui/menus.hpp"
@@ -35,8 +36,8 @@ void Menus::syncNetMulti(Dialog& dialog) {
         Widget s = *label;
         s.name = "NetStatus";
         s.actions.clear();
-        s.x = 160, s.y = 400, s.width = 700, s.height = 40;
-        s.maxWidth = 700;
+        s.x = 427, s.y = 284, s.width = 467, s.height = 16; // над списком комнат
+        s.maxWidth = 467;
         dialog.root().children.push_back(std::move(s));
         status = dialog.find("NetStatus");
     }
@@ -46,6 +47,20 @@ void Menus::syncNetMulti(Dialog& dialog) {
             nickInit_ = true;
             w.text = cp(profileName().empty() ? "Игрок" : profileName());
         }
+    });
+    // Список комнат локальной сети (объявления хозяев).
+    discovery.listen(true);
+    std::string signature;
+    for (const auto& g : discovery.games()) signature += g.host + g.name + g.map + std::to_string(g.humans) + '|';
+    dialog.forEach([&](Widget& w) {
+        if (!hasAction(w, "cva_LD_MultiGame") || signature == gamesShown_) return;
+        gamesShown_ = signature;
+        std::vector<std::string> rows;
+        for (const auto& g : discovery.games()) {
+            const std::size_t slash = g.map.find_last_of("/\\");
+            rows.push_back(cp(g.name + " — " + g.map.substr(slash == std::string::npos ? 0 : slash + 1) + " (" + g.host + ")"));
+        }
+        dialog.setListItems(w, rows);
     });
     if (!netError_.empty()) status->text = cp(netError_);
     else status->text = cp("Ваш адрес в сети: " + (net::localAddress().empty() ? std::string("не найден") : net::localAddress()));
@@ -62,6 +77,8 @@ void Menus::syncNetRoom(Dialog& dialog) {
         return;
     }
     const bool host = net.role() == net::Session::Role::Host;
+    if (host && net.phase() == net::Session::Phase::Lobby) // объявляем комнату в локальной сети
+        discovery.announce(net.room.slots[0].name, net.port(), net.room.map, std::popcount(net.humanMask()));
     if (!host && net.takeStarted()) {
         difficulty = net.room.difficulty;
         startNetGame();
@@ -165,6 +182,7 @@ void Menus::startNetGame() {
     }
     startRequest_ = net.room.map;
     setupStart_ = true;
+    discovery.stop();
 }
 
 // Ввод в строку чата: Enter отправляет сообщение.
