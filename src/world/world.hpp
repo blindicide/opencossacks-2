@@ -13,6 +13,7 @@
 #include "assets/sprite_list.hpp"
 #include "assets/nation_tech.hpp"
 #include "assets/unit_desc.hpp"
+#include "assets/weapon_list.hpp"
 #include "world/lock_map.hpp"
 #include "world/market.hpp"
 
@@ -325,6 +326,19 @@ public:
         int x, y, direction;
     };
     std::vector<ShotEvent> shotEvents;
+    // Летящие снаряды (ядра, гранаты, бомбы мортир): урон — при попадании, а не при выстреле.
+    // Оружие и скорость полёта — из weapon.nds (WeaponList); без списка выстрелы мгновенные.
+    struct Projectile {
+        int x0 = 0, y0 = 0, x1 = 0, y1 = 0; // откуда и куда (точка прицеливания с разбросом)
+        int age = 0, total = 1;             // шагов в полёте и всего
+        int player = 0;                     // чей выстрел
+        std::size_t shooter = 0, target = 0;
+        int damage = 0;
+        bool buildingTarget = false;
+        const assets::Weapon* weapon = nullptr;
+    };
+    std::vector<Projectile> projectiles;
+    const assets::WeaponList* weaponList = nullptr;
 
     // Ресурсы игроков (номера — как ID счётчиков на панели).
     std::array<std::array<int, 8>, 8> resources{};
@@ -384,6 +398,9 @@ private:
     int random(int n); // 0..n-1
     // Куда на самом деле попал выстрел оружием w юнита u по цели t (разброс RAZBROS); nullptr — мимо.
     Unit* shotVictim(const Unit& u, Unit& t);
+    std::pair<int, int> aimPoint(const Unit& u, const Unit& t);
+    Unit* victimAt(int player, int ax, int ay);
+    void stepProjectiles();
 };
 
 } // namespace oc2::world

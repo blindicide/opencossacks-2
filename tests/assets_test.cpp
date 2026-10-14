@@ -1064,6 +1064,27 @@ TEST_CASE("Мир: разброс выстрела RAZBROS") {
     CHECK(lost("RAZBROS 150\n") == scattered); // повторяемо
 }
 
+TEST_CASE("Мир: снаряд летит — урон при падении, а не при выстреле") {
+    using namespace oc2::world;
+    const auto weapons = oc2::assets::WeaponList::parse("[MEMBERS]\nGUNSHOT #POINT 0 0 NONE NO_GRAVITY SLIGHTUP 0 1\n"
+                                                        "BALL #NUCL1 25 20 NONE LO_GRAVITY FLY 20 -1\n"
+                                                        "[CHILDWEAPON]\nGUNSHOT 1 1 0 1 BALL\n");
+    CHECK(weapons.flying("GUNSHOT") && weapons.flying("GUNSHOT")->speed == 20);
+    CHECK(!weapons.flying("NOPE"));
+    const UnitDesc gun = UnitDesc::parse("NAME G\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                         "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\nWEAPON 1 GUNSHOT\n"
+                                         "DAMAGE 1 10\nATTACK_RADIUS 1 0 600\nATTACK_PAUSE 1 1000\n");
+    World w;
+    w.weaponList = &weapons;
+    const std::size_t a = w.addUnit(gun, 0, 100, 100, 0);
+    const std::size_t b = w.addUnit(gun, 1, 500, 100, 0); // 400 до цели: 20 шагов полёта
+    w.orderAttack(a, b);
+    for (int i = 0; i < 8 && w.projectiles.empty(); ++i) w.step();
+    CHECK(w.projectiles.size() == 1 && w.units()[b].life == 100); // в воздухе, урона ещё нет
+    for (int i = 0; i < 40 && !w.projectiles.empty(); ++i) w.step();
+    CHECK(w.projectiles.empty() && w.units()[b].life == 90);
+}
+
 TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
     using namespace oc2::world;
     const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"

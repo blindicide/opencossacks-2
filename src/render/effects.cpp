@@ -54,6 +54,12 @@ std::optional<std::string> Effects::spawn(const std::string& weapon, int x, int 
     return sound;
 }
 
+const assets::UnitAnimation* Effects::animationOf(const std::string& name) const {
+    if (name.size() < 2) return nullptr;
+    const assets::UnitAnimation* a = ads_.animation(name);
+    return a ? a : ads_.animation("@" + name.substr(1));
+}
+
 void Effects::step() {
     for (auto it = instances_.begin(); it != instances_.end();) {
         if (++it->frame >= int(it->animation->frames.size()))

@@ -225,6 +225,18 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
     if (effects)
         for (const Effects::Instance& e : effects->instances())
             appendFrame(effects->ads(), *e.animation, std::size_t(e.frame), 0, e.x, e.y, e.lift, e.y + 48, dynamic_);
+    // Летящие снаряды: по прямой между точками, с дугой у оружия с гравитацией.
+    if (effects)
+        for (const world::World::Projectile& p : world.projectiles) {
+            const assets::UnitAnimation* a = effects->animationOf(p.weapon->animation);
+            if (!a || a->frames.empty()) continue;
+            const double t = double(p.age) / double(p.total);
+            const int x = p.x0 + int(double(p.x1 - p.x0) * t), y = p.y0 + int(double(p.y1 - p.y0) * t);
+            const double dist = std::hypot(double(p.x1 - p.x0), double(p.y1 - p.y0));
+            const int arc = p.weapon->gravity == "NO_GRAVITY" ? 0 : int(std::clamp(dist / 6.0, 8.0, 110.0) * (p.weapon->gravity == "LO_GRAVITY" ? 0.5 : 1.0));
+            const int lift = 28 + int(4.0 * double(arc) * t * (1.0 - t));
+            appendFrame(effects->ads(), *a, std::size_t(p.age) % a->frames.size(), 0, x, y, lift, y + 48, dynamic_);
+        }
     std::stable_sort(dynamic_.begin(), dynamic_.end(), [](const Item& a, const Item& b) { return a.sortY < b.sortY; });
 
     // Слияние двух отсортированных списков; при равном Y юнит — поверх объекта.

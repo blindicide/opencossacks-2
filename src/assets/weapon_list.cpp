@@ -39,6 +39,11 @@ WeaponList WeaponList::parse(std::string_view text) {
                 wp.radius = std::atoi(w[3].c_str());
             }
             if (w.size() >= 5) wp.transparency = w[4];
+            if (w.size() >= 6) wp.gravity = w[5];
+            if (w.size() >= 8) {
+                wp.propagation = w[6];
+                wp.speed = std::atoi(w[7].c_str());
+            }
         } else if (section == "[CHILDWEAPON]" && w.size() >= 5) {
             auto it = list.weapons.find(upper(w[0]));
             if (it == list.weapons.end()) continue;
@@ -55,6 +60,22 @@ WeaponList WeaponList::parse(std::string_view text) {
 const Weapon* WeaponList::find(std::string_view name) const {
     auto it = weapons.find(upper(name));
     return it == weapons.end() ? nullptr : &it->second;
+}
+
+const Weapon* WeaponList::flying(std::string_view name) const {
+    const Weapon* w = find(name);
+    for (int depth = 0; w && depth < 4; ++depth) {
+        if ((w->propagation == "FLY" || w->propagation == "ANGLE") && w->speed > 0) return w;
+        const Weapon* next = nullptr;
+        for (const std::string& c : w->children)
+            if (const Weapon* ch = find(c); ch && (ch->propagation == "FLY" || ch->propagation == "ANGLE")) {
+                next = ch;
+                break;
+            }
+        if (!next && !w->children.empty()) next = find(w->children.front());
+        w = next;
+    }
+    return nullptr;
 }
 
 } // namespace oc2::assets

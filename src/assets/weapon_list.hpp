@@ -17,6 +17,8 @@ struct Weapon {
     std::string animation; // «#SHOTFOG»
     int damage = 0, radius = 0;
     std::string transparency; // NONE, DARK, WHITE, …
+    std::string gravity, propagation; // NO_GRAVITY/LO_GRAVITY/HI_GRAVITY…, STAND/FLY/ANGLE/SECTOR…
+    int speed = 0;                    // скорость полёта, точек за шаг
     std::vector<std::string> children;
     std::string sound;
 };
@@ -26,6 +28,8 @@ struct WeaponList {
 
     static WeaponList parse(std::string_view text);
     const Weapon* find(std::string_view name) const;
+    // Летящее звено цепочки оружия (FLY/ANGLE со скоростью) — снаряд; nullptr — выстрел мгновенный.
+    const Weapon* flying(std::string_view name) const;
 };
 
 } // namespace oc2::assets

@@ -686,18 +686,26 @@ int World::random(int n) {
 // (r − 512)·d·RAZBROS/32000, где r — 0..999, d = ((max(|dx|,|dy|) + |dx| + |dy|)/2)/32.
 // Попадание — по ближайшему врагу к этой точке в пределах его радиуса и kHitRadius
 // (снарядов с собственным столкновением ещё нет — своё допущение).
-Unit* World::shotVictim(const Unit& u, Unit& t) {
+std::pair<int, int> World::aimPoint(const Unit& u, const Unit& t) {
     const int razbros = u.desc->razbros;
-    if (razbros <= 0 || t.building()) return &t;
+    if (razbros <= 0 || t.building()) return {t.x(), t.y()};
     const int dx = std::abs(t.x() - u.x()), dy = std::abs(t.y() - u.y());
     const int d = ((std::max(dx, dy) + dx + dy) / 2) >> 5;
-    const int ax = t.x() + (random(1000) - 512) * d * razbros / 32000;
-    const int ay = t.y() + (random(1000) - 512) * d * razbros / 32000;
+    return {t.x() + (random(1000) - 512) * d * razbros / 32000, t.y() + (random(1000) - 512) * d * razbros / 32000};
+}
+
+Unit* World::shotVictim(const Unit& u, Unit& t) {
+    if (u.desc->razbros <= 0 || t.building()) return &t;
+    const auto [ax, ay] = aimPoint(u, t);
+    return victimAt(u.player, ax, ay);
+}
+
+Unit* World::victimAt(int player, int ax, int ay) {
     constexpr int kHitRadius = 24;
     Unit* best = nullptr;
     long long bestDist = 0;
     for (Unit& e : units_) {
-        if (!e.alive() || e.inside || e.building() || !enemies(u.player, e.player)) continue;
+        if (!e.alive() || e.inside || e.building() || !enemies(player, e.player)) continue;
         const long long ex = e.x() - ax, ey = e.y() - ay;
         const long long dist = ex * ex + ey * ey;
         const long long reach = kHitRadius + e.desc->unitRadius;
@@ -837,6 +845,25 @@ void World::hit(Unit& t, int damage, const Unit* by) {
         t.dying = false;
         t.dead = true;
         t.animation = namedAnimation(*t.desc, "DEATHLIE1");
+    }
+}
+
+void World::stepProjectiles() {
+    for (std::size_t i = 0; i < projectiles.size();) {
+        Projectile& p = projectiles[i];
+        if (++p.age < p.total) {
+            ++i;
+            continue;
+        }
+        const Projectile land = p;
+        projectiles.erase(projectiles.begin() + std::ptrdiff_t(i));
+        Unit* victim = nullptr;
+        if (land.buildingTarget) {
+            if (Unit& t = units_[land.target]; t.alive()) victim = &t;
+        } else {
+            victim = victimAt(land.player, land.x1, land.y1);
+        }
+        if (victim) hit(*victim, land.damage, &units_[land.shooter]);
     }
 }
 
@@ -1038,6 +1065,7 @@ void World::step() {
     updateObjects();
     updateUpkeep();
     updateSquads();
+    stepProjectiles();
     for (std::size_t index = 0; index < units_.size(); ++index) {
         Unit& u = units_[index];
         if (u.building()) { // кадры зданий — слои, не время
@@ -1079,9 +1107,21 @@ void World::step() {
                         Unit& t = units_[*u.target];
                         const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
                         // Цель успела уйти дальше полуторной дальности — промах.
-                        if (reach <= attackMax(u, int(w)) * 1.5)
-                            if (Unit* victim = shotVictim(u, t))
-                                hit(*victim, holding(u) ? u.desc->damage[w] * 115 / 100 : u.desc->damage[w], &u);
+                        if (reach <= attackMax(u, int(w)) * 1.5) {
+                            const int damage = holding(u) ? u.desc->damage[w] * 115 / 100 : u.desc->damage[w];
+                            const assets::Weapon* fly = weaponList ? weaponList->flying(u.desc->weaponName[w]) : nullptr;
+                            if (fly && reach >= 40) { // снаряд летит; попадание считается на месте падения
+                                Projectile p;
+                                const auto aim = aimPoint(u, t);
+                                p.x0 = u.x(), p.y0 = u.y(), p.x1 = aim.first, p.y1 = aim.second;
+                                p.total = std::max(3, int(reach / fly->speed));
+                                p.player = u.player, p.shooter = index, p.target = *u.target;
+                                p.damage = damage, p.buildingTarget = t.building(), p.weapon = fly;
+                                projectiles.push_back(p);
+                            } else if (Unit* victim = shotVictim(u, t)) {
+                                hit(*victim, damage, &u);
+                            }
+                        }
                     }
                 }
             }

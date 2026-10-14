@@ -33,6 +33,9 @@ public:
     };
     const std::vector<Instance>& instances() const { return instances_; }
     const assets::UnitDesc& ads() const { return ads_; }
+    const assets::WeaponList& weapons() const { return weapons_; }
+    // Анимация оружия в WEAPON.ADS: в weapon.nds имя через «#», в ADS часть имён через «@».
+    const assets::UnitAnimation* animationOf(const std::string& name) const;
 
 private:
     assets::UnitDesc ads_;

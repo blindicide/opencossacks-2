@@ -642,6 +642,7 @@ struct MapView {
         units = std::make_unique<oc2::world::UnitCatalog>(data);
         objects = std::make_unique<oc2::render::MapObjects>(sprites, *images, data, map);
         effects = std::make_unique<oc2::render::Effects>(data);
+        world.weaponList = &effects->weapons();
         if (const oc2::assets::Image preview = map.preview(); preview.width) minimapTexture = sprites.createTexture(preview);
         world.setLockMap(oc2::world::LockMap::fromTerrain(map));
         // Команды и одиночная игра: юниты отключённых игроков отходят союзнику (MOPT).
