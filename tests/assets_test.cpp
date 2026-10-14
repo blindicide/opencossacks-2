@@ -1621,3 +1621,54 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
     CHECK(back && back->serialize() == text && back->sector(0).owner == 1);
     CHECK(!oc2::world::BigGame::deserialize(data, "мусор"));
 }
+
+TEST_CASE("Завоевание Европы: события и задания Quests.dat") {
+    using namespace oc2::assets;
+    const BigQuests q = BigQuests::parse(
+        "// c\nports               3 \t 0 1 2\n\n[QUEST]\nname                AddGold\nowner               0\n"
+        "recipient           3 \t 0 1 2\nprobability         100\nturn_limit          3\ngold                2000\n"
+        "/\n[QUEST]\nname                CaptureSector\nowner               2 \t 1 2\nrecipient           1 0\n"
+        "probability         100\nturn_limit          4\ngold                7000\n[END]\n// tail\n");
+    CHECK(q.ports == std::vector<int>({0, 1, 2}) && q.quests.size() == 2);
+    CHECK(q.quests[0].name == "AddGold" && q.quests[0].owners.empty() && q.quests[0].gold == 2000);
+    CHECK(q.quests[1].owners == std::vector<int>({1, 2}) && q.quests[1].recipients == std::vector<int>({0}));
+
+    const std::string sectors =
+        "#MAPSIZE# 1410 1068\n"
+        "#SECTOR#\nID 0\nCenter 0 0\nSityXY 0 0\nFortXY 0 0\nDefOwner 0\nDefence 0\nPopulation 0\nSectorName Sector00\n"
+        "Neighbors 2 1 2\nArrow 1 1 0\nVillages 5\nRessource 4\nOwner 0\n"
+        "#SECTOR#\nID 1\nCenter 0 0\nSityXY 0 0\nFortXY 0 0\nDefOwner 1\nDefence 0\nPopulation 0\nSectorName Sector01\n"
+        "Neighbors 1 0\nArrow 1 1 0\nVillages 4\nRessource 2\nOwner 1\n"
+        "#SECTOR#\nID 2\nCenter 0 0\nSityXY 0 0\nFortXY 0 0\nDefOwner 2\nDefence 0\nPopulation 0\nSectorName Sector02\n"
+        "Neighbors 1 0\nArrow 1 1 0\nVillages 4\nRessource 1\nOwner 2\n";
+    auto data = std::make_shared<oc2::world::BigGame::Data>();
+    data->map = BigMap::parse(sectors);
+    data->k = BigMapConst::parse("SectGarrisonSquads0 4\nSECT_INCOME_GOLD 500\n");
+    data->hero = HeroArmy::parse("#LIEUTENANT 0\n#ENGLAND 4 2 UnitFuz(EN) 3 UnitVol(EN) 1\n");
+    data->quests = q;
+    oc2::world::BigGame g(data, 0, 5);
+    bool gold = false, offered = false;
+    for (int i = 0; i < 40 && !(gold && offered); ++i) {
+        g.endTurn();
+        for (const auto& m : g.messages) gold = gold || m.key.find("AddGold") != std::string::npos;
+        if (!g.offers.empty()) {
+            offered = true;
+            CHECK(g.offers.front().quest == "CaptureSector" && g.offers.front().text.key == "CQM_CaptureSector0");
+            CHECK(g.offers.front().giver != 0 && g.answer(true) && g.quests().size() == 1);
+        }
+        g.messages.clear();
+    }
+    CHECK(gold && offered);
+    // Сохранение хранит задания и паузы событий.
+    const std::string text = g.serialize();
+    auto back = oc2::world::BigGame::deserialize(data, text);
+    CHECK(back && back->serialize() == text && back->quests().size() == g.quests().size());
+    // Выполнение задания: захват нужного сектора приносит награду.
+    const auto quest = g.quests().front();
+    const int before = g.nation(0).res[1];
+    oc2::world::BigGame::Attack a{0, quest.sector, {}};
+    oc2::world::BigGame::Outcome o;
+    o.attackerWon = true;
+    g.apply(a, o);
+    CHECK(g.quests().empty() && g.nation(0).res[1] >= before + quest.gold);
+}

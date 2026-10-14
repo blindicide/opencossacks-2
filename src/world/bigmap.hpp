@@ -22,12 +22,14 @@ public:
         assets::BigMap map;
         assets::BigMapConst k;
         assets::HeroArmy hero;
+        assets::BigQuests quests; // Quests.dat; пусто — без событий и заданий
     };
 
     struct SectorState {
         int owner = 0;
         int garrison = 0; // отрядов обороны
         int level = 0;    // уровень обороны 0..3
+        int blocked = 0;  // ходов без дохода (диверсия на складах)
     };
 
     struct NationState {
@@ -117,6 +119,38 @@ public:
     // Сообщения хода (UTF-8) для окна событий.
     std::vector<std::string> log;
 
+    // Событие или ответ с текстом из BigMapData.txt: ключ CQM_…, аргументы по порядку %s/%d.
+    // Аргумент «SectorNN» экран заменяет названием города, «@Тип» — названием отряда.
+    struct Message {
+        std::string key;
+        std::vector<std::string> args;
+    };
+    std::vector<Message> messages;
+
+    // Предложение игроку, на которое нужен ответ (мятеж, наёмники, продажа сектора, задание).
+    struct Offer {
+        enum class Kind { Rebellion, AddSquad, SellSector, Quest } kind = Kind::Quest;
+        Message text;
+        int sector = -1;
+        int gold = 0;           // цена, награда или выкуп
+        int giver = -1;         // нация-заказчик
+        int target = -1;        // нация-цель (AttackNation)
+        int deadline = 0;       // ход, к которому надо выполнить
+        std::string squad;      // тип отряда (AddSquad)
+        std::string quest;      // имя задания (AttackNation, CaptureSector, DefendSector)
+    };
+    std::vector<Offer> offers;
+    // Ответ на первое предложение. false — принять нельзя (нет золота или места); предложение остаётся.
+    bool answer(bool accept);
+    bool canAccept(const Offer& o) const;
+
+    // Принятые задания: игрок получает золото, выполнив условие до срока.
+    struct ActiveQuest {
+        std::string name;
+        int giver = 0, target = -1, sector = -1, gold = 0, deadline = 0;
+    };
+    const std::vector<ActiveQuest>& quests() const { return quests_; }
+
     std::string serialize() const;
     static std::optional<BigGame> deserialize(std::shared_ptr<const Data> data, const std::string& text);
 
@@ -127,6 +161,12 @@ private:
     void promote(int nation);
     std::optional<Attack> aiTurn(int nation);
     void giveExp(int nation, int exp);
+    void rollEvents();
+    void completeQuests(const Attack& a, const Outcome& o, int defender);
+    void loseSector(int sector);
+    int randomOwned(int nation);
+    bool isPort(int sector) const;
+    std::string sectorKey(int id) const { return data_->map.sectors[std::size_t(id)].name; }
 
     std::shared_ptr<const Data> data_;
     int player_ = 0;
@@ -134,6 +174,8 @@ private:
     int nextNation_ = 0; // кто ходит следующим в конце хода
     std::uint32_t seed_ = 1;
     std::vector<SectorState> sectors_;
+    std::vector<ActiveQuest> quests_;
+    std::vector<int> lastFired_; // по определениям Quests.dat: ход последнего срабатывания
     std::array<NationState, assets::kBigNations> nations_;
 };
 

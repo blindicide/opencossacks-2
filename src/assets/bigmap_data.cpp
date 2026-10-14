@@ -152,4 +152,33 @@ HeroArmy HeroArmy::parse(std::string_view text) {
     return h;
 }
 
+BigQuests BigQuests::parse(std::string_view text) {
+    BigQuests q;
+    BigQuest* cur = nullptr;
+    for (const std::string& line : lines(text, true)) {
+        const std::vector<std::string> w = words(line);
+        if (w.empty() || w[0][0] == '/') continue;
+        const std::string& key = w[0];
+        auto list = [&](std::vector<int>& out) { // «ключ N a b c»
+            for (std::size_t i = 2; i < w.size(); ++i) out.push_back(toInt(w[i]));
+        };
+        if (key == "ports") {
+            list(q.ports);
+        } else if (key == "[QUEST]") {
+            q.quests.emplace_back();
+            cur = &q.quests.back();
+        } else if (key == "[END]") {
+            break;
+        } else if (!cur) {
+            continue;
+        } else if (key == "name" && w.size() > 1) cur->name = w[1];
+        else if (key == "owner") list(cur->owners);
+        else if (key == "recipient") list(cur->recipients);
+        else if (key == "probability" && w.size() > 1) cur->probability = toInt(w[1]);
+        else if (key == "turn_limit" && w.size() > 1) cur->turnLimit = toInt(w[1]);
+        else if (key == "gold" && w.size() > 1) cur->gold = toInt(w[1]);
+    }
+    return q;
+}
+
 } // namespace oc2::assets

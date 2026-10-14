@@ -27,6 +27,7 @@ BigGame::BigGame(std::shared_ptr<const Data> data, int playerNation, std::uint32
         st.level = std::clamp(s.defence, 0, 3);
         st.garrison = k.integer("SectGarrisonSquads" + std::to_string(st.level), 4);
     }
+    lastFired_.assign(data_->quests.quests.size(), -100);
     for (int n = 0; n < kBigNations; ++n) {
         NationState& ns = nations_[std::size_t(n)];
         const bool me = n == player_;
@@ -95,7 +96,7 @@ std::array<int, BigGame::kRes> BigGame::income(int nation) const {
     const auto& k = data_->k;
     std::array<int, kRes> r{};
     for (const assets::BigSector& s : data_->map.sectors) {
-        if (sectors_[std::size_t(s.id)].owner != nation) continue;
+        if (sectors_[std::size_t(s.id)].owner != nation || sectors_[std::size_t(s.id)].blocked > 0) continue;
         r[0] += k.integer("SECT_INCOME_WOOD");
         r[1] += k.integer("SECT_INCOME_GOLD");
         r[2] += k.integer("SECT_INCOME_STONE");
@@ -223,6 +224,7 @@ void BigGame::apply(const Attack& a, const Outcome& o) {
         giveExp(defender, k.integer("DisbandSquadExp", 175) * lostAttackers);
         log.push_back(std::string(assets::bigNationName(a.nation)) + " отбита у " + sname);
     }
+    if (a.nation == player_) completeQuests(a, o, defender);
 }
 
 std::vector<std::string> BigGame::recruitable(int nation) const {
@@ -274,8 +276,30 @@ void BigGame::startTurn() {
     ++turn_;
     for (int n = 0; n < kBigNations; ++n)
         if (nations_[std::size_t(n)].alive) grow(n);
-    for (SectorState& s : sectors_) // гарнизон восстанавливается по отряду в ход до нормы уровня
+    for (SectorState& s : sectors_) { // гарнизон восстанавливается по отряду в ход до нормы уровня
         s.garrison = std::min(s.garrison + 1, data_->k.integer("SectGarrisonSquads" + std::to_string(s.level), 4));
+        if (s.blocked > 0) --s.blocked;
+    }
+    // Принятые задания: защита засчитывается по сроку, остальные просто истекают.
+    for (std::size_t i = 0; i < quests_.size();) {
+        const ActiveQuest& q = quests_[i];
+        bool done = false;
+        if (q.name == "DefendSector") {
+            if (sectors_[std::size_t(q.sector)].owner != player_) {
+                messages.push_back({"CQM_DefendSector2", {assets::bigNationName(q.giver), sectorKey(q.sector)}});
+                done = true;
+            } else if (turn_ >= q.deadline) {
+                nations_[std::size_t(player_)].res[1] += q.gold;
+                messages.push_back({"CQM_DefendSector1", {assets::bigNationName(q.giver), sectorKey(q.sector), std::to_string(q.gold)}});
+                done = true;
+            }
+        } else if (turn_ > q.deadline) {
+            done = true;
+        }
+        if (done) quests_.erase(quests_.begin() + std::ptrdiff_t(i));
+        else ++i;
+    }
+    if (nations_[std::size_t(player_)].alive) rollEvents();
 }
 
 std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
@@ -320,6 +344,267 @@ std::optional<BigGame::Attack> BigGame::continueTurn() {
     return std::nullopt;
 }
 
+// ---------------------------------------------------------------- события и задания
+
+bool BigGame::isPort(int sector) const {
+    const auto& p = data_->quests.ports;
+    return std::find(p.begin(), p.end(), sector) != p.end();
+}
+
+int BigGame::randomOwned(int nation) {
+    std::vector<int> v;
+    for (int i = 0; i < sectorCount(); ++i)
+        if (sectors_[std::size_t(i)].owner == nation) v.push_back(i);
+    return v.empty() ? -1 : v[rnd() % v.size()];
+}
+
+// Мятеж: сектор уходит соседней нации (или прежней «защитной»).
+void BigGame::loseSector(int id) {
+    SectorState& s = sectors_[std::size_t(id)];
+    const int me = s.owner;
+    int to = data_->map.sectors[std::size_t(id)].defOwner;
+    if (to == me || to < 0 || to >= kBigNations || !nations_[std::size_t(to)].alive) {
+        to = -1;
+        for (int n : data_->map.sectors[std::size_t(id)].neighbors)
+            if (sectors_[std::size_t(n)].owner != me) {
+                to = sectors_[std::size_t(n)].owner;
+                break;
+            }
+    }
+    if (to < 0) return;
+    s.owner = to;
+    s.garrison = std::max(1, s.garrison / 2);
+    if (ownedBy(me) == 0) {
+        nations_[std::size_t(me)].alive = false;
+        nations_[std::size_t(me)].army.clear();
+    }
+}
+
+// Случайные события и задания для игрока (Quests.dat). Шанс за ход — probability/2 %, не чаще
+// turn_limit ходов на одно определение и не больше двух за ход: частота подобрана на глаз.
+void BigGame::rollEvents() {
+    const auto& defs = data_->quests.quests;
+    if (defs.empty()) return;
+    if (lastFired_.size() != defs.size()) lastFired_.assign(defs.size(), -100);
+    NationState& me = nations_[std::size_t(player_)];
+    auto has = [](const std::vector<int>& v, int x) { return std::find(v.begin(), v.end(), x) != v.end(); };
+    auto busy = [&](const std::string& name) {
+        for (const ActiveQuest& q : quests_)
+            if (q.name == name) return true;
+        for (const Offer& o : offers)
+            if (o.quest == name) return true;
+        return false;
+    };
+    int fired = 0;
+    const std::size_t off = rnd() % defs.size();
+    for (std::size_t j = 0; j < defs.size() && fired < 2; ++j) {
+        const std::size_t i = (off + j) % defs.size();
+        const assets::BigQuest& d = defs[i];
+        if (!has(d.recipients, player_) || turn_ - lastFired_[i] < std::max(3, d.turnLimit)) continue;
+        if (int(rnd() % 100) >= d.probability / 2) continue;
+        std::vector<int> givers;
+        for (int n : d.owners)
+            if (n != player_ && nations_[std::size_t(n)].alive) givers.push_back(n);
+        const int giver = givers.empty() ? -1 : givers[rnd() % givers.size()];
+        const std::string& nm = d.name;
+        const int sector = randomOwned(player_);
+        if (sector < 0) return;
+        auto amount = [&](int base) { return (base * int(60 + rnd() % 41) / 100) / 100 * 100; };
+        bool ok = false;
+        if (nm == "AddGold" || nm == "DeleteGold") {
+            int g = amount(d.gold);
+            if (nm == "DeleteGold") g = std::min(g, me.res[1]);
+            if (g > 0) {
+                me.res[1] += nm == "AddGold" ? g : -g;
+                const std::string kind = nm == "AddGold" ? (isPort(sector) ? "CQM_SeaAddGold" : "CQM_LandAddGold")
+                                                         : (isPort(sector) ? "CQM_SeaDelGold" : "CQM_LandDelGold");
+                messages.push_back({kind + std::to_string(rnd() % 5), {std::to_string(g)}});
+                ok = true;
+            }
+        } else if (nm == "AddRecruits" || nm == "DeleteRecruits") {
+            int r = 20 + int(rnd() % 41);
+            if (nm == "DeleteRecruits") r = std::min(r, me.recruits);
+            if (r > 0) {
+                me.recruits += nm == "AddRecruits" ? r : -r;
+                messages.push_back({"CQM_" + nm, {sectorKey(sector), std::to_string(r)}});
+                ok = true;
+            }
+        } else if (nm == "DeleteResources") {
+            if (sectors_[std::size_t(sector)].blocked == 0) {
+                sectors_[std::size_t(sector)].blocked = std::max(2, d.turnLimit / 2);
+                messages.push_back({"CQM_DeleteResources", {sectorKey(sector)}});
+                ok = true;
+            }
+        } else if (nm == "DeleteDefence") {
+            SectorState& s = sectors_[std::size_t(sector)];
+            if (s.level > 0) {
+                --s.level;
+                s.garrison = std::min(s.garrison, data_->k.integer("SectGarrisonSquads" + std::to_string(s.level), 4));
+                messages.push_back({"CQM_DeleteDefence", {sectorKey(sector)}});
+                ok = true;
+            }
+        } else if (nm == "Rebellion") {
+            if (ownedBy(player_) >= 2 && !busy(nm)) {
+                Offer o;
+                o.kind = Offer::Kind::Rebellion;
+                o.sector = sector;
+                o.gold = d.gold;
+                o.quest = nm;
+                o.text = {"CQM_SectorRebellion0", {sectorKey(sector), std::to_string(d.gold)}};
+                offers.push_back(o);
+                ok = true;
+            }
+        } else if (nm == "AddSquad") {
+            const std::vector<std::string> pool = recruitable(player_);
+            if (!pool.empty() && int(me.army.size()) < armyCapacity(player_) && !busy(nm)) {
+                Offer o;
+                o.kind = Offer::Kind::AddSquad;
+                o.gold = d.gold;
+                o.squad = pool[rnd() % pool.size()];
+                o.quest = nm;
+                o.text = {"CQM_AddSquad" + std::to_string(rnd() % 3), {std::to_string(d.gold), "@" + o.squad}};
+                offers.push_back(o);
+                ok = true;
+            }
+        } else if (nm == "SellSector" && giver >= 0 && ownedBy(player_) >= 2 && !busy(nm)) {
+            int pick = -1;
+            for (int s = 0; s < sectorCount() && pick < 0; ++s)
+                if (sectors_[std::size_t(s)].owner == player_ && attackBase(giver, s)) pick = s;
+            if (pick >= 0) {
+                Offer o;
+                o.kind = Offer::Kind::SellSector;
+                o.sector = pick, o.gold = d.gold, o.giver = giver, o.quest = nm;
+                o.text = {"CQM_SellSector0", {assets::bigNationName(giver), sectorKey(pick), std::to_string(d.gold)}};
+                offers.push_back(o);
+                ok = true;
+            }
+        } else if (nm == "AttackNation" && giver >= 0 && !busy(nm)) {
+            std::vector<int> targets;
+            for (int s = 0; s < sectorCount(); ++s) {
+                const int ow = sectors_[std::size_t(s)].owner;
+                if (ow != player_ && ow != giver && attackBase(player_, s) && !has(targets, ow)) targets.push_back(ow);
+            }
+            if (!targets.empty()) {
+                Offer o;
+                o.kind = Offer::Kind::Quest;
+                o.quest = nm, o.giver = giver, o.gold = d.gold, o.deadline = turn_ + std::max(3, d.turnLimit);
+                o.target = targets[rnd() % targets.size()];
+                o.text = {"CQM_AttackNation0", {assets::bigNationName(giver), assets::bigNationName(o.target), std::to_string(d.gold)}};
+                offers.push_back(o);
+                ok = true;
+            }
+        } else if (nm == "CaptureSector" && giver >= 0 && !busy(nm)) {
+            std::vector<int> targets;
+            for (int s = 0; s < sectorCount(); ++s) {
+                const int ow = sectors_[std::size_t(s)].owner;
+                if (ow != player_ && ow != giver && attackBase(player_, s)) targets.push_back(s);
+            }
+            if (!targets.empty()) {
+                Offer o;
+                o.kind = Offer::Kind::Quest;
+                o.quest = nm, o.giver = giver, o.gold = d.gold, o.deadline = turn_ + std::max(3, d.turnLimit);
+                o.sector = targets[rnd() % targets.size()];
+                o.text = {"CQM_CaptureSector0", {assets::bigNationName(giver), sectorKey(o.sector), std::to_string(d.gold)}};
+                offers.push_back(o);
+                ok = true;
+            }
+        } else if (nm == "DefendSector" && giver >= 0 && !busy(nm)) {
+            std::vector<int> mine;
+            for (int s = 0; s < sectorCount(); ++s)
+                if (sectors_[std::size_t(s)].owner == player_)
+                    for (int nb : data_->map.sectors[std::size_t(s)].neighbors)
+                        if (sectors_[std::size_t(nb)].owner != player_) {
+                            mine.push_back(s);
+                            break;
+                        }
+            if (!mine.empty()) {
+                Offer o;
+                o.kind = Offer::Kind::Quest;
+                o.quest = nm, o.giver = giver, o.gold = d.gold, o.deadline = turn_ + 5;
+                o.sector = mine[rnd() % mine.size()];
+                o.text = {"CQM_DefendSector0", {assets::bigNationName(giver), sectorKey(o.sector), assets::bigNationName(giver), std::to_string(d.gold)}};
+                offers.push_back(o);
+                ok = true;
+            }
+        }
+        if (ok) lastFired_[i] = turn_, ++fired;
+    }
+}
+
+bool BigGame::canAccept(const Offer& o) const {
+    const NationState& me = nations_[std::size_t(player_)];
+    switch (o.kind) {
+    case Offer::Kind::Rebellion: return me.res[1] >= o.gold;
+    case Offer::Kind::AddSquad: return me.res[1] >= o.gold && int(me.army.size()) < armyCapacity(player_);
+    default: return true;
+    }
+}
+
+bool BigGame::answer(bool accept) {
+    if (offers.empty()) return true;
+    const Offer o = offers.front();
+    if (accept && !canAccept(o)) return false;
+    offers.erase(offers.begin());
+    NationState& me = nations_[std::size_t(player_)];
+    switch (o.kind) {
+    case Offer::Kind::Rebellion:
+        if (sectors_[std::size_t(o.sector)].owner != player_) break;
+        if (accept) {
+            me.res[1] -= o.gold;
+            if (rnd() % 100 < 80) {
+                messages.push_back({"CQM_SectorRebellion1", {sectorKey(o.sector)}});
+            } else {
+                messages.push_back({"CQM_SectorRebellion2", {}});
+                loseSector(o.sector);
+            }
+        } else {
+            messages.push_back({"CQM_SectorRebellion4", {sectorKey(o.sector)}});
+            loseSector(o.sector);
+        }
+        break;
+    case Offer::Kind::AddSquad:
+        if (!accept) break;
+        me.res[1] -= o.gold;
+        me.army.push_back(o.squad);
+        messages.push_back({"CQM_AddSquadD", {"@" + o.squad}});
+        break;
+    case Offer::Kind::SellSector:
+        if (!accept) {
+            messages.push_back({"CQM_SellSector2", {}});
+        } else if (sectors_[std::size_t(o.sector)].owner == player_ && ownedBy(player_) >= 2) {
+            sectors_[std::size_t(o.sector)].owner = o.giver;
+            me.res[1] += o.gold;
+            messages.push_back({"CQM_SellSector1", {assets::bigNationName(o.giver), std::to_string(o.gold)}});
+        }
+        break;
+    case Offer::Kind::Quest:
+        if (accept) quests_.push_back({o.quest, o.giver, o.target, o.sector, o.gold, o.deadline});
+        break;
+    }
+    return true;
+}
+
+void BigGame::completeQuests(const Attack&, const Outcome& o, int defender) {
+    NationState& me = nations_[std::size_t(player_)];
+    for (std::size_t i = 0; i < quests_.size();) {
+        const ActiveQuest& q = quests_[i];
+        bool done = false;
+        if (q.name == "AttackNation" && q.target == defender) {
+            messages.push_back({"CQM_AttackNation1", {assets::bigNationName(q.giver), assets::bigNationName(q.target), std::to_string(q.gold)}});
+            done = true;
+        } else if (q.name == "CaptureSector" && o.attackerWon && sectors_[std::size_t(q.sector)].owner == player_) {
+            messages.push_back({"CQM_CaptureSector1", {assets::bigNationName(q.giver), sectorKey(q.sector), std::to_string(q.gold)}});
+            done = true;
+        }
+        if (done) {
+            me.res[1] += q.gold;
+            quests_.erase(quests_.begin() + std::ptrdiff_t(i));
+        } else {
+            ++i;
+        }
+    }
+}
+
 int BigGame::result() const {
     if (ownedBy(player_) == 0) return -1;
     if (ownedBy(player_) == sectorCount()) return 1;
@@ -328,9 +613,9 @@ int BigGame::result() const {
 
 std::string BigGame::serialize() const {
     std::ostringstream o;
-    o << "BIG1 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
+    o << "BIG2 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
     for (std::size_t i = 0; i < sectors_.size(); ++i)
-        o << "S " << i << ' ' << sectors_[i].owner << ' ' << sectors_[i].garrison << ' ' << sectors_[i].level << '\n';
+        o << "S " << i << ' ' << sectors_[i].owner << ' ' << sectors_[i].garrison << ' ' << sectors_[i].level << ' ' << sectors_[i].blocked << '\n';
     for (int i = 0; i < kBigNations; ++i) {
         const NationState& n = nations_[std::size_t(i)];
         o << "N " << i << ' ' << n.alive << ' ' << n.rank << ' ' << n.exp << ' ' << n.recruits;
@@ -339,6 +624,11 @@ std::string BigGame::serialize() const {
         for (const std::string& t : n.army) o << ' ' << t;
         o << '\n';
     }
+    for (const ActiveQuest& q : quests_)
+        o << "Q " << q.name << ' ' << q.giver << ' ' << q.target << ' ' << q.sector << ' ' << q.gold << ' ' << q.deadline << '\n';
+    o << "L " << lastFired_.size();
+    for (int v : lastFired_) o << ' ' << v;
+    o << '\n';
     return o.str();
 }
 
@@ -347,7 +637,8 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
     std::string tag;
     int player = 0, turn = 1;
     std::uint32_t seed = 1;
-    if (!(in >> tag >> player >> turn >> seed) || tag != "BIG1" || player < 0 || player >= kBigNations) return std::nullopt;
+    if (!(in >> tag >> player >> turn >> seed) || (tag != "BIG1" && tag != "BIG2") || player < 0 || player >= kBigNations) return std::nullopt;
+    const bool v2 = tag == "BIG2";
     BigGame g(std::move(data), player, seed);
     g.turn_ = turn;
     std::size_t sectorsSeen = 0;
@@ -356,6 +647,7 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
             std::size_t i;
             SectorState s;
             if (!(in >> i >> s.owner >> s.garrison >> s.level) || i >= g.sectors_.size()) return std::nullopt;
+            if (v2 && !(in >> s.blocked)) return std::nullopt;
             g.sectors_[i] = s;
             ++sectorsSeen;
         } else if (tag == "N") {
@@ -373,6 +665,19 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
             n.alive = alive != 0;
             n.rank = std::clamp(n.rank, 0, 5);
             g.nations_[std::size_t(i)] = std::move(n);
+        } else if (tag == "Q") {
+            ActiveQuest q;
+            if (!(in >> q.name >> q.giver >> q.target >> q.sector >> q.gold >> q.deadline) || q.sector >= g.sectorCount() ||
+                q.giver < 0 || q.giver >= kBigNations)
+                return std::nullopt;
+            if (q.sector < 0 && q.name == "DefendSector") return std::nullopt;
+            g.quests_.push_back(q);
+        } else if (tag == "L") {
+            std::size_t count;
+            if (!(in >> count) || count > 1000) return std::nullopt;
+            std::vector<int> v(count);
+            for (int& x : v) in >> x;
+            if (count == g.lastFired_.size()) g.lastFired_ = std::move(v);
         } else {
             return std::nullopt;
         }

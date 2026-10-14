@@ -55,6 +55,7 @@ std::shared_ptr<const world::BigGame::Data> BigMapScreen::loadData(const std::fi
     const auto hero = read("Missions/StatData/HeroArmy.dat");
     if (!sectors || !consts || !hero) return nullptr;
     auto d = std::make_shared<world::BigGame::Data>();
+    if (const auto quests = read("Missions/StatData/Quests.dat")) d->quests = assets::BigQuests::parse(*quests);
     try {
         d->map = assets::BigMap::parse(*sectors);
         d->k = assets::BigMapConst::parse(*consts);
@@ -354,7 +355,7 @@ void BigMapScreen::drawPick() {
 void BigMapScreen::drawModal() {
     fill({0, 0, 1024, 768}, 0x90000000);
     const world::BigGame& g = *game_;
-    const float h = modal_ == Modal::Attack || modal_ == Modal::Defend ? 230.0f : modal_ == Modal::Quit || modal_ == Modal::GameOver ? 200.0f : 420.0f;
+    const float h = modal_ == Modal::Attack || modal_ == Modal::Defend || modal_ == Modal::Offer ? 260.0f : modal_ == Modal::Quit || modal_ == Modal::GameOver ? 200.0f : 420.0f;
     const Rect r{262, (768 - h) / 2 - 40, 500, h};
     panel(r);
     float y = r.y + 14;
@@ -400,9 +401,31 @@ void BigMapScreen::drawModal() {
         for (auto it = events_.rbegin(); it != events_.rend() && shown < 12; ++it, ++shown)
             y += say("{C FF402010}" + *it, r.x + 14, y, int(r.w) - 28) + 4;
         if (button({r.x + r.w / 2 - 70, r.y + r.h - 50, 140, 30}, "Дальше") || false) {
-            modal_ = Modal::None;
-            checkOver();
+            modal_ = game_->offers.empty() ? Modal::None : Modal::Offer;
+            if (modal_ == Modal::None) checkOver();
         }
+        break;
+    }
+    case Modal::Offer: {
+        if (game_->offers.empty()) {
+            modal_ = Modal::None;
+            break;
+        }
+        const auto& o = game_->offers.front();
+        say("{C FF2A1C10}" + t("CDT_MessHead25"), r.x, y, int(r.w), Align::Center);
+        y += 30;
+        say("{C FF402010}" + format(o.text), r.x + 14, y, int(r.w) - 28);
+        const bool can = game_->canAccept(o);
+        if (button({r.x + 20, r.y + r.h - 50, 200, 30}, "Принять", can)) {
+            game_->answer(true);
+            autosave();
+            if (game_->offers.empty()) openEvents();
+        } else if (button({r.x + r.w - 220, r.y + r.h - 50, 200, 30}, "Отказаться")) {
+            game_->answer(false);
+            autosave();
+            if (game_->offers.empty()) openEvents();
+        }
+        if (!can) say("{C FF8F0909}Не хватает золота или места в армии", r.x + 14, r.y + r.h - 80, int(r.w) - 28);
         break;
     }
     case Modal::Recruit: {
@@ -457,13 +480,34 @@ std::string BigMapScreen::localize(std::string text) const {
     return text;
 }
 
+std::string BigMapScreen::format(const world::BigGame::Message& m) const {
+    std::string text = t(m.key);
+    std::size_t arg = 0, at = 0;
+    while ((at = text.find('%', at)) != std::string::npos && at + 1 < text.size()) {
+        const char c = text[at + 1];
+        if (c != 's' && c != 'd') {
+            ++at;
+            continue;
+        }
+        std::string v = arg < m.args.size() ? m.args[arg++] : std::string();
+        if (!v.empty() && v[0] == '@') v = squadLabel(v.substr(1));
+        text.replace(at, 2, v);
+        at += v.size();
+    }
+    for (std::size_t p; (p = text.find("{CR}")) != std::string::npos;) text.replace(p, 4, "{C FF8F0909}");
+    for (std::size_t p; (p = text.find("{C}")) != std::string::npos;) text.replace(p, 3, "{C FF402010}");
+    return localize(text);
+}
+
 void BigMapScreen::openEvents() {
     events_ = game_->log;
     for (std::string& e : events_) e = localize(e);
+    for (const auto& m : game_->messages) events_.push_back(format(m));
     game_->log.clear();
+    game_->messages.clear();
     if (events_.empty()) {
-        modal_ = Modal::None;
-        checkOver();
+        modal_ = game_->offers.empty() ? Modal::None : Modal::Offer;
+        if (modal_ == Modal::None) checkOver();
     } else {
         modal_ = Modal::Events;
     }

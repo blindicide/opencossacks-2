@@ -63,4 +63,20 @@ struct HeroArmy {
     static HeroArmy parse(std::string_view text);
 };
 
+// Missions\StatData\Quests.dat: задания и случайные события кампании.
+struct BigQuest {
+    std::string name;               // AttackNation, CaptureSector, AddGold, Rebellion …
+    std::vector<int> owners;        // кто даёт задание (пусто — событие без заказчика)
+    std::vector<int> recipients;    // кому выпадает
+    int probability = 0;            // шанс за ход, %
+    int turnLimit = 0;              // срок задания или пауза между событиями, ходов
+    int gold = 0;                   // награда, цена или потери
+};
+
+struct BigQuests {
+    std::vector<BigQuest> quests;
+    std::vector<int> ports;         // секторы с портом (морские события)
+    static BigQuests parse(std::string_view text);
+};
+
 } // namespace oc2::assets

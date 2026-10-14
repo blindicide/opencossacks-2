@@ -59,7 +59,7 @@ public:
     void select(int sector) { selected_ = sector; }
 
 private:
-    enum class Modal { None, Attack, Defend, Events, Recruit, GameOver, Quit };
+    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit };
 
     struct Rect {
         float x, y, w, h;
@@ -91,6 +91,8 @@ private:
         return ctx_.texts.contains(key) ? ctx_.texts.lookup(key) : key;
     }
     std::string localize(std::string text) const;
+    // Текст CQM_… с подставленными аргументами (%s, %d) и цветами.
+    std::string format(const world::BigGame::Message& m) const;
     std::string resName(int res) const;
     std::string squadLabel(const std::string& type) const;
     std::string costLabel(const world::BigGame::Cost& c) const;
