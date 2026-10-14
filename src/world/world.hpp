@@ -335,6 +335,7 @@ public:
         std::size_t shooter = 0, target = 0;
         int damage = 0;
         bool buildingTarget = false;
+        bool visual = false; // обломки и взрывы разрушенного здания: только рисуются, урона нет
         const assets::Weapon* weapon = nullptr;
     };
     std::vector<Projectile> projectiles;
@@ -362,6 +363,7 @@ private:
     void pathTo(Unit& u, int x, int y);
     void updateCombat(std::size_t index);
     void hit(Unit& target, int damage, const Unit* by = nullptr);
+    void spawnDebris(const Unit& building); // DESTRUCT: летящие обломки и взрывы на месте здания
     void emitSounds(const Unit& u);
     void thinkAi(std::size_t index);
     void updateGather(std::size_t index);

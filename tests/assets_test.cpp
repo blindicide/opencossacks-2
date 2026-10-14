@@ -1100,6 +1100,27 @@ TEST_CASE("Мир: IMMORTAL не гибнет, UNBEATABLEWHENFREE без хоз�
     CHECK(w.units()[b].alive() && w.units()[b].life == 1);
 }
 
+TEST_CASE("Мир: DESTRUCT — обломки разрушенного здания только рисуются") {
+    using namespace oc2::world;
+    const auto weapons = oc2::assets::WeaponList::parse("[MEMBERS]\nobl16 #obl16 300 15 NONE HI_GRAVITY1 RANDOM1 9 -1\n"
+                                                        "PU4 #PODRIV 900 10 WHITE NO_GRAVITY SLIGHTUP 0 1\n");
+    const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\n"
+                                             "DAMAGE 1 60\nATTACK_RADIUS 1 0 300\nATTACK_PAUSE 1 5\n");
+    const UnitDesc house = UnitDesc::parse("NAME H\nBUILDING\nGEOMETRY 1 10 40\nLIFE 50\nUSERLC 0 H\n@REST 9 0 0 3\n"
+                                           "DESTRUCT 3000 3 obl16 PU4 NOPE\n");
+    CHECK(house.destruct.size() == 3 && house.destructRange == 3000);
+    World w;
+    w.weaponList = &weapons;
+    const std::size_t a = w.addUnit(shooter, 0, 100, 100, 0);
+    const std::size_t b = w.addUnit(house, 1, 200, 100, 0);
+    w.orderAttack(a, b);
+    for (int i = 0; i < 60 && w.units()[b].alive(); ++i) w.step();
+    CHECK(!w.units()[b].alive() && w.projectiles.size() == 2); // «NOPE» — нет такого оружия
+    for (int i = 0; i < 60; ++i) w.step();
+    CHECK(w.projectiles.empty());
+}
+
 TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
     using namespace oc2::world;
     const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"

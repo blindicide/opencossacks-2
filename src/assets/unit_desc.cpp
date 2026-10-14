@@ -168,6 +168,11 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.farm = intAt(w, 1, "места");
         } else if (key == "NOFARM") {
             d.noFarm = true;
+        } else if (key == "DESTRUCT" && w.size() >= 3) {
+            d.destructRange = intAt(w, 1, "разлёт");
+            d.destruct.clear();
+            const int n = intAt(w, 2, "число обломков");
+            for (int i = 0; i < n && 3 + std::size_t(i) < w.size(); ++i) d.destruct.emplace_back(w[3 + std::size_t(i)]);
         } else if (key == "IMMORTAL") {
             d.immortal = true;
         } else if (key == "UNBEATABLEWHENFREE") {

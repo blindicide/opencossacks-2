@@ -835,6 +835,7 @@ void World::hit(Unit& t, int damage, const Unit* by) {
     t.life = 0;
     ++lostCount[std::size_t(t.player & 7)][t.desc];
     if (by) ++killedCount[std::size_t(by->player & 7)][by->desc];
+    if (t.building()) spawnDebris(t);
     t.dying = true;
     t.moving = false;
     t.attacking = false;
@@ -850,6 +851,26 @@ void World::hit(Unit& t, int damage, const Unit* by) {
     }
 }
 
+void World::spawnDebris(const Unit& b) {
+    if (!weaponList || b.desc->destruct.empty()) return;
+    const int spread = std::max(60, b.desc->destructRange / 16);
+    for (std::size_t i = 0; i < b.desc->destruct.size(); ++i) {
+        const assets::Weapon* w = weaponList->find(b.desc->destruct[i]);
+        if (!w) continue;
+        Projectile p;
+        p.visual = true;
+        p.weapon = w;
+        p.x0 = b.x() + random(spread / 2 + 1) - spread / 4;
+        p.y0 = b.y() + random(spread / 2 + 1) - spread / 4;
+        const bool flies = w->gravity != "NO_GRAVITY" && w->speed > 0;
+        p.x1 = flies ? b.x() + random(spread * 2 + 1) - spread : p.x0;
+        p.y1 = flies ? b.y() + random(spread + 1) - spread / 2 : p.y0;
+        p.total = flies ? 14 + random(16) : 24;
+        p.age = 0;
+        projectiles.push_back(p);
+    }
+}
+
 void World::stepProjectiles() {
     for (std::size_t i = 0; i < projectiles.size();) {
         Projectile& p = projectiles[i];
@@ -859,6 +880,7 @@ void World::stepProjectiles() {
         }
         const Projectile land = p;
         projectiles.erase(projectiles.begin() + std::ptrdiff_t(i));
+        if (land.visual) continue;
         Unit* victim = nullptr;
         if (land.buildingTarget) {
             if (Unit& t = units_[land.target]; t.alive()) victim = &t;
