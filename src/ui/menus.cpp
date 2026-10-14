@@ -108,6 +108,7 @@ void Menus::update() {
         dialog.forEach([&](Widget& w) {
             if (w.type == "TabButton" && w.state == 1 && tab.empty()) tab = w.group;
         });
+    syncPlayerTable(dialog);
     bool hasTabs = false;
     dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {
@@ -229,6 +230,60 @@ void Menus::update() {
     });
 }
 
+const char* Menus::nationCode(int index) {
+    static const char* const codes[kNationCount] = {"FR", "RU", "EN", "PR", "AU", "EG", "PO", "SP", "RE"};
+    return index >= 0 && index < kNationCount ? codes[index] : "";
+}
+
+// Таблица игроков стычки (cva_BR_*): строка — ID элемента, одни и те же элементы есть во всех вкладках.
+void Menus::syncPlayerTable(Dialog& dialog) {
+    static const char* const names[kNationCount] = {"Франция", "Россия", "Англия", "Пруссия", "Австрия",
+                                                    "Египет", "Польша", "Испания", "Рейнск. союз"};
+    auto cp = [](const std::string& utf8) { return assets::utf8ToCp1251(utf8); };
+    // Значение слота ↔ выбранная строка: изменённое пользователем попадает в слот, иначе слот — в элемент.
+    auto sync = [](Widget& w, int& value) {
+        if (w.selected != w.syncedSel) value = w.selected;
+        else w.selected = value;
+        w.syncedSel = w.selected;
+    };
+    dialog.forEach([&](Widget& w) {
+        for (const Widget::Action& a : w.actions) {
+            if (w.id < 0 || w.id >= kSlots) continue;
+            Slot& slot = slots[std::size_t(w.id)];
+            if (a.type == "cva_BR_PlName") {
+                if (w.kind == WidgetKind::ComboBox) {
+                    if (w.items.empty()) w.items = {cp("Компьютер"), cp("Нет игрока")};
+                    int off = slot.active ? 0 : 1;
+                    sync(w, off);
+                    slot.active = off == 0;
+                } else {
+                    w.text = cp("Игрок");
+                }
+            } else if (a.type == "cva_BR_PlRace" && w.kind == WidgetKind::ComboBox) {
+                // Строки: «По карте», нации, у компьютера ещё «Нет игрока» (последняя).
+                if (w.items.empty()) {
+                    w.items.push_back(cp("По карте"));
+                    for (const char* n : names) w.items.push_back(cp(n));
+                    if (w.id > 0) w.items.push_back(cp("Нет игрока"));
+                }
+                int value = slot.active ? slot.nation : kNationCount + 1;
+                sync(w, value);
+                slot.active = value <= kNationCount;
+                if (slot.active) slot.nation = value;
+                w.visible = true;
+            } else if (a.type == "cva_BR_PlColor") {
+                w.sprite = slot.color;
+                w.visible = slot.active;
+            } else if (a.type == "cva_BR_PlTeam") {
+                w.text = slot.team ? std::to_string(slot.team) : cp("—");
+                w.visible = slot.active;
+            } else if (a.type == "cva_BR_PlMapLoading") {
+                w.text.clear();
+            }
+        }
+    });
+}
+
 bool Menus::hasAction(const Widget& w, const char* type) {
     for (const Widget::Action& a : w.actions)
         if (a.type == type) return true;
@@ -246,9 +301,24 @@ void Menus::campaignWon() {
 }
 
 void Menus::click(Widget& w) {
+    if (w.kind == WidgetKind::ComboBox) {
+        if (w.open && w.hoverRow >= 0) w.selected = w.hoverRow;
+        w.open = !w.open && w.hoverRow < 0 && !w.items.empty();
+        current().closeCombos(&w);
+        return;
+    }
+    current().closeCombos();
     if (w.kind == WidgetKind::CheckBox) w.checked = !w.checked;
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
+        if (a.type == "cva_BR_PlColor" && w.id >= 0 && w.id < kSlots) {
+            Slot& slot = slots[std::size_t(w.id)];
+            slot.color = (slot.color + 1) % 8;
+        }
+        if (a.type == "cva_BR_PlTeam" && w.id >= 0 && w.id < kSlots) {
+            Slot& slot = slots[std::size_t(w.id)];
+            slot.team = (slot.team + 1) % 8;
+        }
         if (a.type == "cva_MM_Start" || a.type == "cva_MM_SinStart" || a.type == "cva_MM_MultiEnter") {
             // FUN_013d83e0. Проверка профиля игрока у cva_MM_SinStart (меню AddProfile)
             // пока пропущена: профилей ещё нет.
@@ -274,9 +344,10 @@ void Menus::click(Widget& w) {
             // FUN_013d94c0: начать игру на выбранной карте (без выбора оригинал создаёт
             // случайную карту — генератора пока нет). Выбора карты в меню ещё нет:
             // берётся selectedSkirmish из списка SingleMiss.txt.
-            if (selectedMission)
+            if (selectedMission) {
                 startRequest_ = gamePath(missions_.missions[*selectedMission].map);
-            else
+                setupStart_ = true;
+            } else
                 std::fprintf(stderr, "не выбрана карта (нет Missions/Missions.txt?)\n");
             return;
         }
@@ -331,6 +402,7 @@ void Menus::click(Widget& w) {
                     !ms[std::size_t(index)].map.empty()) {
                     activeMission_ = {*campaign_, index};
                     startRequest_ = gamePath(ms[std::size_t(index)].map);
+                    setupStart_ = false;
                 }
             }
             return;

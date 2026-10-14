@@ -117,6 +117,14 @@ struct Widget {
     // У строки списка — её номер (−1 у прочих элементов).
     int listIndex = -1;
 
+    // ComboBox: строки (Windows-1251) заполняет код игры; выбранная, раскрыт ли список, строка под курсором.
+    std::vector<std::string> items;
+    int selected = -1;
+    int syncedSel = -1; // значение, с которым ComboBox синхронизирован (изменение пользователем — selected != syncedSel)
+    bool open = false;
+    int hoverRow = -1;
+    static constexpr int kComboRow = 20; // высота строки раскрытого списка (виртуальных пикселей)
+
     // Состояние при работе.
     bool hover = false;
     int absX = 0, absY = 0; // левый верхний угол на последнем кадре
@@ -149,6 +157,8 @@ public:
     // Левый край бегунка в виртуальных координатах и положение по x курсора.
     static int sliderKnobX(const Widget& w);
     static int sliderPosAt(const Widget& w, float vx);
+    // Закрывает раскрытые ComboBox (кроме except).
+    void closeCombos(const Widget* except = nullptr);
     // Прокрутка списка под точкой (виртуальные координаты) на rows строк.
     void scrollListAt(float vx, float vy, int rows);
 
@@ -167,6 +177,7 @@ private:
     void drawGpTextButton(Widget& w, const View& view);
     void drawCheckBox(Widget& w, const View& view);
     void drawSlider(Widget& w, const View& view);
+    void drawCombo(Widget& w, const View& view, bool dropdown);
     int gpHeight(const Widget& w, int sprite);
 
     UiContext& ctx_;

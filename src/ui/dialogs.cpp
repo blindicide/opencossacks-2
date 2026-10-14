@@ -208,8 +208,11 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
         break;
     }
     case WidgetKind::ComboBox:
-        // Строки списка заполняет код игры (действия вроде cva_CampDiff); пустой
-        // ComboBox оригинал не рисует (FUN_0104fef0).
+        // Строки списка заполняет код игры (действия вроде cva_CampDiff).
+        w.fontActive = font("ActiveFont");
+        w.fontPassive = font("PassiveFont");
+        w.fontDx = int(node.intValue("FontDx").value_or(0));
+        w.fontDy = int(node.intValue("FontDy").value_or(0));
         break;
     case WidgetKind::Other:
         if (std::find(unsupported_.begin(), unsupported_.end(), w.type) == unsupported_.end()) {
@@ -279,8 +282,31 @@ void Dialog::scrollListAt(float vx, float vy, int rows) {
     });
 }
 
+void Dialog::closeCombos(const Widget* except) {
+    forEach([&](Widget& w) {
+        if (w.kind == WidgetKind::ComboBox && &w != except) w.open = false;
+    });
+}
+
 Widget* Dialog::updateHover(float vx, float vy) {
     Widget* top = nullptr;
+    // Раскрытый список лежит поверх остальных: сначала он.
+    Widget* openCombo = nullptr;
+    forEach([&](Widget& w) {
+        w.hoverRow = -1;
+        if (w.kind == WidgetKind::ComboBox && w.open && w.visible) openCombo = &w;
+    });
+    if (openCombo) {
+        const Widget& c = *openCombo;
+        const int row = int((vy - float(c.absY + c.height)) / float(Widget::kComboRow));
+        if (vx >= float(c.absX) && vx < float(c.absX + c.width) && vy >= float(c.absY + c.height) && row >= 0 &&
+            row < int(c.items.size())) {
+            forEach([&](Widget& w) { w.hover = false; });
+            openCombo->hoverRow = row;
+            openCombo->hover = true;
+            return openCombo;
+        }
+    }
     // Обход в порядке вывода: последний подходящий — верхний.
     auto visit = [&](auto& self, Widget& w) -> void {
         w.hover = false;
@@ -303,7 +329,55 @@ Widget* Dialog::updateHover(float vx, float vy) {
     return top;
 }
 
-void Dialog::draw(const View& view) { drawWidget(root_, 0, 0, view); }
+void Dialog::draw(const View& view) {
+    drawWidget(root_, 0, 0, view);
+    forEach([&](Widget& w) {
+        if (w.kind == WidgetKind::ComboBox && w.open && w.visible) drawCombo(w, view, true);
+    });
+}
+
+// Закрытый ComboBox — рамка с выбранной строкой и стрелкой; раскрытый список рисуется поверх всего окна.
+void Dialog::drawCombo(Widget& w, const View& view, bool dropdown) {
+    const float s = view.scale;
+    auto frame = [&](float x, float y, float bw, float bh, std::uint32_t fill, std::uint32_t line) {
+        ctx_.renderer.fillRect(x, y, bw, bh, fill);
+        const float t = std::max(1.0f, s);
+        ctx_.renderer.fillRect(x, y, bw, t, line);
+        ctx_.renderer.fillRect(x, y + bh - t, bw, t, line);
+        ctx_.renderer.fillRect(x, y, t, bh, line);
+        ctx_.renderer.fillRect(x + bw - t, y, t, bh, line);
+    };
+    const Font* font = w.fontPassive ? w.fontPassive : w.fontActive;
+    const int limit = std::max(20, w.width - 24);
+    if (!dropdown) {
+        frame(view.x(float(w.absX)), view.y(float(w.absY)), float(w.width) * s, float(w.height) * s, 0x30FFFFFF, 0xFF6A5030);
+        // Стрелка вниз у правого края.
+        const float ax = view.x(float(w.absX + w.width - 14)), ay = view.y(float(w.absY + w.height / 2 - 2));
+        for (int i = 0; i < 4; ++i)
+            ctx_.renderer.fillRect(ax + float(i) * s, ay + float(i) * s, float(9 - 2 * i) * s, s, 0xFF4A3520);
+        if (font && w.selected >= 0 && w.selected < int(w.items.size())) {
+            const std::string& item = w.items[std::size_t(w.selected)];
+            const TextSize size = ctx_.text.measure(*font, item, limit, Align::Left);
+            ctx_.text.draw(*font, item, w.absX + 6, w.absY + (w.height - size.height) / 2, limit, Align::Left, view);
+        }
+        return;
+    }
+    const int n = int(w.items.size());
+    frame(view.x(float(w.absX)), view.y(float(w.absY + w.height)), float(w.width) * s, float(n * Widget::kComboRow) * s,
+          0xFFE8DCC4, 0xFF6A5030);
+    for (int i = 0; i < n; ++i) {
+        const int ry = w.absY + w.height + i * Widget::kComboRow;
+        if (i == w.hoverRow)
+            ctx_.renderer.fillRect(view.x(float(w.absX + 1)), view.y(float(ry + 1)), float(w.width - 2) * s,
+                                   float(Widget::kComboRow - 2) * s, 0xFFD9B77A);
+        const Font* f = (i == w.hoverRow && w.fontActive) ? w.fontActive : font;
+        if (f) {
+            const TextSize size = ctx_.text.measure(*f, w.items[std::size_t(i)], limit, Align::Left);
+            ctx_.text.draw(*f, w.items[std::size_t(i)], w.absX + 6, ry + (Widget::kComboRow - size.height) / 2, limit,
+                           Align::Left, view);
+        }
+    }
+}
 
 int Dialog::gpHeight(const Widget& w, int sprite) {
     if (!w.hasGp || sprite < 0) return 0;
@@ -355,7 +429,7 @@ void Dialog::drawWidget(Widget& w, int parentX, int parentY, const View& view) {
         }
         break;
     }
-    case WidgetKind::ComboBox:
+    case WidgetKind::ComboBox: drawCombo(w, view, false); break;
     case WidgetKind::Desk:
     case WidgetKind::Other: break;
     }

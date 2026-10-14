@@ -535,6 +535,8 @@ struct MapView {
     // Сценарий миссии (правила из карты). Есть правила — ИИ запускает сам сценарий.
     std::unique_ptr<oc2::world::MissionScript> script;
     static inline int difficulty = 1; // сложность миссии 0..2 (GetDiff)
+    // Таблица игроков стычки из меню; пусто — миссия играется как есть.
+    static inline std::optional<std::array<oc2::ui::Menus::Slot, oc2::ui::Menus::kSlots>> setup;
     fs::path dataDir;
     // Плашка ShowMessageII: текст и оставшиеся шаги.
     std::string bannerText;
@@ -618,13 +620,32 @@ struct MapView {
             std::fprintf(stderr, "настройки миссии (MOPT): %s\n", e.what());
         }
         world.team = mission.teams();
+        if (setup) // команды из таблицы: одинаковый номер — союзники (8+ не пересекается с «своим номером»)
+            for (int p = 0; p < oc2::ui::Menus::kSlots; ++p)
+                if ((*setup)[std::size_t(p)].team) world.team[std::size_t(p)] = 8 + (*setup)[std::size_t(p)].team;
         world.humanTeam = world.team[std::size_t(player)];
         dataDir = data;
         std::size_t missing = 0;
         std::vector<std::optional<std::size_t>> mapUnits;
         for (const oc2::assets::MapUnit& u : map.units()) {
-            if (const oc2::assets::UnitDesc* desc = units->find(u.type))
-                mapUnits.push_back(world.addUnit(*desc, mission.singleOwner(u.player), u.x, u.y, u.direction));
+            const int owner = mission.singleOwner(u.player);
+            const oc2::ui::Menus::Slot* slot =
+                setup && owner >= 0 && owner < oc2::ui::Menus::kSlots ? &(*setup)[std::size_t(owner)] : nullptr;
+            if (slot && !slot->active) { // «Нет игрока»: его юнитов на карте нет
+                mapUnits.emplace_back();
+                continue;
+            }
+            std::string type = u.type;
+            if (slot && slot->nation > 0) { // нация из таблицы: суффикс «(XX)» типа заменяется
+                const auto open = type.rfind('('), close = type.rfind(')');
+                if (open != std::string::npos && close != std::string::npos && close > open) {
+                    const std::string changed = type.substr(0, open + 1) + oc2::ui::Menus::nationCode(slot->nation - 1) +
+                                                type.substr(close);
+                    if (units->find(changed)) type = changed;
+                }
+            }
+            if (const oc2::assets::UnitDesc* desc = units->find(type))
+                mapUnits.push_back(world.addUnit(*desc, owner, u.x, u.y, u.direction));
             else
                 mapUnits.emplace_back(), ++missing;
         }
@@ -713,6 +734,7 @@ struct MapView {
         for (int p = 0; p < 7; ++p) {
             if (only >= 0 && p != only) continue;
             if (p == player && !self) continue;
+            if (setup && !(*setup)[std::size_t(p)].active) continue;
             const std::string code = oc2::world::playerNation(world, *units, p);
             if (code.empty()) continue;
             if (auto script = oc2::world::loadAiScript(data, code)) {
@@ -1407,6 +1429,8 @@ int main(int argc, char** argv) {
             }
             // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
             if (pendingStart && screen) {
+                MapView::setup.reset();
+                if (screen->menus->setupStart()) MapView::setup = screen->menus->slots;
                 try {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart,
                                                         screen->images.get());
@@ -1469,6 +1493,7 @@ int main(int argc, char** argv) {
 
                 if (window.wheel != 0.0f) menus.current().scrollListAt(mx, my, window.wheel > 0 ? -1 : 1);
                 for (const auto& click : window.clicks) {
+                    if (click.button == 1 && !hovered) menus.current().closeCombos();
                     if (click.button != 1 || !hovered) continue;
                     if (sounds) sounds->play(hovered->clickSound);
                     if (hovered->kind == oc2::ui::WidgetKind::Slider) draggedSlider = hovered;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <map>
 #include <memory>
 #include <optional>
@@ -73,7 +74,23 @@ public:
         return r;
     }
 
+    // Игроки стычки (таблица cva_BR_*): строка 0 — человек, 1..6 — компьютер или «нет игрока».
+    struct Slot {
+        int nation = 0;   // 0 — по карте, иначе номер в kNations
+        int team = 0;     // 0 — как на карте, иначе 1..7
+        int color = 0;
+        bool active = true;
+    };
+    static constexpr int kSlots = 7;
+    static constexpr int kNationCount = 9;
+    // Коды наций (Nations.lst) в порядке пунктов списка «Нация» после «По карте».
+    static const char* nationCode(int index);
+    std::array<Slot, kSlots> slots;
+    // Последний запуск — стычка из меню (применять таблицу игроков), а не миссия кампании.
+    bool setupStart() const { return setupStart_; }
+
 private:
+    void syncPlayerTable(Dialog& dialog);
     std::string resultMessage_;
     UiContext& ctx_;
     std::map<std::string, std::string> files_; // имя меню → путь к XML
@@ -104,6 +121,7 @@ private:
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
     bool backToMain_ = false;
+    bool setupStart_ = false;
     bool optionsShown_ = false;
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры
     std::optional<std::string> lastStart_; // последняя начатая карта (cva_MM_ReplayCurMiss)
