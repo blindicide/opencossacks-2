@@ -85,6 +85,12 @@ private:
     std::string t(const std::string& key) const {
         return ctx_.texts.contains("#" + key) ? ctx_.texts.lookup("#" + key) : ctx_.texts.lookup(key);
     }
+    // Название сектора (город) из BigMapData.txt: «SectorNN → Брюссель».
+    std::string sectorName(int id) const {
+        const std::string& key = data_->map.sectors[std::size_t(id)].name;
+        return ctx_.texts.contains(key) ? ctx_.texts.lookup(key) : key;
+    }
+    std::string localize(std::string text) const;
     std::string resName(int res) const;
     std::string squadLabel(const std::string& type) const;
     std::string costLabel(const world::BigGame::Cost& c) const;

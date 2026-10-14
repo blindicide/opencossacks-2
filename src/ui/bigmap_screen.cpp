@@ -290,7 +290,7 @@ void BigMapScreen::drawSectorStrip() {
         const assets::BigSector& s = data_->map.sectors[std::size_t(selected_)];
         const auto& st = g.sector(selected_);
         float y = r.y + 8;
-        y += say("{C FF2A1C10}" + t("CDT_Area") + " " + std::to_string(s.id + 1) + " — " + assets::bigNationName(st.owner), r.x + 10, y, 420);
+        y += say("{C FF2A1C10}" + sectorName(s.id) + " — " + assets::bigNationName(st.owner), r.x + 10, y, 420);
         std::string res = t("StratRes" + std::to_string(std::clamp(s.resource, 0, 4)));
         y += say("{C FF402010}" + t("MainRes") + " " + res, r.x + 10, y, 420);
         y += say("{C FF402010}" + t("Vill") + " " + std::to_string(s.villages) + "   " + t("Population#") + " " + t("CWT_PopltnLVL" + std::to_string(std::clamp(s.population, 0, 2))), r.x + 10, y, 420);
@@ -332,10 +332,10 @@ void BigMapScreen::drawPick() {
         const bool over = hit(row);
         fill({row.x - 1, row.y - 1, row.w + 2, row.h + 2}, 0xFF2A1C10);
         fill(row, over ? 0xFFF4E6B8 : 0xFFD8C8A0);
-        fill({row.x + 8, row.y + 8, 18, 18}, 0xFF000000);
-        fill({row.x + 9, row.y + 9, 16, 16}, data_->k.color(n) | 0xFF000000u);
-        say("{C FF2A1C10}" + std::string(assets::bigNationName(n)), row.x + 38, row.y + 10, 300);
-        say("{C FF402010}" + t("CWT_NumOfSectors") + " " + std::to_string(count), row.x, row.y + 10, int(row.w) - 12, Align::Right);
+        fill({row.x + 5, row.y + 4, 36, 28}, 0xFF000000);
+        ctx_.images.draw(flagsImg_, std::size_t(n == 0 ? 0 : n + 1), v_->x(row.x + 7), v_->y(row.y + 6), 0xFFFFFFFF, v_->scale);
+        say("{C FF2A1C10}" + std::string(assets::bigNationName(n)), row.x + 50, row.y + 4, 300);
+        say("{C FF402010}" + t("CWT_NumOfSectors") + " " + std::to_string(count), row.x, row.y + 4, int(row.w) - 12, Align::Right);
         if (over && click_) {
             click_ = false;
             start(n);
@@ -363,9 +363,9 @@ void BigMapScreen::drawModal() {
     case Modal::Defend: {
         const bool attack = modal_ == Modal::Attack;
         const auto& a = *pending_;
-        const std::string target = std::to_string(a.target + 1);
-        if (attack) y += say("{C FF2A1C10}" + t("CWM_AttackSect") + " (" + t("CDT_Area") + " " + target + ")", r.x + 14, y, int(r.w) - 28);
-        else y += say("{C FF8F0909}" + std::string(assets::bigNationName(a.nation)) + " нападает на сектор " + target + "!", r.x + 14, y, int(r.w) - 28);
+        const std::string target = sectorName(a.target);
+        if (attack) y += say("{C FF2A1C10}" + t("CWM_AttackSect") + " (" + target + ")", r.x + 14, y, int(r.w) - 28);
+        else y += say("{C FF8F0909}" + std::string(assets::bigNationName(a.nation)) + " нападает на " + target + "!", r.x + 14, y, int(r.w) - 28);
         y += 8;
         y += say("{C FF402010}Отрядов нападающих: " + std::to_string(a.squads.size()) + ", сила " + std::to_string(g.attackPower(a.squads)), r.x + 14, y, int(r.w) - 28);
         y += say("{C FF402010}Оборона: " + std::to_string(g.sector(a.target).garrison) + " отр., сила " + std::to_string(g.defencePower(a.target)), r.x + 14, y, int(r.w) - 28);
@@ -449,8 +449,17 @@ void BigMapScreen::drawModal() {
 
 // ---------------------------------------------------------------- ход
 
+std::string BigMapScreen::localize(std::string text) const {
+    for (const assets::BigSector& s : data_->map.sectors) {
+        const std::size_t at = text.find(s.name);
+        if (at != std::string::npos) text.replace(at, s.name.size(), sectorName(s.id));
+    }
+    return text;
+}
+
 void BigMapScreen::openEvents() {
     events_ = game_->log;
+    for (std::string& e : events_) e = localize(e);
     game_->log.clear();
     if (events_.empty()) {
         modal_ = Modal::None;
