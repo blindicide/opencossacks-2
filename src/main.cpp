@@ -659,6 +659,9 @@ struct MapView {
     int stepInTurn = 0;       // шагов мира выполнено в текущем ходу
     int netStalled = 0;       // кадров подряд, что ждём ходы других игроков
     std::string netNotice;    // «Ожидание игроков…», «Рассинхронизация» и т. п.
+    bool chatOpen = false;    // строка ввода сетевого чата открыта (Enter)
+    std::string chatText;     // вводимая строка (UTF-8)
+    std::vector<std::pair<std::string, int>> chatLog; // полученные строки и сколько кадров ещё показывать
     // Сценарий миссии (правила из карты). Есть правила — ИИ запускает сам сценарий.
     std::unique_ptr<oc2::world::MissionScript> script;
     static inline int difficulty = 1; // сложность миссии 0..2 (GetDiff)
@@ -1787,6 +1790,30 @@ void drawPauseBanner(Screen& screen, const MapView& view, VkExtent2D e, oc2::ren
     screen.text->draw(*font, cp, int(x / v.scale) + 20, int(y / v.scale) + 8, size.width + 4, oc2::ui::Align::Center, v);
 }
 
+// Сетевой чат: последние строки слева сверху и строка ввода внизу.
+void drawNetChat(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    if (!view.netSession || (view.chatLog.empty() && !view.chatOpen)) return;
+    const oc2::ui::Font* font = screen.fonts->findTagged("S");
+    if (!font) return;
+    const oc2::ui::View& v = screen.hudView;
+    int y = 44;
+    const std::size_t first = view.chatLog.size() > 6 ? view.chatLog.size() - 6 : 0;
+    for (std::size_t i = first; i < view.chatLog.size(); ++i) {
+        const std::string cp = oc2::assets::utf8ToCp1251(view.chatLog[i].first);
+        const auto size = screen.text->measure(*font, cp, 520, oc2::ui::Align::Left);
+        sprites.fillRect(8.0f * v.scale, float(y) * v.scale, float(size.width + 12) * v.scale, float(size.height + 4) * v.scale, 0xB0000000);
+        screen.text->draw(*font, cp, 14, y + 2, size.width + 4, oc2::ui::Align::Left, v);
+        y += size.height + 6;
+    }
+    if (view.chatOpen) {
+        const std::string cp = oc2::assets::utf8ToCp1251("Сообщение: " + view.chatText + "_");
+        const auto size = screen.text->measure(*font, cp, 520, oc2::ui::Align::Left);
+        const float by = float(e.height) - float(size.height + 14) * v.scale;
+        sprites.fillRect(200.0f * v.scale, by, float(size.width + 16) * v.scale, float(size.height + 8) * v.scale, 0xD0000000);
+        screen.text->draw(*font, cp, 208, int(by / v.scale) + 4, size.width + 4, oc2::ui::Align::Left, v);
+    }
+}
+
 // Условия боя за сектор (SecObj*.txt) по центру сверху в начале боя.
 void drawBattleNotice(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
     if (view.noticeLeft <= 0 || view.battleNotice.empty()) return;
@@ -2114,7 +2141,11 @@ int main(int argc, char** argv) {
                                                 window.pressedKeys.end()) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
                 // текущее окно, из главного — выход.
-                if (mapView && mapView->placing) {
+                if (mapView && mapView->chatOpen) {
+                    mapView->chatOpen = false; // отмена ввода сообщения
+                    mapView->chatText.clear();
+                    window.pressedKeys.clear();
+                } else if (mapView && mapView->placing) {
                     mapView->placing = nullptr; // отмена выбора места
                     window.pressedKeys.clear();
                 } else if (mapView && screen) {
@@ -2301,6 +2332,32 @@ int main(int argc, char** argv) {
                 const bool gameMenu = resultOpen && menus.currentName() != "EndGameMessage" && menus.currentName() != "PostGameStat";
                 mapView->ctrlHeld = window.ctrl;
                 mapView->altHeld = window.alt;
+                if (mapView->netSession) { // сетевой чат: Enter открывает строку, второй Enter отправляет
+                    for (auto& line : mapView->netSession->takeChat()) mapView->chatLog.push_back({line, 600});
+                    for (auto& l : mapView->chatLog) --l.second;
+                    mapView->chatLog.erase(std::remove_if(mapView->chatLog.begin(), mapView->chatLog.end(),
+                                                          [](const auto& l) { return l.second <= 0; }),
+                                           mapView->chatLog.end());
+                    const auto has = [&](std::uint32_t k) { return std::find(window.pressedKeys.begin(), window.pressedKeys.end(), k) != window.pressedKeys.end(); };
+                    if (mapView->chatOpen) {
+                        if (mapView->chatText.size() < 120) mapView->chatText += window.typed;
+                        if (has(SDLK_BACKSPACE))
+                            while (!mapView->chatText.empty()) {
+                                const bool cont = (static_cast<unsigned char>(mapView->chatText.back()) & 0xC0) == 0x80;
+                                mapView->chatText.pop_back();
+                                if (!cont) break;
+                            }
+                        if (has(SDLK_RETURN)) {
+                            if (!mapView->chatText.empty()) mapView->netSession->chat(mapView->chatText);
+                            mapView->chatText.clear();
+                            mapView->chatOpen = false;
+                        }
+                        window.pressedKeys.clear(); // пока пишем, клавиши не идут в игру
+                    } else if (has(SDLK_RETURN) && !window.alt && !mapView->ended) {
+                        mapView->chatOpen = true;
+                        window.pressedKeys.clear();
+                    }
+                }
                 for (std::uint32_t key : window.pressedKeys) {
                     mapView->handleKey(key, e);
                     if (key == SDLK_SPACE) mapView->skipDialog(); // пропуск диалога
@@ -2359,6 +2416,7 @@ int main(int argc, char** argv) {
                 // Подсказка кнопки панели: «UNITSMD\ИМЯ.MD.HINT» из Text/mdlist.txt и цена.
                 drawSelectionInfo(*screen, *mapView, e, sprites);
                 drawMissionHud(*screen, *mapView, e, sprites);
+                drawNetChat(*screen, *mapView, e, sprites);
                 if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave && (b->desc || b->upgrade))
                     drawPanelHint(*screen, b->desc, b->upgrade, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
