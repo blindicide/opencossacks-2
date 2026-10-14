@@ -166,6 +166,7 @@ struct Options {
     bool noFog = false; // --no-fog: без тумана, даже если он включён в настройках
     bool mute = false;  // без звука
     int form = -1;          // проверка: построить выбранных (--select-own) отрядом: 0 шеренга, 1 колонна, 2 каре
+    int netProbe = 0;       // проверка сети: на этом шаге мира напечатать хэш; на 150-м шаге свои юниты идут в сторону
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
     bool f1 = false;  // проверка: на первом кадре нажать F1 (помощь)
@@ -224,6 +225,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
                 o.clickSeq.push_back({mx, my});
                 p += used;
             }
+        } else if (a == "--net-probe" && hasValue) {
+            o.netProbe = std::atoi(argv[++i]);
         } else if (a == "--at" && hasValue) {
             float x = 0, y = 0;
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
@@ -1265,8 +1268,25 @@ struct MapView {
     }
 
     // Один шаг симуляции вместе с эффектами выстрелов.
+    int netProbe = 0; // --net-probe: шаг, на котором печатается хэш мира
     void tick() {
         stepWorld();
+        if (netProbe > 0 && netSession) {
+            const auto step = int(world.stepCount());
+            if (step == 150) { // приказ «всем своим идти»: проверка, что приказы доходят до всех узлов одинаково
+                PlayerInput in(world);
+                std::string ids;
+                int x = 0, y = 0;
+                for (std::size_t i = 0; i < world.units().size(); ++i)
+                    if (world.units()[i].player == player && world.units()[i].alive() && !world.units()[i].building()) {
+                        ids += (ids.empty() ? "" : ",") + std::to_string(i);
+                        x = world.units()[i].x(), y = world.units()[i].y();
+                    }
+                if (!ids.empty()) world.orderMoveGroup(oc2::world::World::parseIds(ids), x + 300, y + 200);
+            }
+            if (step == netProbe)
+                std::printf("хэш мира на шаге %d: %016llx\n", step, static_cast<unsigned long long>(world.stateHash()));
+        }
         effects->step();
         for (const auto& shot : world.shotEvents)
             if (auto sound = effects->spawn(shot.weapon, shot.x, shot.y, shot.direction))
@@ -2196,6 +2216,7 @@ int main(int argc, char** argv) {
                 try {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart, screen->images.get());
                     mapView->centerOnPlayer(mapView->player, vulkan.extent());
+                    mapView->netProbe = opts->netProbe;
                     mapView->sounds = sounds.get();
                     if (!pendingBig && screen->menus->settings.fogOfWar && !opts->noFog) mapView->world.enableFog(mapView->world.humanTeam);
                     if (pendingBig && bigScreen) {
