@@ -74,6 +74,7 @@ const char* kHelp =
     "  --mine                с --map: крестьяне игрока 0 идут в ближайшую шахту (для проверок)\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (в игре — пикселей окна; для проверок)\n"
+    "  --clicks <x,y;x,y>    нажатия мыши по очереди, раз в 3 кадра (меню 1024×768, для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
     "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
@@ -120,6 +121,7 @@ struct Options {
     fs::path screenshot;
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
+    std::vector<std::array<float, 2>> clickSeq; // --clicks: нажатия по очереди, раз в 3 кадра с 2-го (для проверок меню)
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
     std::optional<int> gather;
@@ -170,6 +172,17 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &mx, &my) != 2)
                 throw std::runtime_error("--mouse ждёт координаты вида 500,470");
             o.mouse = std::array<float, 2>{mx, my};
+        } else if (a == "--clicks" && hasValue) {
+            std::string list = argv[++i];
+            for (char& ch : list)
+                if (ch == ';') ch = ' ';
+            const char* p = list.c_str();
+            float mx = 0, my = 0;
+            int used = 0;
+            while (std::sscanf(p, " %f,%f%n", &mx, &my, &used) == 2) {
+                o.clickSeq.push_back({mx, my});
+                p += used;
+            }
         } else if (a == "--at" && hasValue) {
             float x = 0, y = 0;
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
@@ -1329,11 +1342,20 @@ int main(int argc, char** argv) {
                     mx = screen->toVirtualX(window.mouseX);
                     my = screen->toVirtualY(window.mouseY);
                 }
+                if (!opts->clickSeq.empty() && frame >= 1) { // курсор идёт к точке на кадр раньше нажатия
+                    const auto i = std::min(std::size_t((frame - 1) / 3), opts->clickSeq.size() - 1);
+                    mx = opts->clickSeq[i][0];
+                    my = opts->clickSeq[i][1];
+                }
                 oc2::ui::Widget* hovered = menus.current().updateHover(mx, my);
                 // Звук наведения — при смене элемента под курсором.
                 if (hovered != lastHovered && hovered && sounds) sounds->play(hovered->mouseSound);
                 lastHovered = hovered;
                 if (opts->click && opts->mouse && frame == 2) window.clicks.push_back({1, mx, my});
+                if (!opts->clickSeq.empty() && frame >= 2 && (frame - 2) % 3 == 0 &&
+                    std::size_t((frame - 2) / 3) < opts->clickSeq.size())
+                    window.clicks.push_back({1, mx, my});
+
                 if (window.wheel != 0.0f) menus.current().scrollListAt(mx, my, window.wheel > 0 ? -1 : 1);
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;

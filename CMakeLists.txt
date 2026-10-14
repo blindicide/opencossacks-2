@@ -42,6 +42,7 @@ add_library(oc2_assets STATIC
     src/assets/sprite_list.cpp
     src/assets/text_encoding.cpp
     src/assets/text_table.cpp
+    src/assets/campaign_list.cpp
     src/assets/nation_tech.cpp
     src/assets/unit_desc.cpp
     src/assets/weapon_list.cpp

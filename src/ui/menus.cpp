@@ -61,6 +61,14 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
     if (auto text = readText("Missions/SingleMiss.txt")) skirmish_ = missions_.selection(*text);
     if (auto text = readText("Missions/SingleBatl.txt")) battles_ = missions_.selection(*text);
     if (!skirmish_.empty()) selectedMission = skirmish_.front();
+    if (auto text = readText("Dialogs/campaign.xml")) {
+        try {
+            campaigns_ = assets::CampaignList::parse(*text);
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "campaign.xml: %s\n", e.what());
+        }
+    }
+    campaignDone_.assign(campaigns_.campaigns.size(), 0);
 }
 
 bool Menus::open(const std::string& name) {
@@ -101,7 +109,29 @@ void Menus::update() {
         if (w.type == "TabButton") w.state = w.group == tab ? 1 : 0;
     });
     dialog.forEach([&](Widget& w) {
+        // Список кампаний окна выбора (у окна загрузки CampList — список сохранений).
+        if (w.name == "CampList" && w.listElement && !hasAction(w, "cva_LS_FileList") &&
+            w.children.size() != campaigns_.campaigns.size()) {
+            std::vector<std::string> names;
+            for (const assets::Campaign& c : campaigns_.campaigns) names.push_back(assets::utf8ToCp1251(ctx_.texts.lookup(c.nameKey)));
+            dialog.setListItems(w, names);
+            Dialog::selectListItem(w, int(campaignPick_));
+        }
         for (const Widget::Action& a : w.actions) {
+            if (a.type == "cva_CCamp_Sectors") // окно карты своей кампании
+                w.visible = campaign_ && campaigns_.campaigns[*campaign_].desk == w.name;
+            if (a.type == "cva_CCamp_Name" && campaign_)
+                w.text = assets::utf8ToCp1251(ctx_.texts.lookup(campaigns_.campaigns[*campaign_].nameKey));
+            if (a.type == "cva_CMiss_Name" && campaign_) {
+                const auto& ms = campaigns_.campaigns[*campaign_].missions;
+                const auto next = std::size_t(std::min<int>(campaignDone_[*campaign_], int(ms.size()) - 1));
+                w.text = ms.empty() ? std::string() : assets::utf8ToCp1251(ctx_.texts.lookup(ms[next].nameKey));
+            }
+            if (a.type == "cva_Mission" && a.node && campaign_) { // доступны пройденные и первая непройденная
+                const int index = int(a.node->intValue("Index").value_or(0));
+                w.enabled = index <= campaignDone_[*campaign_] &&
+                            std::size_t(index) < campaigns_.campaigns[*campaign_].missions.size();
+            }
             // FUN_013d6530: списки карт — названия по ключам миссий («#Skirmish18_TXT»).
             if (const std::vector<std::size_t>* items = listFor(w); items && w.children.size() != items->size()) {
                 std::vector<std::string> names;
@@ -175,6 +205,20 @@ void Menus::update() {
     });
 }
 
+bool Menus::hasAction(const Widget& w, const char* type) {
+    for (const Widget::Action& a : w.actions)
+        if (a.type == type) return true;
+    return false;
+}
+
+// Победа в миссии кампании открывает следующую.
+void Menus::campaignWon() {
+    if (!activeMission_) return;
+    int& done = campaignDone_[activeMission_->first];
+    done = std::max(done, activeMission_->second + 1);
+    activeMission_.reset();
+}
+
 void Menus::click(Widget& w) {
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
@@ -187,6 +231,10 @@ void Menus::click(Widget& w) {
         if (a.type == "va_ListItem") { // FUN_013d4bb0
             if (Widget* list = current().listOf(w)) {
                 Dialog::selectListItem(*list, w.listIndex);
+                if (list->name == "CampList" && !hasAction(*list, "cva_LS_FileList")) {
+                    campaignPick_ = std::size_t(std::max(0, w.listIndex));
+                    continue;
+                }
                 if (const std::vector<std::size_t>* items = listFor(*list); items && std::size_t(w.listIndex) < items->size())
                     selectedMission = (*items)[std::size_t(w.listIndex)];
             }
@@ -216,8 +264,32 @@ void Menus::click(Widget& w) {
         }
         if (a.type == "cva_M_ModalDeskSet") { // FUN_013ecd90
             stack_.back().modalDesk = a.name.empty() ? w.name : a.name;
+            continue; // дальше по цепочке: cva_MM_Campaign, cva_Camp_Select
+        }
+        if (a.type == "cva_MM_Campaign") { // выбор кампании
+            stack_.back().modalDesk = "CampSelect";
+            continue;
+        }
+        if (a.type == "cva_Camp_Select") { // «Выбрать» в списке кампаний
+            if (campaignPick_ < campaigns_.campaigns.size()) campaign_ = campaignPick_;
+            continue;
+        }
+        if (a.type == "cva_Mission") { // значок миссии на карте кампании
+            if (campaign_ && a.node) {
+                const int index = int(a.node->intValue("Index").value_or(0));
+                const auto& ms = campaigns_.campaigns[*campaign_].missions;
+                if (index >= 0 && std::size_t(index) < ms.size() && index <= campaignDone_[*campaign_] &&
+                    !ms[std::size_t(index)].map.empty()) {
+                    activeMission_ = {*campaign_, index};
+                    startRequest_ = gamePath(ms[std::size_t(index)].map);
+                }
+            }
             return;
         }
+        if (a.type == "cva_M_CrossFade" || a.type == "cva_InGameMenu_MainDesk_Set" || a.type == "cva_vGameMode_Set" ||
+            a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" ||
+            a.type == "cva_ClearClick")
+            continue; // оформление и профиль — без последствий
         std::printf("действие %s (%s) пока не реализовано\n", a.type.c_str(), a.name.c_str());
     }
 }

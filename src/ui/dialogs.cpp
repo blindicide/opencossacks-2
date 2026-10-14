@@ -273,7 +273,7 @@ Widget* Dialog::updateHover(float vx, float vy) {
         // Панели с действиями (cva_M_ModalDesk) — не кнопки: их действия покадровые.
         const bool clickable = w.kind == WidgetKind::VitButton || w.kind == WidgetKind::TextButton ||
                                w.kind == WidgetKind::GPTextButton || w.kind == WidgetKind::CheckBox ||
-                               (w.kind != WidgetKind::Desk && !w.actions.empty());
+                               (w.kind != WidgetKind::Desk && w.kind != WidgetKind::ColoredBar && !w.actions.empty());
         if (clickable && w.enabled && vx >= float(w.absX) && vx < float(w.absX + w.drawnW) && vy >= float(w.absY) &&
             vy < float(w.absY + w.drawnH))
             top = &w;

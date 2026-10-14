@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "assets/campaign_list.hpp"
 #include "assets/mission_list.hpp"
 #include "ui/dialogs.hpp"
 
@@ -45,6 +46,7 @@ public:
     // Итог игры для окна EndGameMessage (cva_VI_EndGame): true — победа.
     void setGameResult(bool victory) {
         gameResult_ = victory;
+        if (victory) campaignWon();
         resultShown_ = false;
     }
     // cva_MM_BackToMain: вернуться в главное меню (игра заканчивается). Возвращается один раз.
@@ -72,12 +74,21 @@ private:
     };
     std::vector<Open> stack_;
     const std::vector<std::size_t>* listFor(const Widget& list) const;
+    void campaignWon();
+    static bool hasAction(const Widget& w, const char* type);
 
     assets::MissionList missions_;
     std::vector<std::size_t> skirmish_, battles_;
     std::optional<std::size_t> shownDescription_, shownPreview_; // что уже показано в панелях
     std::map<std::size_t, render::TextureId> previews_;          // мини-карты VIE2 по миссиям
     std::map<std::string, std::string> activeTab_; // меню → группа нажатой вкладки
+    // Кампании (Dialogs\campaign.xml): выбранная в списке и открытая, пройденные миссии по кампаниям,
+    // запущенная из меню миссия. Прогресс — в памяти (сохранения профиля ещё нет).
+    assets::CampaignList campaigns_;
+    std::size_t campaignPick_ = 0;
+    std::optional<std::size_t> campaign_;
+    std::vector<int> campaignDone_;
+    std::optional<std::pair<std::size_t, int>> activeMission_;
     std::optional<std::string> startRequest_;
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
