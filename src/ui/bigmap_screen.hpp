@@ -102,7 +102,7 @@ private:
     void openEvents();
     void afterTurnStep(std::optional<world::BigGame::Attack> attack);
     void endTurn();
-    void resolveDefence(bool play);
+    void resolveDefence();
     void autosave();
     void checkOver();
 

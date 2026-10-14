@@ -398,7 +398,7 @@ void BigMapScreen::drawModal() {
                 openEvents();
                 autosave();
             } else {
-                resolveDefence(false);
+                resolveDefence();
             }
         }
         if (attack && button({r.x + 340, r.y + r.h - 50, 140, 30}, "Отмена")) {
@@ -548,7 +548,7 @@ void BigMapScreen::afterTurnStep(std::optional<world::BigGame::Attack> attack) {
 }
 
 // Защита сектора игрока: играть бой или посчитать.
-void BigMapScreen::resolveDefence(bool) {
+void BigMapScreen::resolveDefence() {
     const auto a = *pending_;
     const auto out = game_->autoResolve(a);
     game_->apply(a, out);

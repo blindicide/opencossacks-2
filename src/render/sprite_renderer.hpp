@@ -48,6 +48,9 @@ public:
     // Сплошной прямоугольник цвета ARGB (с прозрачностью).
     void fillRect(float x, float y, float w, float h, std::uint32_t argb);
 
+    // Четырёхугольник (углы по кругу: x, y пар) с цветом ARGB в каждом углу — плавный переход.
+    void fillQuad(const std::array<std::array<float, 2>, 4>& corners, const std::array<std::uint32_t, 4>& argb);
+
     // Область отсечения для следующих вызовов drawTriangles() (пиксели экрана),
     // всегда внутри внешней области pushClip(). Сбрасывается в flush().
     void setClip(int x1, int y1, int x2, int y2);

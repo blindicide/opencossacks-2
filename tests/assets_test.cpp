@@ -1612,6 +1612,24 @@ TEST_CASE("Скрипт миссии: SpotNUnits и CreateBrigade") {
     CHECK(w.units()[0].moving || !w.units()[0].path.empty() || w.units()[0].squad >= 0);
 }
 
+TEST_CASE("Туман войны: обзор юнитов и скрытые враги") {
+    using namespace oc2::world;
+    const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\nVISION 0\n");
+    World w;
+    w.setLockMap(LockMap(1000, 1000)); // 16000×16000
+    const std::size_t mine = w.addUnit(soldier, 0, 2000, 2000, 0);
+    const std::size_t near = w.addUnit(soldier, 1, 2600, 2000, 0);
+    const std::size_t far = w.addUnit(soldier, 1, 9000, 2000, 0);
+    CHECK(!w.hiddenByFog(w.units()[far])); // тумана нет — ничего не скрыто
+    w.enableFog(0);
+    CHECK(!w.hiddenByFog(w.units()[mine]) && !w.hiddenByFog(w.units()[near]) && w.hiddenByFog(w.units()[far]));
+    CHECK(w.fog.at(2000, 2000) == 2 && w.fog.at(9000, 2000) == 0);
+    // юнит ушёл — прежняя область осталась исследованной, но не видна
+    w.orderMove(mine, 6000, 2000);
+    for (int i = 0; i < 1600; ++i) w.step();
+    CHECK(w.fog.at(2000, 2000) == 1 && w.fog.at(w.units()[mine].x(), 2000) == 2);
+}
+
 TEST_CASE("Улучшения: жизнь, дальность, пауза, щит и стройка") {
     using oc2::assets::UnitDesc;
     using oc2::world::World;

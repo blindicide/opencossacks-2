@@ -219,7 +219,8 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
             renderer_.drawQuad(*ring_, sx - r, sy - r / 2.0f, 2.0f * r, r, tintToVertexColor(playerColor(u.player)));
         }
     dynamic_.clear();
-    for (const world::Unit& u : world.units()) appendUnit(u, dynamic_);
+    for (const world::Unit& u : world.units())
+        if (!world.hiddenByFog(u)) appendUnit(u, dynamic_);
     appendFields(world, camera, right, bottom);
     // Дым выстрелов — поверх стрелков (сортировка чуть ниже точки выстрела).
     if (effects)

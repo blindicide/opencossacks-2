@@ -1084,8 +1084,39 @@ void World::killAllExcept(int keep) {
         if (!u.building() && u.player != 7 && team[std::size_t(u.player & 7)] != keep && u.alive()) hit(u, u.life + 1);
 }
 
+void World::enableFog(int team) {
+    fog.enabled = true;
+    fog.team = team;
+    fog.cols = (lock_.width() * LockMap::kCell + Fog::kCell - 1) / Fog::kCell;
+    fog.rows = (lock_.height() * LockMap::kCell + Fog::kCell - 1) / Fog::kCell;
+    fog.cells.assign(std::size_t(fog.cols) * std::size_t(fog.rows), 0);
+    updateFog();
+}
+
+void World::updateFog() {
+    for (std::uint8_t& c : fog.cells)
+        if (c == 2) c = 1;
+    for (const Unit& u : units_) {
+        if (!u.alive() || u.inside || !u.desc || u.player == 7 || team[std::size_t(u.player & 7)] != fog.team) continue;
+        if (u.building() && u.underConstruction) continue;
+        const int radius = Fog::kBaseVision + Fog::kVisionStep * u.desc->vision;
+        const int cx = u.x() / Fog::kCell, cy = u.y() / Fog::kCell, rc = radius / Fog::kCell + 1;
+        for (int y = (std::max)(cy - rc, 0); y <= (std::min)(cy + rc, fog.rows - 1); ++y)
+            for (int x = (std::max)(cx - rc, 0); x <= (std::min)(cx + rc, fog.cols - 1); ++x) {
+                const long dx = long(x - cx) * Fog::kCell, dy = long(y - cy) * Fog::kCell;
+                if (dx * dx + dy * dy <= long(radius) * radius) fog.cells[std::size_t(y) * std::size_t(fog.cols) + std::size_t(x)] = 2;
+            }
+    }
+}
+
+bool World::hiddenByFog(const Unit& u) const {
+    if (!fog.enabled || (u.player != 7 && team[std::size_t(u.player & 7)] == fog.team)) return false;
+    return u.building() ? fog.at(u.x(), u.y()) == 0 : fog.at(u.x(), u.y()) != 2;
+}
+
 void World::step() {
     ++steps_;
+    if (fog.enabled && steps_ % Fog::kPeriod == 0) updateFog();
     updateObjects();
     updateUpkeep();
     updateSquads();

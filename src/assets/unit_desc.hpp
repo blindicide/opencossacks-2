@@ -84,6 +84,7 @@ struct UnitDesc {
     bool peasant = false;                      // PEASANT
     int destructRange = 0;                     // DESTRUCT: разлёт обломков при разрушении здания (в 1/16 точки)
     std::vector<std::string> destruct;         // DESTRUCT: имена оружия-обломков и взрывов из weapon.nds
+    int vision = 4;                            // VISION — уровень обзора (туман войны); без ключа — 4
     bool immortal = false;                     // IMMORTAL — здание не разрушается (жизнь не опускается ниже 1)
     bool unbeatableWhenFree = false;           // UNBEATABLEWHENFREE — без хозяина (игрок 7) урона не получает
     // SPRITEOBJECT + EXSPRITES ID …: «юнит» — посев объектов complex.lst (поле у мельницы).

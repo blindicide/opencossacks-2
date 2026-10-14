@@ -161,6 +161,8 @@ struct Options {
     int simulate = 0; // секунд
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
+    bool fog = false;   // --fog: туман войны на карте --map
+    bool noFog = false; // --no-fog: без тумана, даже если он включён в настройках
     bool mute = false;  // без звука
     int form = -1;          // проверка: построить выбранных (--select-own) отрядом: 0 шеренга, 1 колонна, 2 каре
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
@@ -260,6 +262,10 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.win = true;
         } else if (a == "--mute") {
             o.mute = true;
+        } else if (a == "--fog") {
+            o.fog = true;
+        } else if (a == "--no-fog") {
+            o.noFog = true;
         } else if (a == "--locks") {
             o.locks = true;
         } else if (a == "--click") {
@@ -395,8 +401,19 @@ struct MapView {
         const float worldSize = float(mapData->rows() * oc2::assets::Map3d::kCell);
         sprites.fillRect(r.x - 2.0f, r.y - 2.0f, r.w + 4.0f, r.h + 4.0f, 0xFF201810);
         sprites.drawQuad(*minimapTexture, r.x, r.y, r.w, r.h);
+        if (world.fog.enabled && world.fog.cols > 0) { // туман: неисследованное чёрное, исследованное — тёмное
+            const auto& f = world.fog;
+            const float cw = r.w / float(f.cols), ch = r.h / float(f.rows);
+            const int stride = std::max(1, int(std::ceil(2.0f / std::min(cw, ch))));
+            for (int j = 0; j < f.rows; j += stride)
+                for (int i = 0; i < f.cols; i += stride) {
+                    const std::uint8_t v = f.cells[std::size_t(j) * std::size_t(f.cols) + std::size_t(i)];
+                    if (v == 2) continue;
+                    sprites.fillRect(r.x + float(i) * cw, r.y + float(j) * ch, cw * float(stride), ch * float(stride), v == 0 ? 0xFF000000 : 0x78000000);
+                }
+        }
         for (const auto& u : world.units()) {
-            if (!u.alive() || u.player == 7 || u.inside) continue;
+            if (!u.alive() || u.player == 7 || u.inside || world.hiddenByFog(u)) continue;
             const float px = r.x + float(u.x()) / worldSize * r.w, py = r.y + float(u.y()) / worldSize * r.h;
             sprites.fillRect(px - 1.0f, py - 1.0f, 2.0f, 2.0f, oc2::render::playerColor(u.player));
         }
@@ -409,6 +426,37 @@ struct MapView {
         sprites.fillRect(vx, vy + vh, vw, 1.0f, c);
         sprites.fillRect(vx, vy, 1.0f, vh, c);
         sprites.fillRect(vx + vw, vy, 1.0f, vh + 1.0f, c);
+    }
+
+    // Туман войны: чёрный на неисследованном, полутёмный на исследованном; края сглажены —
+    // значение в углу клетки — среднее соседних четырёх.
+    void drawFog(oc2::render::SpriteRenderer& sprites, VkExtent2D e) const {
+        const auto& f = world.fog;
+        if (!f.enabled || f.cols == 0) return;
+        const auto alpha = [&](int cx, int cy) {
+            if (cx < 0 || cy < 0 || cx >= f.cols || cy >= f.rows) return 255;
+            const std::uint8_t v = f.cells[std::size_t(cy) * std::size_t(f.cols) + std::size_t(cx)];
+            return v == 0 ? 255 : v == 1 ? 120 : 0;
+        };
+        const auto vertex = [&](int i, int j) { // угол сетки (i, j): среднее клеток вокруг
+            return (alpha(i - 1, j - 1) + alpha(i, j - 1) + alpha(i - 1, j) + alpha(i, j)) / 4;
+        };
+        const int cell = oc2::world::World::Fog::kCell;
+        const float right = camera.x + float(e.width) / camera.zoom, bottom = camera.y + float(e.height) / camera.zoom;
+        const int i0 = std::max(0, int(camera.x) / cell - 1), i1 = std::min(f.cols, int(right) / cell + 2);
+        const int j0 = std::max(0, int(camera.y * 2.0f) / cell - 2), j1 = std::min(f.rows, int((bottom + 400.0f) * 2.0f) / cell + 2);
+        const auto screenPoint = [&](int i, int j) {
+            const int wx = i * cell, wy = j * cell;
+            return std::array<float, 2>{(float(wx) - camera.x) * camera.zoom,
+                                        (float(wy >> 1) - float(mapData->heightAt(wx, wy)) - camera.y) * camera.zoom};
+        };
+        for (int j = j0; j < j1; ++j)
+            for (int i = i0; i < i1; ++i) {
+                const int a[4] = {vertex(i, j), vertex(i + 1, j), vertex(i + 1, j + 1), vertex(i, j + 1)};
+                if (!a[0] && !a[1] && !a[2] && !a[3]) continue;
+                const std::array<std::array<float, 2>, 4> corners{screenPoint(i, j), screenPoint(i + 1, j), screenPoint(i + 1, j + 1), screenPoint(i, j + 1)};
+                sprites.fillQuad(corners, {std::uint32_t(a[0]) << 24, std::uint32_t(a[1]) << 24, std::uint32_t(a[2]) << 24, std::uint32_t(a[3]) << 24});
+            }
     }
 
     // Нажатие на мини-карте ставит туда камеру; true — нажатие поглощено.
@@ -1265,7 +1313,7 @@ struct MapView {
         float bestDist = 1e9f;
         const auto& us = world.units();
         for (std::size_t i = 0; i < us.size(); ++i) {
-            if (us[i].building() || !us[i].alive() || us[i].inside) continue;
+            if (us[i].building() || !us[i].alive() || us[i].inside || world.hiddenByFog(us[i])) continue;
             const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(us[i]) - camera.y) * camera.zoom;
             const float dx = sx - gx, dy = sy - (gy - 22.0f * camera.zoom);
@@ -1286,7 +1334,7 @@ struct MapView {
         float bestDist = 110.0f * 110.0f * camera.zoom * camera.zoom;
         const auto& us = world.units();
         for (std::size_t i = 0; i < us.size(); ++i) {
-            if (!us[i].building() || !us[i].alive()) continue;
+            if (!us[i].building() || !us[i].alive() || world.hiddenByFog(us[i])) continue;
             const float gx = (objects->groundX(us[i]) - camera.x) * camera.zoom;
             const float gy = (objects->groundY(us[i]) - camera.y - 50.0f) * camera.zoom;
             const float d = (sx - gx) * (sx - gx) + (sy - gy) * (sy - gy);
@@ -1751,12 +1799,14 @@ int main(int argc, char** argv) {
             mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, opts->map, screen->images.get());
             mapView->centerOn(vulkan.extent());
             mapView->showLocks = opts->locks;
+            if (opts->fog) mapView->world.enableFog(mapView->world.humanTeam);
             mapView->sounds = sounds.get();
             if (opts->win) mapView->world.killAllExcept(mapView->world.team[0]);
             if (opts->selectOwn)
                 for (auto& u : mapView->world.units())
                     if (u.player == mapView->player && u.alive() && !u.building()) {
                         if (!opts->at) mapView->lookAt(float(u.x()), float(u.y()), vulkan.extent());
+                        std::printf("свой юнит %s: %d,%d\n", u.desc ? u.desc->typeName.c_str() : "?", u.x(), u.y());
                         u.selected = true;
                     }
             if (opts->form >= 0) mapView->formSelected(static_cast<oc2::world::World::Formation>(opts->form));
@@ -1995,6 +2045,7 @@ int main(int argc, char** argv) {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart, screen->images.get());
                     mapView->centerOnPlayer(0, vulkan.extent());
                     mapView->sounds = sounds.get();
+                    if (!pendingBig && screen->menus->settings.fogOfWar && !opts->noFog) mapView->world.enableFog(mapView->world.humanTeam);
                     if (pendingBig && bigScreen) {
                         const auto& att = pendingBig->attack;
                         mapView->setupBigBattle(att, bigScreen->defendersOf(att.target), pendingBig->playerAttacks,
@@ -2177,6 +2228,7 @@ int main(int argc, char** argv) {
                 mapView->drawPlacement(sprites, window.mouseX, window.mouseY);
                 mapView->drawLocks(sprites, e);
                 mapView->drawDragBox(sprites, window);
+                mapView->drawFog(sprites, e);
                 mapView->drawMinimap(sprites, e);
                 mapView->drawPanel(sprites, e);
                 screen->updateHud(mapView->world, mapView->player);

@@ -320,6 +320,22 @@ void SpriteRenderer::fillRect(float x, float y, float w, float h, std::uint32_t 
     drawQuad(*white_, x, y, w, h, c);
 }
 
+void SpriteRenderer::fillQuad(const std::array<std::array<float, 2>, 4>& corners, const std::array<std::uint32_t, 4>& argb) {
+    if (!white_) {
+        assets::Image img(1, 1);
+        img.rgba = {255, 255, 255, 255};
+        white_ = createTexture(img);
+    }
+    std::array<SpriteVertex, 4> v{};
+    for (std::size_t i = 0; i < 4; ++i) {
+        const std::uint32_t c = argb[i];
+        v[i] = {corners[i][0], corners[i][1], 0.0f, 0.0f,
+                {std::uint8_t(((c >> 16) & 0xFF) / 2), std::uint8_t(((c >> 8) & 0xFF) / 2), std::uint8_t((c & 0xFF) / 2), std::uint8_t(c >> 24)}};
+    }
+    const std::array<std::uint16_t, 6> idx{0, 1, 2, 0, 2, 3};
+    drawTriangles(*white_, v, idx);
+}
+
 void SpriteRenderer::setClip(int x1, int y1, int x2, int y2) {
     x1 = std::max(x1, 0);
     y1 = std::max(y1, 0);

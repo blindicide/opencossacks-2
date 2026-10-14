@@ -264,6 +264,26 @@ public:
         return a != 7 && b != 7 && team[std::size_t(a & 7)] != team[std::size_t(b & 7)];
     }
 
+    // Туман войны для команды team: клетки 64×64 мировых единиц — 0 не исследована, 1 исследована
+    // (видна приглушённой, чужие здания стоят там, где их видели), 2 видна сейчас. В оригинале
+    // GetFogSpotVisibility прячет клетку, пока её «свет» ниже порога; радиус обзора — своя
+    // оценка: kBaseVision + kVisionStep × VISION юнита.
+    struct Fog {
+        static constexpr int kCell = 64, kBaseVision = 1100, kVisionStep = 100, kPeriod = 4;
+        bool enabled = false;
+        int team = 0;
+        int cols = 0, rows = 0;
+        std::vector<std::uint8_t> cells;
+        std::uint8_t at(int x, int y) const {
+            const int cx = x / kCell, cy = y / kCell;
+            return cx < 0 || cy < 0 || cx >= cols || cy >= rows ? 0 : cells[std::size_t(cy) * std::size_t(cols) + std::size_t(cx)];
+        }
+    };
+    Fog fog;
+    // Включает туман для команды team (размеры — по карте закрытых клеток).
+    void enableFog(int team);
+    // Скрыт ли юнит от игрока: чужие и нейтральные юниты — вне зоны обзора, здания — в неисследованном.
+    bool hiddenByFog(const Unit& u) const;
     // Один шаг симуляции (kStepSeconds при обычной скорости).
     void step();
 
@@ -403,6 +423,7 @@ private:
     std::pair<int, int> aimPoint(const Unit& u, const Unit& t);
     Unit* victimAt(int player, int ax, int ay);
     void stepProjectiles();
+    void updateFog();
 };
 
 } // namespace oc2::world

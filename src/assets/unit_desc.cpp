@@ -173,6 +173,8 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.destruct.clear();
             const int n = intAt(w, 2, "число обломков");
             for (int i = 0; i < n && 3 + std::size_t(i) < w.size(); ++i) d.destruct.emplace_back(w[3 + std::size_t(i)]);
+        } else if (key == "VISION") {
+            d.vision = intAt(w, 1, "обзор");
         } else if (key == "IMMORTAL") {
             d.immortal = true;
         } else if (key == "UNBEATABLEWHENFREE") {

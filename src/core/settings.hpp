@@ -17,6 +17,7 @@ struct Settings {
     bool showHint = true;
     bool showVideo = true;
     bool arcade = false;   // аркадный режим
+    bool fogOfWar = true;  // туман войны (в settings.xml оригинала DisableFogOfWar=false)
     // Профили игрока (имя в UTF-8) и номер выбранного (−1 — профилей нет).
     struct Profile {
         std::string name;
