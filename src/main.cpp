@@ -79,6 +79,7 @@ const char* kHelp =
     "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
     "  --simulate <с>        с --map: до первого кадра прожить <с> секунд игры и вывести итоги ИИ (для проверок)\n"
     "  --mute                без звука и музыки\n"
+    "  --select-own          с --map: выбрать все свои юниты и поставить камеру на первого (проверка панели)\n"
     "  --win                 с --map: враги погибают сразу (проверка окна итога)\n"
     "  --version             версия\n"
     "\n"
@@ -130,6 +131,7 @@ struct Options {
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
+    bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
@@ -173,6 +175,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--select-own") {
+            o.selectOwn = true;
         } else if (a == "--win") {
             o.win = true;
         } else if (a == "--mute") {
@@ -1021,6 +1025,51 @@ void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc& desc, float mx, 
                       oc2::ui::Align::Left, v);
 }
 
+// Сводка выбранных юнитов правее мини-карты: имя («UNITSMD\\ИМЯ.MD» из mdlist), здоровье и число.
+void drawSelectionInfo(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    const oc2::ui::Font* font = screen.fonts->findTagged("S");
+    if (!font) return;
+    std::vector<std::pair<const oc2::assets::UnitDesc*, int>> kinds; // тип → сколько выбрано
+    const oc2::world::Unit* first = nullptr;
+    int total = 0;
+    for (const auto& u : view.world.units()) {
+        if (!u.selected || !u.alive() || u.inside) continue;
+        if (!first) first = &u;
+        ++total;
+        auto it = std::find_if(kinds.begin(), kinds.end(), [&](const auto& k) { return k.first == u.desc; });
+        if (it == kinds.end()) kinds.emplace_back(u.desc, 1);
+        else ++it->second;
+    }
+    if (!first) return;
+    std::string text;
+    for (std::size_t i = 0; i < kinds.size() && i < 5; ++i) {
+        std::string upper = kinds[i].first->name;
+        for (char& c : upper) c = char(std::toupper(static_cast<unsigned char>(c)));
+        const std::string key = "UNITSMD\\" + upper + ".MD";
+        std::string name = screen.texts.lookup(key);
+        if (name == key) name = kinds[i].first->name;
+        text += name + (kinds[i].second > 1 ? ": " + std::to_string(kinds[i].second) : "") + "\\";
+    }
+    if (kinds.size() > 5) text += "...\\";
+    if (total == 1) text += "Здоровье: " + std::to_string(first->life) + " / " + std::to_string(first->desc->life);
+    const std::string cp = oc2::assets::utf8ToCp1251(text);
+    const oc2::ui::View& v = screen.hudView;
+    constexpr int kWidth = 220;
+    const auto size = screen.text->measure(*font, cp, kWidth, oc2::ui::Align::Left);
+    const auto mini = view.minimapRect(e);
+    const float w = float(size.width + 16) * v.scale, h = float(size.height + 12) * v.scale;
+    const float x = mini.x + mini.w + 12.0f, y = float(e.height) - h - 8.0f;
+    sprites.fillRect(x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, 0xFF5A4630);
+    sprites.fillRect(x, y, w, h, 0xFFE8DCB8);
+    screen.text->draw(*font, cp, int((x + 8.0f * v.scale) / v.scale), int((y + 6.0f * v.scale) / v.scale), kWidth,
+                      oc2::ui::Align::Left, v);
+    if (total == 1 && first->desc->life > 0) { // полоса здоровья под текстом
+        const float part = std::clamp(float(first->life) / float(first->desc->life), 0.0f, 1.0f);
+        sprites.fillRect(x + 4.0f, y + h - 8.0f, w - 8.0f, 4.0f, 0xFF402820);
+        sprites.fillRect(x + 4.0f, y + h - 8.0f, (w - 8.0f) * part, 4.0f, part > 0.5f ? 0xFF40C040 : part > 0.25f ? 0xFFE0C040 : 0xFFE04040);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1050,6 +1099,12 @@ int main(int argc, char** argv) {
             mapView->showLocks = opts->locks;
             mapView->sounds = sounds.get();
             if (opts->win) mapView->world.killAllExcept(mapView->world.team[0]);
+            if (opts->selectOwn)
+                for (auto& u : mapView->world.units())
+                    if (u.player == mapView->player && u.alive() && !u.building()) {
+                        if (!opts->at) mapView->lookAt(float(u.x()), float(u.y()), vulkan.extent());
+                        u.selected = true;
+                    }
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
             if (opts->move) {
                 auto& us = mapView->world.units();
@@ -1299,6 +1354,7 @@ int main(int argc, char** argv) {
                 screen->updateHud(mapView->world, mapView->player);
                 if (hud) hud->draw(screen->hudView);
                 // Подсказка кнопки панели: «UNITSMD\ИМЯ.MD.HINT» из Text/mdlist.txt и цена.
+                drawSelectionInfo(*screen, *mapView, e, sprites);
                 if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave)
                     drawPanelHint(*screen, *b->desc, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
