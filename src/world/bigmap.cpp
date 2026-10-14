@@ -105,6 +105,52 @@ std::array<int, BigGame::kRes> BigGame::income(int nation) const {
     return r;
 }
 
+int BigGame::recruitIncome(int nation) const {
+    int n = 0;
+    for (const SectorState& s : sectors_) n += s.owner == nation && s.dry == 0;
+    return n * data_->k.integer("SECT_REG_RECRTS", 30);
+}
+
+int BigGame::diversionCost(int type, int sector) const {
+    const int level = std::clamp(sectors_[std::size_t(sector)].level, 0, 3);
+    return data_->k.integer("SECT_SABOTAGE" + std::to_string(type), 1000, std::size_t(level));
+}
+
+int BigGame::diversionPercent(int type, int sector) const {
+    const int level = std::clamp(sectors_[std::size_t(sector)].level, 0, 3);
+    return data_->k.integer("SECT_SAB_PERCENT" + std::to_string(type), 50, std::size_t(level));
+}
+
+bool BigGame::canDiversion(int type, int sector) const {
+    if (type < 0 || type >= kDiversions || sector < 0 || sector >= sectorCount()) return false;
+    if (sectors_[std::size_t(sector)].owner == player_) return false;
+    return nations_[std::size_t(player_)].res[1] >= diversionCost(type, sector);
+}
+
+bool BigGame::diversion(int type, int sector) {
+    if (!canDiversion(type, sector)) return false;
+    SectorState& s = sectors_[std::size_t(sector)];
+    nations_[std::size_t(player_)].res[1] -= diversionCost(type, sector);
+    const std::string n = std::to_string(type);
+    if (int(rnd() % 100) >= diversionPercent(type, sector)) {
+        // обычно провал по типу диверсии, иногда — гибель командира группы
+        messages.push_back({"CWM_DiversionFail" + (rnd() % 5 == 0 ? std::string("4") : n), {}});
+        return true;
+    }
+    switch (type) {
+    case 0: s.dry = std::max(s.dry, 1); break; // начало хода начисляет доход и затем уменьшает счётчик
+    case 1: s.blocked = std::max(s.blocked, 1); break;
+    case 2:
+        if (s.level > 0) --s.level;
+        s.garrison = std::min(s.garrison, data_->k.integer("SectGarrisonSquads" + std::to_string(s.level), 4));
+        s.garrison = std::max(0, s.garrison - 1);
+        break;
+    default: loseSector(sector); break;
+    }
+    messages.push_back({"CWM_DiversionDone" + n, {}});
+    return true;
+}
+
 bool BigGame::adjacent(int a, int b) const {
     const auto& nb = data_->map.sectors[std::size_t(a)].neighbors;
     return std::find(nb.begin(), nb.end(), b) != nb.end();
@@ -280,6 +326,7 @@ void BigGame::startTurn() {
     for (SectorState& s : sectors_) { // гарнизон восстанавливается по отряду в ход до нормы уровня
         s.garrison = std::min(s.garrison + 1, data_->k.integer("SectGarrisonSquads" + std::to_string(s.level), 4));
         if (s.blocked > 0) --s.blocked;
+        if (s.dry > 0) --s.dry;
     }
     // Принятые задания: защита засчитывается по сроку, остальные просто истекают.
     for (std::size_t i = 0; i < quests_.size();) {
@@ -614,9 +661,9 @@ int BigGame::result() const {
 
 std::string BigGame::serialize() const {
     std::ostringstream o;
-    o << "BIG2 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
+    o << "BIG3 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
     for (std::size_t i = 0; i < sectors_.size(); ++i)
-        o << "S " << i << ' ' << sectors_[i].owner << ' ' << sectors_[i].garrison << ' ' << sectors_[i].level << ' ' << sectors_[i].blocked << '\n';
+        o << "S " << i << ' ' << sectors_[i].owner << ' ' << sectors_[i].garrison << ' ' << sectors_[i].level << ' ' << sectors_[i].blocked << ' ' << sectors_[i].dry << '\n';
     for (int i = 0; i < kBigNations; ++i) {
         const NationState& n = nations_[std::size_t(i)];
         o << "N " << i << ' ' << n.alive << ' ' << n.rank << ' ' << n.exp << ' ' << n.recruits;
@@ -638,8 +685,8 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
     std::string tag;
     int player = 0, turn = 1;
     std::uint32_t seed = 1;
-    if (!(in >> tag >> player >> turn >> seed) || (tag != "BIG1" && tag != "BIG2") || player < 0 || player >= kBigNations) return std::nullopt;
-    const bool v2 = tag == "BIG2";
+    if (!(in >> tag >> player >> turn >> seed) || (tag != "BIG1" && tag != "BIG2" && tag != "BIG3") || player < 0 || player >= kBigNations) return std::nullopt;
+    const bool v2 = tag != "BIG1", v3 = tag == "BIG3";
     BigGame g(std::move(data), player, seed);
     g.turn_ = turn;
     std::size_t sectorsSeen = 0;
@@ -649,6 +696,7 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
             SectorState s;
             if (!(in >> i >> s.owner >> s.garrison >> s.level) || i >= g.sectors_.size()) return std::nullopt;
             if (v2 && !(in >> s.blocked)) return std::nullopt;
+            if (v3 && !(in >> s.dry)) return std::nullopt;
             g.sectors_[i] = s;
             ++sectorsSeen;
         } else if (tag == "N") {

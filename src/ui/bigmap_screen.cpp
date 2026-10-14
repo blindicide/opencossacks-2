@@ -295,6 +295,7 @@ void BigMapScreen::drawSidePanel() {
             y += say(line, r.x + 14, y, int(r.w) - 16);
         }
     }
+    if (button({r.x + 8, r.y + r.h - 34, r.w - 16, 26}, "Герои")) modal_ = Modal::Hero;
 }
 
 void BigMapScreen::drawSectorStrip() {
@@ -331,7 +332,8 @@ void BigMapScreen::drawSectorStrip() {
     if (button({bx, r.y + 64, bw, bh}, "Нанять отряд")) modal_ = Modal::Recruit;
     if (button({bx + bw + 8, r.y + 8, 150, bh}, t("CWB_EndOfTurn"))) endTurn();
     if (button({bx + bw + 8, r.y + 36, 150, bh}, t("CWB_Quit"))) modal_ = Modal::Quit;
-    if (button({bx + bw + 8, r.y + 64, 150, bh}, "Герои")) modal_ = Modal::Hero;
+    const bool canSab = selected_ >= 0 && !own;
+    if (button({bx + bw + 8, r.y + 64, 150, bh}, t("CWB_Diversion"), canSab) && canSab) modal_ = Modal::Diversion;
 }
 
 void BigMapScreen::drawPick() {
@@ -498,6 +500,33 @@ void BigMapScreen::drawModal() {
         if (button({r.x + r.w / 2 - 70, r.y + r.h - 50, 140, 30}, "Закрыть")) modal_ = Modal::None;
         break;
     }
+    case Modal::Diversion: {
+        if (selected_ < 0) {
+            modal_ = Modal::None;
+            break;
+        }
+        say("{C FF2A1C10}" + t("CWB_Diversion") + " (" + sectorName(selected_) + ")", r.x, y, int(r.w), Align::Center);
+        y += 34;
+        for (int i = 0; i < world::BigGame::kDiversions; ++i) {
+            const bool can = g.canDiversion(i, selected_);
+            const std::string gold = (can ? "" : "{CR}") + std::to_string(g.diversionCost(i, selected_)) + "{C}";
+            std::string label = t("CWM_Diversion" + std::to_string(i));
+            const auto s = label.find("%s");
+            if (s != std::string::npos) label.replace(s, 2, gold);
+            const auto d = label.find("%d%%");
+            if (d != std::string::npos) label.replace(d, 4, std::to_string(g.diversionPercent(i, selected_)) + "%");
+            if (button({r.x + 14, y, r.w - 28, 30}, label, can) && can) {
+                modal_ = Modal::None;
+                game_->diversion(i, selected_);
+                openEvents();
+                autosave();
+                return;
+            }
+            y += 38;
+        }
+        if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, "Отмена")) modal_ = Modal::None;
+        break;
+    }
     case Modal::None: break;
     }
 }
@@ -626,7 +655,7 @@ void BigMapScreen::frame(const View& v, const Input& in) {
     }
     if (in.esc) {
         if (modal_ == Modal::None) modal_ = Modal::Quit;
-        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero) modal_ = Modal::None;
+        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion) modal_ = Modal::None;
     }
     if (in.enter && modal_ == Modal::None) endTurn();
 

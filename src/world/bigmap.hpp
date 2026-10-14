@@ -31,6 +31,7 @@ public:
         int garrison = 0; // отрядов обороны
         int level = 0;    // уровень обороны 0..3
         int blocked = 0;  // ходов без дохода (диверсия на складах)
+        int dry = 0;      // ходов без рекрутов (отравленные колодцы)
     };
 
     struct NationState {
@@ -84,7 +85,16 @@ public:
 
     // Доход и пополнение по секторам нации за ход.
     std::array<int, kRes> income(int nation) const;
-    int recruitIncome(int nation) const { return ownedBy(nation) * data_->k.integer("SECT_REG_RECRTS", 30); }
+    int recruitIncome(int nation) const;
+
+    // Диверсия игрока (SECT_SABOTAGE/SECT_SAB_PERCENT по уровню обороны цели): 0 — отравить колодцы,
+    // 1 — разрушить склады, 2 — взорвать казармы, 3 — поднять восстание.
+    static constexpr int kDiversions = 4;
+    int diversionCost(int type, int sector) const;
+    int diversionPercent(int type, int sector) const;
+    bool canDiversion(int type, int sector) const;
+    // Платит золото и разыгрывает шанс; итог — в messages (CWM_DiversionDone/Fail). false — нельзя.
+    bool diversion(int type, int sector);
 
     bool adjacent(int a, int b) const;
     // Можно ли игроку напасть на сектор: чужой, рядом со своим, в армии есть отряды.

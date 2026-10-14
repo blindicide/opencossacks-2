@@ -1705,6 +1705,13 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
     CHECK(inc[1] == 500 && inc[3] == 2000);
     const int gold = g.nation(0).res[1];
     CHECK(!g.recruit(0, "UnitFuz(EN)")); // армия полна
+    // Диверсии: колодцы лишают сектор рекрутов, казармы снижают уровень обороны.
+    for (const char* key : {"SECT_SABOTAGE0", "SECT_SABOTAGE2"}) data->k.values[key] = {"0", "0", "0", "0"};
+    for (const char* key : {"SECT_SAB_PERCENT0", "SECT_SAB_PERCENT2"}) data->k.values[key] = {"100", "100", "100", "100"};
+    const int recruitsBefore = g.recruitIncome(1);
+    CHECK(!g.canDiversion(0, 0) && g.canDiversion(0, 1)); // свой сектор нельзя
+    CHECK(g.diversion(0, 1) && g.sector(1).dry == 1 && g.recruitIncome(1) < recruitsBefore);
+    CHECK(g.diversion(2, 1) && g.sector(1).level == 2 && g.messages.size() == 2 && g.messages[0].key == "CWM_DiversionDone0");
     // Победа нападавшего меняет владельца, расходует и возвращает отряды, даёт опыт и добавку ресурсов.
     oc2::world::BigGame::Attack a;
     a.nation = 1;
