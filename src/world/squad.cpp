@@ -276,6 +276,24 @@ void World::updateSquads() {
     }
 }
 
+void World::scare(std::size_t index) {
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.inside || u.building()) return;
+    long ex = 0, ey = 0, en = 0;
+    for (const Unit& e : units_) {
+        if (!e.alive() || e.inside || e.building() || !enemies(u.player, e.player)) continue;
+        const long dx = e.x() - u.x(), dy = e.y() - u.y();
+        if (dx * dx + dy * dy < 800L * 800L) ex += e.x(), ey += e.y(), ++en;
+    }
+    const int away = en ? directionOf(int(u.x() - ex / en), int(u.y() - ey / en)) : (u.direction + 128) & 255;
+    u.squad = -1;
+    u.panic = kRoutBase;
+    u.target.reset();
+    u.attacking = false;
+    u.gather = Unit::Gather::None;
+    pathTo(u, u.x() + cos256(away) * 700 / 256, u.y() + sin256(away) * 700 / 256);
+}
+
 // Разгром: отряд распадается, бойцы бегут от ближайших врагов и не ищут боя.
 void World::routSquad(std::size_t index) {
     Squad& sq = squads[index];

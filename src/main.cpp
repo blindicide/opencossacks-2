@@ -773,6 +773,10 @@ struct MapView {
 
     // Шаг мира и раздумья ИИ.
     void stepWorld() {
+        if (script && script->gamePaused) { // PAUSE сценария: мир стоит, правила идут
+            runScript();
+            return;
+        }
         world.step();
         if (settlements) settlements->step();
         for (auto& ai : ais) ai->update();
@@ -899,6 +903,12 @@ struct MapView {
         case SDLK_MINUS:
         case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
         case SDLK_L: showLocks = !showLocks; return;
+        case SDLK_S: {
+            auto& us = world.units();
+            for (std::size_t i = 0; i < us.size(); ++i)
+                if (us[i].selected && us[i].player == player && !us[i].building()) world.orderStop(i);
+            return;
+        }
         case SDLK_E: formSelected(oc2::world::World::Formation::Line); return;
         case SDLK_R: formSelected(oc2::world::World::Formation::Column); return;
         case SDLK_T: formSelected(oc2::world::World::Formation::Square); return;
@@ -1005,6 +1015,7 @@ struct MapView {
         else if (c.kind == "movegroup") world.orderMoveGroup(oc2::world::World::parseIds(c.s), c.a[0], c.a[1]);
         else if (c.kind == "form")
             world.formSquad(oc2::world::World::parseIds(c.s), static_cast<oc2::world::World::Formation>(c.a[0]));
+        else if (c.kind == "stop") world.orderStop(std::size_t(c.a[0]));
         else if (c.kind == "destroy") world.orderDestroy(std::size_t(c.a[0]));
         else if (c.kind == "gather") world.orderGather(std::size_t(c.a[0]), std::size_t(c.a[1]));
         else if (c.kind == "build") world.orderBuild(std::size_t(c.a[0]), std::size_t(c.a[1]));

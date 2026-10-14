@@ -89,6 +89,18 @@ void World::orderMove(std::size_t index, int x, int y) {
     pathTo(u, x, y);
 }
 
+void World::orderStop(std::size_t index) {
+    const auto rec = record("stop", int(index));
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.inside || u.building()) return;
+    u.target.reset();
+    u.gather = Unit::Gather::None;
+    u.buildTarget.reset();
+    u.mine.reset();
+    u.moving = false;
+    u.path.clear();
+}
+
 void World::orderDestroy(std::size_t index) {
     const auto rec = record("destroy", int(index));
     Unit& u = units_.at(index);

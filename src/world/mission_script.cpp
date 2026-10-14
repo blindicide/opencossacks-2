@@ -225,6 +225,16 @@ double MissionScript::eval(const XmlNode& n) {
         note("Compare " + op);
         return 0;
     }
+    if (name == "Ariphmetical") {
+        const double a = sub("COND1"), b = sub("COND2");
+        const std::string op = n.value("OPER").value_or("+");
+        if (op == "+") return a + b;
+        if (op == "-") return a - b;
+        if (op == "*") return a * b;
+        if (op == "/") return b != 0 ? a / b : 0;
+        note("Ariphmetical " + op);
+        return 0;
+    }
     if (name == "Logical") {
         const bool all = n.value("OPER").value_or("And") != "Or";
         const XmlNode* conds = n.child("CONDS");
@@ -338,7 +348,7 @@ void MissionScript::runOp(const XmlNode& op) {
         } else {
             note("SetValue " + type);
         }
-    } else if (name == "AddToInt") {
+    } else if (name == "AddToInt" || name == "AddToIntEx") {
         vars_[refName(op, "IntValue")].num += num("IntAdd");
     } else if (name == "RunTimer") {
         timers_[refName(op, "TimerID")] = w.stepCount() + std::uint64_t(std::max(0, num("Time")));
@@ -500,10 +510,38 @@ void MissionScript::runOp(const XmlNode& op) {
         fg_[ref] = on;
         if (obj && obj->value("ClassName").value_or("") == "lvCBlackScreen") black_ = on;
         if (obj && obj->value("ClassName").value_or("") == "lvCDeffFilmMenu") dialog_.visible = on;
+    } else if (name == "PAUSE") {
+        gamePaused = boolText(str("state"));
+    } else if (name == "FreezeGame" || name == "UnFreezeGame") {
+        gamePaused = name == "FreezeGame";
+    } else if (name == "RotateGroup") {
+        if (const Group* g = group(str("parGrp")))
+            for (std::size_t i : g->units)
+                if (i < w.units().size() && w.units()[i].alive()) w.units()[i].direction = num("parDir") & 255;
+    } else if (name == "Scare") { // группа в панике: бежит от ближайших врагов и не воюет
+        if (const Group* g = group(str("vGrpID")))
+            for (std::size_t i : g->units)
+                if (i < w.units().size() && w.units()[i].alive()) w.scare(i);
+    } else if (name == "ArtAttack") { // группа орудий бьёт по группе целей (по ближайшей живой)
+        const Group* art = group(str("vgArtID"));
+        const Group* targets = group(str("vgTargID"));
+        if (art && targets)
+            for (std::size_t i : art->units) {
+                if (i >= w.units().size() || !w.units()[i].alive()) continue;
+                std::optional<std::size_t> best;
+                long long bestDist = 0;
+                for (std::size_t t : targets->units) {
+                    if (t >= w.units().size() || !w.units()[t].alive() || !w.enemies(w.units()[i].player, w.units()[t].player)) continue;
+                    const long long dx = w.units()[t].x() - w.units()[i].x(), dy = w.units()[t].y() - w.units()[i].y();
+                    if (!best || dx * dx + dy * dy < bestDist) best = t, bestDist = dx * dx + dy * dy;
+                }
+                if (best) w.orderAttack(i, *best);
+            }
     } else if (name == "StopOGMiss" ||
                name == "SetGameMode" || name == "SetScrollLimit" || name == "SetSilence" || name == "PlayOGMiss" ||
                name == "SelectUnits" || name == "SetLightSpot" || name == "BlackScreen" || name == "SetFogMode" ||
-               name == "ClearLightSpot" || name == "ClearOrders" || name == "ArtAttack" || name == "GroupHoldNode" ||
+               name == "ClearLightSpot" || name == "ClearOrders" || name == "GroupHoldNode" || name == "SetMessageState" ||
+               name == "UnFreezeGroup" ||
                name == "SetUnitStateCII" || name == "BrigPanelSet" || name == "SetStartPoint" || name == "ClearSG" ||
                name == "SpotGrpByUType") {
         // Камера, звук и режимы — на стороне окна; пока не нужны для хода миссии.

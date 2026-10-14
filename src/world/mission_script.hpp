@@ -71,6 +71,7 @@ public:
     };
     std::vector<Message> messages; // ShowMessageII (забирает хозяин)
 
+    bool gamePaused = false; // PAUSE / FreezeGame: хозяин не двигает мир, пока сценарий не снимет паузу
     std::optional<int> myNation; // SetMyNation
     // Куда смотрит камера по сценарию (мировые координаты); нет — камера игрока. Ставят MoveCamera
     // и AttachCameraToGroup (следит за первым живым юнитом группы), снимает FreeCamera.

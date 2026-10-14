@@ -140,6 +140,10 @@ public:
 
     // Приказ уничтожить своё здание или подразделение (клавиша Delete): без счёта убитых.
     void orderDestroy(std::size_t unit);
+    // Приказ стоять (клавиша S): снимает цель, путь, добычу и стройку.
+    void orderStop(std::size_t unit);
+    // Паника (Scare сценария): юнит бросает дела и бежит прочь от ближайшего врага.
+    void scare(std::size_t unit);
     // Приказ атаковать юнит target.
     void orderAttack(std::size_t unit, std::size_t target);
 
