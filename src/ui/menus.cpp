@@ -447,6 +447,12 @@ void Menus::syncProfiles(Dialog& dialog) {
             else if (a.type == "cva_ProfCur_Race") w.text = cur ? cp(nationName(cur->race)) : none;
             else if (a.type == "cva_ProfCur_Diff") w.text = cur ? cp(diffNames[std::clamp(cur->difficulty, 0, 2)]) : none;
             else if (a.type == "cva_ProfCur_Ocup" || a.type == "cva_ProfAdd_Desc") w.text.clear();
+            else if (a.type == "cva_ProfCur_Desc") { // сводка по пройденному в кампаниях
+                w.text.clear();
+                int done = 0;
+                for (int d : campaignDone_) done += d;
+                if (cur) w.text = cp("Пройдено миссий кампаний: " + std::to_string(done));
+            } else if (a.type == "cva_ProfStats") w.visible = false; // окна статистики профиля в данных нет
             else if (a.type == "cva_ProfList" && w.listElement &&
                      w.children.size() != settings.profiles.size()) {
                 std::vector<std::string> names;
@@ -455,7 +461,15 @@ void Menus::syncProfiles(Dialog& dialog) {
                 dialog.setListItems(w, names);
                 Dialog::selectListItem(w, profilePick_);
             } else if (a.type == "cva_ProfAdd_PortScr") {
-                w.visible = false; // выбор портрета пока не сделан
+                w.visible = false; // повёрнутый на 270° ползунок не рисуется: портрет листается щелчком
+            } else if (a.type == "cva_ProfAdd_Port") {
+                w.sprite = addPort_;
+            } else if (a.type == "cva_ProfCur_Port") {
+                w.sprite = cur ? cur->portrait : 0;
+            } else if (a.type == "cva_ProfAdd_RaceFlg") { // флаг нации: в Flag.g17 есть не все
+                static const int flagOf[kNationCount] = {0, 1, 5, 2, 3, 4, -1, -1, -1};
+                w.sprite = std::max(0, flagOf[std::clamp(addRace_, 0, kNationCount - 1)]);
+                w.visible = flagOf[std::clamp(addRace_, 0, kNationCount - 1)] >= 0;
             } else if (a.type == "cva_ProfDel_Desk")
                 w.visible = deleteAsk_;
         }
@@ -558,7 +572,10 @@ bool Menus::profileClick(const Widget& w, const Widget::Action& a) {
             });
             addRace_ = 0;
             addDiff_ = 1;
+            addPort_ = 0;
         }
+    } else if (a.type == "cva_ProfAdd_Port") {
+        addPort_ = (addPort_ + 1) % 8;
     } else if (a.type == "cva_ProfSel_Cancel" || a.type == "cva_ProfAdd_Cancel") {
         close();
     } else if (a.type == "cva_ProfDelete") {
@@ -581,7 +598,7 @@ bool Menus::profileClick(const Widget& w, const Widget::Action& a) {
         });
         while (!name.empty() && name.back() == ' ') name.pop_back();
         if (name.empty() || settings.profiles.size() >= 32) return true;
-        settings.profiles.push_back({name, addRace_, addDiff_});
+        settings.profiles.push_back({name, addRace_, addDiff_, addPort_});
         settings.profile = profilePick_ = int(settings.profiles.size()) - 1;
         profileApplied_ = false;
         save();

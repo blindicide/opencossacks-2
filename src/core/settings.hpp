@@ -24,6 +24,7 @@ struct Settings {
         std::string name;
         int race = 0;       // номер нации в списке меню
         int difficulty = 1; // 0..2
+        int portrait = 0;   // кадр lva_EGs, 0..7
     };
     std::vector<Profile> profiles;
     int profile = -1;

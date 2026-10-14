@@ -195,7 +195,7 @@ private:
     int profilePick_ = 0;                    // выбранная строка списка профилей
     bool deleteAsk_ = false;                 // открыто подтверждение удаления профиля
     bool profileApplied_ = false;            // сложность взята из профиля
-    int addRace_ = 0, addDiff_ = 1;          // поля окна «Новый профиль»
+    int addRace_ = 0, addDiff_ = 1, addPort_ = 0;          // поля окна «Новый профиль»
     int animQuality_ = 2, arcadeMode_ = 0, autosave_ = 0, videoMode_ = 0, waterQuality_ = 2; // прочие выпадающие списки окон
     bool optionsShown_ = false;
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры

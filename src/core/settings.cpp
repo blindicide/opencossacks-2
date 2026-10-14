@@ -26,6 +26,14 @@ void Settings::load(const std::filesystem::path& path) {
         const auto eq = line.find('=');
         if (eq == std::string::npos) continue;
         const std::string key = line.substr(0, eq);
+        if (key.rfind("profileport_", 0) == 0) { // profileport_N=портрет
+            try {
+                const std::size_t n = std::size_t(std::stoul(key.substr(12)));
+                if (n < profiles.size()) profiles[n].portrait = std::clamp(std::stoi(line.substr(eq + 1)), 0, 7);
+            } catch (const std::exception&) {
+            }
+            continue;
+        }
         if (key.rfind("profile_", 0) == 0) { // profile_N=нация|сложность|имя
             const std::string rest = line.substr(eq + 1);
             const auto a = rest.find('|'), b = a == std::string::npos ? a : rest.find('|', a + 1);
@@ -79,7 +87,8 @@ void Settings::save(const std::filesystem::path& path) const {
         << "\narcade=" << arcade << "\nfog=" << fogOfWar << "\nfullscreen=" << fullscreen << "\n";
     out << "profile=" << profile << "\n";
     for (std::size_t i = 0; i < profiles.size(); ++i)
-        out << "profile_" << i << "=" << profiles[i].race << "|" << profiles[i].difficulty << "|" << profiles[i].name << "\n";
+        out << "profile_" << i << "=" << profiles[i].race << "|" << profiles[i].difficulty << "|" << profiles[i].name << "\n"
+            << "profileport_" << i << "=" << profiles[i].portrait << "\n";
     for (std::size_t i = 0; i < campaignDone.size(); ++i) out << "campaign_" << i << "=" << campaignDone[i] << "\n";
 }
 
