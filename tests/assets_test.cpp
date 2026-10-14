@@ -1732,6 +1732,15 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
         CHECK(copy && !copy->atWar(0, 1) && copy->atWar(0, 2));
         g.declareWar(1);
         CHECK(g.atWar(0, 1) && g.canAttack(1));
+        // Капитуляция: нация отдаёт все сектора игроку и выбывает.
+        auto cap = oc2::world::BigGame::deserialize(data, g.serialize());
+        const int mine = cap->ownedBy(0), theirs = cap->ownedBy(1);
+        oc2::world::BigGame::Offer o;
+        o.kind = oc2::world::BigGame::Offer::Kind::Surrender;
+        o.giver = 1;
+        cap->offers.push_back(o);
+        CHECK(cap->answer(true) && cap->ownedBy(1) == 0 && cap->ownedBy(0) == mine + theirs && !cap->nation(1).alive);
+        CHECK(!cap->canPropose(Treaty::Union, 2));
     }
     // Победа нападавшего меняет владельца, расходует и возвращает отряды, даёт опыт и добавку ресурсов.
     oc2::world::BigGame::Attack a;

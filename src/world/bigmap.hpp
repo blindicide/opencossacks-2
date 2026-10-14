@@ -112,7 +112,7 @@ public:
     // Дипломатия (CDT_/CDM_ из BigMapData.txt). В начале кампании все нации воюют друг с другом;
     // мир действует, пока кто-то не объявит войну, пакт о ненападении и право прохода — 10 ходов,
     // альянс — оба сразу. Цены в тысячах золота и шансы согласия ИИ — догадка (таблицы не разобраны).
-    enum class Treaty { Peace, NonAggression, Passage, Alliance };
+    enum class Treaty { Peace, NonAggression, Passage, Alliance, Union }; // Union — нация переходит под контроль игрока
     struct Relation {
         bool war = true;
         int nonAggressionUntil = 0; // ход, до которого (включительно) действует пакт
@@ -176,7 +176,7 @@ public:
 
     // Предложение игроку, на которое нужен ответ (мятеж, наёмники, продажа сектора, задание).
     struct Offer {
-        enum class Kind { Rebellion, AddSquad, SellSector, Quest, Treaty } kind = Kind::Quest;
+        enum class Kind { Rebellion, AddSquad, SellSector, Quest, Treaty, Surrender } kind = Kind::Quest;
         Message text;
         int sector = -1;
         int gold = 0;           // цена, награда или выкуп
@@ -219,6 +219,7 @@ private:
     void worldEvents();
     void recordHistory();
     void heroAward(int nation);
+    void absorb(int nation, int into);
     int randomOwned(int nation);
     bool isPort(int sector) const;
     std::string sectorKey(int id) const { return data_->map.sectors[std::size_t(id)].name; }

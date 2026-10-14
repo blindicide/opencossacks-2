@@ -433,7 +433,7 @@ void BigMapScreen::drawModal() {
             break;
         }
         const auto& o = game_->offers.front();
-        say("{C FF2A1C10}" + t(o.kind == world::BigGame::Offer::Kind::Treaty ? "CDT_MessHead1" : "CDT_MessHead25"), r.x, y, int(r.w), Align::Center);
+        say("{C FF2A1C10}" + t(o.kind == world::BigGame::Offer::Kind::Treaty ? "CDT_MessHead1" : o.kind == world::BigGame::Offer::Kind::Surrender ? "CDT_MessHead16" : "CDT_MessHead25"), r.x, y, int(r.w), Align::Center);
         y += 30;
         say("{C FF402010}" + format(o.text), r.x + 14, y, int(r.w) - 28);
         const bool can = game_->canAccept(o);
@@ -608,7 +608,7 @@ void BigMapScreen::drawModal() {
         ry += say("{C FF402010}" + state, rx, ry, int(rw)) + 6;
         ry += say("{C FF402010}" + t("CDT_Actions"), rx, ry, int(rw)) + 2;
         if (dipPending_ < 0) {
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 6; ++i) {
                 const bool can = i == 0 ? g.canDeclareWar(n) : g.canPropose(world::BigGame::Treaty(i - 1), n);
                 const int price = i == 0 ? 0 : g.treatyPrice(world::BigGame::Treaty(i - 1), n);
                 std::string label = t("CDB_Button" + std::to_string(i + 1));

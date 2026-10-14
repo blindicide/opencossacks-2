@@ -184,8 +184,8 @@ std::vector<int> BigGame::shortages(int nation) const {
 }
 
 int BigGame::treatyPrice(Treaty t, int nation) const {
-    static const int base[4] = {3, 2, 2, 5};
-    return base[int(t)] + ownedBy(nation) / 2;
+    static const int base[5] = {3, 2, 2, 5, 10};
+    return base[int(t)] + (t == Treaty::Union ? ownedBy(nation) * 2 : ownedBy(nation) / 2);
 }
 
 bool BigGame::canPropose(Treaty t, int nation) const {
@@ -196,6 +196,7 @@ bool BigGame::canPropose(Treaty t, int nation) const {
     case Treaty::NonAggression: return !r.war && r.nonAggressionUntil < turn_;
     case Treaty::Passage: return !r.war && r.passageUntil < turn_;
     case Treaty::Alliance: return !r.war && (r.nonAggressionUntil < turn_ || r.passageUntil < turn_);
+    case Treaty::Union: return !r.war && r.nonAggressionUntil >= turn_ && r.passageUntil >= turn_; // нужен действующий альянс
     }
     return false;
 }
@@ -203,6 +204,17 @@ bool BigGame::canPropose(Treaty t, int nation) const {
 void BigGame::declareWar(int nation) {
     if (!canDeclareWar(nation)) return;
     setRelation(player_, nation, Relation{});
+}
+
+// Все сектора нации переходят к другой, сама нация выбывает.
+void BigGame::absorb(int nation, int into) {
+    for (const assets::BigSector& s : data_->map.sectors)
+        if (sectors_[std::size_t(s.id)].owner == nation) {
+            sectors_[std::size_t(s.id)].owner = into;
+            messages.push_back({"CWM_CSurrend2", {sectorKey(s.id)}});
+        }
+    nations_[std::size_t(nation)].alive = false;
+    nations_[std::size_t(nation)].army.clear();
 }
 
 bool BigGame::propose(Treaty t, int nation) {
@@ -213,6 +225,7 @@ bool BigGame::propose(Treaty t, int nation) {
     // ИИ соглашается чаще, когда игрок слабее его по числу секторов; мир труднее, чем пакты.
     int chance = 55 + (ownedBy(nation) - ownedBy(player_)) * 3;
     if (t == Treaty::Peace) chance -= 15;
+    if (t == Treaty::Union) chance = ownedBy(nation) <= 3 ? 70 : 25;
     chance = std::clamp(chance, 15, 85);
     if (int(rnd() % 100) >= chance) {
         messages.push_back({"CDM_DontWantContract", {assets::bigNationName(nation)}});
@@ -220,6 +233,10 @@ bool BigGame::propose(Treaty t, int nation) {
     }
     me.res[1] -= price * 1000;
     nations_[std::size_t(nation)].res[1] += price * 1000;
+    if (t == Treaty::Union) {
+        absorb(nation, player_);
+        return true;
+    }
     Relation r = relation(player_, nation);
     r.war = false;
     if (t == Treaty::NonAggression || t == Treaty::Alliance) r.nonAggressionUntil = turn_ + 10;
@@ -248,7 +265,7 @@ void BigGame::diplomacyTurn() {
         for (const assets::BigSector& s : data_->map.sectors)
             if (sectors_[std::size_t(s.id)].owner == n && attackBase(player_, s.id)) neighbour = true;
         bool queued = false;
-        for (const Offer& o : offers) queued = queued || (o.kind == Offer::Kind::Treaty && o.giver == n);
+        for (const Offer& o : offers) queued = queued || ((o.kind == Offer::Kind::Treaty || o.kind == Offer::Kind::Surrender) && o.giver == n);
         if (queued) continue;
         if (r.war && rnd() % 100 < 6) { // соседи устают воевать и просят мира за золото
             Offer o;
@@ -257,6 +274,12 @@ void BigGame::diplomacyTurn() {
             o.gold = (1 + int(rnd() % 3)) * 1000;
             o.quest = "Peace";
             o.text = {"CDM_ProposeContr1", {assets::bigNationName(n), std::to_string(o.gold / 1000)}};
+            offers.push_back(o);
+        } else if (r.war && ownedBy(n) <= 2 && rnd() % 100 < 12) { // слабая нация сдаётся вместе с землями
+            Offer o;
+            o.kind = Offer::Kind::Surrender;
+            o.giver = n;
+            o.text = {"CWM_CSurrend", {assets::bigNationName(n)}};
             offers.push_back(o);
         } else if (!r.war && r.nonAggressionUntil < turn_ && neighbour && rnd() % 100 < 3) {
             setRelation(player_, n, Relation{});
@@ -801,6 +824,9 @@ bool BigGame::answer(bool accept) {
             me.res[1] += o.gold;
             messages.push_back({"CDT_Accepted", {}});
         }
+        break;
+    case Offer::Kind::Surrender:
+        if (accept && nations_[std::size_t(o.giver)].alive) absorb(o.giver, player_);
         break;
     case Offer::Kind::Quest:
         if (accept) quests_.push_back({o.quest, o.giver, o.target, o.sector, o.gold, o.deadline});
