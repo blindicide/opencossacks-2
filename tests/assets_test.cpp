@@ -817,6 +817,20 @@ TEST_CASE("Мир: отряды — строй, скорость и разгро
     CHECK(!w.units()[ids[1]].alive());
 }
 
+TEST_CASE("Мир: пополнение отряда (F)") {
+    using namespace oc2::world;
+    const UnitDesc a = UnitDesc::parse("NAME AusMsk\nGEOMETRY 1 10 40\nLIFE 100\nUNITRADIUS 8\nUSERLC 0 G SHADOW 0 0\n"
+                                       "@REST 9 0 0 3\n@MOTION_L 9 0 4 7\n");
+    World w;
+    std::vector<std::size_t> ids;
+    for (int i = 0; i < 5; ++i) ids.push_back(w.addUnit(a, 0, 100 + i * 7, 100, 0));
+    CHECK(w.formSquad({ids[0], ids[1], ids[2], ids[3]}, World::Formation::Line));
+    CHECK(w.squads[0].members.size() == 4 && w.units()[ids[4]].squad < 0);
+    CHECK(w.reinforceSquad({ids[0], ids[4]}));
+    CHECK(w.squads[0].members.size() == 5 && w.units()[ids[4]].squad == 0);
+    CHECK(!w.reinforceSquad({ids[0], ids[4]})); // одиночек больше нет
+}
+
 TEST_CASE("Мир: добыча — работа, ноша, сдача в здание") {
     using namespace oc2::world;
     const auto table = SpriteList::parseSources("[WORKTRANSFORM]\r\nD00 X\r\n[SOURCES]\r\n//ObjectID\tResource\r\n"

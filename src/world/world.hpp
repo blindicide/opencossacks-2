@@ -132,6 +132,8 @@ public:
     std::vector<Squad> squads;
     // Строит выбранных в отряды по типам (от 2 юнитов в типе; уже целый отряд лишь меняет построение).
     bool formSquad(const std::vector<std::size_t>& ids, Formation form);
+    // Пополнение (клавиша F): одиночки того же типа из ids вливаются в ближайший отряд из ids (до предела отряда).
+    bool reinforceSquad(const std::vector<std::size_t>& ids);
     // Приказ идти в точку: отряды — строем лицом к цели, одиночки — толпой с прежним взаимным расположением.
     void orderMoveGroup(const std::vector<std::size_t>& ids, int x, int y);
     static std::string joinIds(const std::vector<std::size_t>& ids);

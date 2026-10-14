@@ -200,6 +200,47 @@ bool World::formSquad(const std::vector<std::size_t>& ids, Formation form) {
     return any;
 }
 
+bool World::reinforceSquad(const std::vector<std::size_t>& ids) {
+    const auto rec = record("reinforce", 0, 0, 0, 0, joinIds(ids));
+    if (rec.deferred) return true;
+    std::vector<int> groups;
+    std::vector<std::size_t> loose;
+    for (const std::size_t id : ids) {
+        if (id >= units_.size()) continue;
+        const Unit& u = units_[id];
+        if (!u.alive() || u.inside || u.building() || u.desc->peasant) continue;
+        if (u.squad < 0) loose.push_back(id);
+        else if (std::find(groups.begin(), groups.end(), u.squad) == groups.end()) groups.push_back(u.squad);
+    }
+    bool any = false;
+    for (const std::size_t id : loose) {
+        Unit& u = units_[id];
+        int best = -1;
+        long bestDist = 0;
+        for (const int g : groups) {
+            const Squad& sq = squads[std::size_t(g)];
+            if (sq.player != u.player || sq.members.empty() || sq.members.size() >= kMaxSquad) continue;
+            if (units_[sq.members.front()].desc != u.desc) continue;
+            const long dx = u.x() - units_[sq.members.front()].x(), dy = u.y() - units_[sq.members.front()].y();
+            const long d = dx * dx + dy * dy;
+            if (best < 0 || d < bestDist) best = g, bestDist = d;
+        }
+        if (best < 0) continue;
+        Squad& sq = squads[std::size_t(best)];
+        sq.members.push_back(id);
+        sq.initial += 1;
+        u.squad = best;
+        any = true;
+    }
+    for (const int g : groups) {
+        Squad& sq = squads[std::size_t(g)];
+        long cx = 0, cy = 0;
+        for (const std::size_t m : sq.members) cx += units_[m].x(), cy += units_[m].y();
+        layout(*this, sq, int(cx / long(sq.members.size())), int(cy / long(sq.members.size())), sq.facing);
+    }
+    return any;
+}
+
 void World::orderMoveGroup(const std::vector<std::size_t>& ids, int x, int y) {
     const auto rec = record("movegroup", x, y, 0, 0, joinIds(ids));
     if (rec.deferred) return;

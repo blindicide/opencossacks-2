@@ -1114,6 +1114,15 @@ struct MapView {
         if (ids.size() >= 2) world.formSquad(ids, form);
     }
 
+    // Пополнение отряда (F): выбранные одиночки вливаются в выбранный отряд своего типа.
+    void reinforceSelected() {
+        std::vector<std::size_t> ids;
+        auto& us = world.units();
+        for (std::size_t i = 0; i < us.size(); ++i)
+            if (us[i].selected && us[i].player == player) ids.push_back(i);
+        if (ids.size() >= 2) world.reinforceSquad(ids);
+    }
+
     // Выбор одного бойца выбирает весь его отряд.
     void selectSquadmates() {
         auto& us = world.units();
@@ -1187,6 +1196,7 @@ struct MapView {
                 if (us[i].selected && us[i].player == player && !us[i].building()) world.orderStop(i);
             return;
         }
+        case SDLK_F: reinforceSelected(); return;
         case SDLK_E: formSelected(oc2::world::World::Formation::Line); return;
         case SDLK_R: formSelected(oc2::world::World::Formation::Column); return;
         case SDLK_T: formSelected(oc2::world::World::Formation::Square); return;
@@ -1322,7 +1332,7 @@ struct MapView {
             } else if (k == "place" || k == "sow") {
                 c.a[0] = slot;
                 applyCommand(c);
-            } else if (k == "movegroup" || k == "form") {
+            } else if (k == "movegroup" || k == "form" || k == "reinforce") {
                 std::string ids;
                 for (std::size_t i : oc2::world::World::parseIds(c.s))
                     if (own(int(i))) ids += (ids.empty() ? "" : ",") + std::to_string(i);
@@ -1391,6 +1401,7 @@ struct MapView {
         if (c.kind == "move") world.orderMove(std::size_t(c.a[0]), c.a[1], c.a[2]);
         else if (c.kind == "attack") world.orderAttack(std::size_t(c.a[0]), std::size_t(c.a[1]));
         else if (c.kind == "movegroup") world.orderMoveGroup(oc2::world::World::parseIds(c.s), c.a[0], c.a[1]);
+        else if (c.kind == "reinforce") world.reinforceSquad(oc2::world::World::parseIds(c.s));
         else if (c.kind == "form")
             world.formSquad(oc2::world::World::parseIds(c.s), static_cast<oc2::world::World::Formation>(c.a[0]));
         else if (c.kind == "stop") world.orderStop(std::size_t(c.a[0]));
