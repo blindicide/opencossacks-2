@@ -33,6 +33,12 @@ bool Window::pumpEvents() {
     wheel = 0.0f;
     // Координаты событий SDL — в точках окна, рисуем же в пикселях.
     const float density = SDL_GetWindowPixelDensity(window_) > 0.0f ? SDL_GetWindowPixelDensity(window_) : 1.0f;
+    {
+        const SDL_Keymod mods = SDL_GetModState();
+        ctrl = (mods & SDL_KMOD_CTRL) != 0;
+        shift = (mods & SDL_KMOD_SHIFT) != 0;
+        alt = (mods & SDL_KMOD_ALT) != 0;
+    }
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
@@ -63,6 +69,9 @@ bool Window::pumpEvents() {
             break;
         case SDL_EVENT_KEY_DOWN:
             pressedKeys.push_back(e.key.key);
+            ctrl = (e.key.mod & SDL_KMOD_CTRL) != 0;
+            shift = (e.key.mod & SDL_KMOD_SHIFT) != 0;
+            alt = (e.key.mod & SDL_KMOD_ALT) != 0;
             break;
         case SDL_EVENT_QUIT:
         case SDL_EVENT_WINDOW_CLOSE_REQUESTED:

@@ -35,6 +35,8 @@ public:
     bool resized = false;
     // Клавиши (SDL_Keycode), нажатые с прошлого вызова pumpEvents().
     std::vector<std::uint32_t> pressedKeys;
+    // Ctrl, Shift и Alt, зажатые на момент последнего pumpEvents().
+    bool ctrl = false, shift = false, alt = false;
     // Введённый текст (UTF-8) с прошлого вызова pumpEvents().
     std::string typed;
 

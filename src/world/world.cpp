@@ -89,6 +89,14 @@ void World::orderMove(std::size_t index, int x, int y) {
     pathTo(u, x, y);
 }
 
+void World::orderDestroy(std::size_t index) {
+    const auto rec = record("destroy", int(index));
+    Unit& u = units_.at(index);
+    if (!u.alive() || u.inside) return;
+    hit(u, u.life + 1, nullptr);
+    if (u.dead || u.dying) --lostCount[std::size_t(u.player & 7)][u.desc]; // своя казнь не потеря в бою
+}
+
 void World::orderAttack(std::size_t index, std::size_t target) {
     const auto rec = record("attack", int(index), int(target));
     Unit& u = units_.at(index);
@@ -783,6 +791,9 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
 
 void World::hit(Unit& t, int damage, const Unit* by) {
     if (!t.alive()) return;
+    if (by && humanTeam >= 0 && t.player != 7 && team[std::size_t(t.player & 7)] == humanTeam &&
+        enemies(t.player, by->player))
+        lastAlert = {t.x(), t.y(), std::int64_t(steps_)};
     if (const Mods* m = modsOf(t); m && m->shield > 0) damage = std::max(damage - m->shield, damage / 4);
     t.life -= damage;
     if (t.life > 0) return;

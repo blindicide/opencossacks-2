@@ -329,6 +329,9 @@ struct MapView {
     // юнитов цветом игрока, рамка видимой области. M — показать или скрыть.
     std::optional<oc2::render::TextureId> minimapTexture;
     bool minimapVisible = true;
+    bool paused = false;                  // клавиша Pause: симуляция стоит, приказы принимаются
+    bool ctrlHeld = false, altHeld = false; // модификаторы на момент нажатия клавиши
+    std::array<std::vector<std::size_t>, 10> groups; // группы Ctrl+0…9
     static constexpr float kMinimapW = 256.0f, kMinimapH = 240.0f;
 
     struct MinimapRect {
@@ -815,6 +818,53 @@ struct MapView {
         camera.y = y / 2.0f - float(e.height) / camera.zoom / 2.0f;
     }
 
+    // Выбор по клавишам: Ctrl-A — войска, Ctrl-B — здания, Ctrl-Z — все того же типа,
+    // Ctrl-P — свободные крестьяне, Ctrl-0…9 запоминает выбранных, 0…9 — вызывает группу.
+    bool selectionKey(std::uint32_t key) {
+        auto& us = world.units();
+        const auto mine = [&](const oc2::world::Unit& u) { return u.player == player && u.alive() && !u.inside; };
+        const auto pick = [&](auto&& wanted) {
+            for (auto& u : us) u.selected = mine(u) && wanted(u);
+        };
+        if (ctrlHeld && key == SDLK_A) {
+            pick([](const oc2::world::Unit& u) { return !u.building() && !u.desc->peasant; });
+            return true;
+        }
+        if (ctrlHeld && key == SDLK_B) {
+            pick([](const oc2::world::Unit& u) { return u.building() && !u.underConstruction; });
+            return true;
+        }
+        if (ctrlHeld && key == SDLK_P) {
+            pick([](const oc2::world::Unit& u) {
+                return u.desc->peasant && !u.moving && u.gather == oc2::world::Unit::Gather::None && !u.buildTarget && !u.mine && !u.target;
+            });
+            return true;
+        }
+        if (ctrlHeld && key == SDLK_Z) {
+            std::vector<const oc2::assets::UnitDesc*> types;
+            for (const auto& u : us)
+                if (u.selected && mine(u)) types.push_back(u.desc);
+            if (types.empty()) return true;
+            pick([&](const oc2::world::Unit& u) { return std::find(types.begin(), types.end(), u.desc) != types.end(); });
+            return true;
+        }
+        if (key >= SDLK_0 && key <= SDLK_9) {
+            auto& g = groups[std::size_t(key - SDLK_0)];
+            if (ctrlHeld) {
+                g.clear();
+                for (std::size_t i = 0; i < us.size(); ++i)
+                    if (us[i].selected && mine(us[i])) g.push_back(i);
+                return true;
+            }
+            if (g.empty()) return true;
+            for (auto& u : us) u.selected = false;
+            for (std::size_t i : g)
+                if (i < us.size() && mine(us[i])) us[i].selected = true;
+            return true;
+        }
+        return false;
+    }
+
     void handleKey(std::uint32_t key, VkExtent2D e) {
         const float cx = camera.x + float(e.width) / camera.zoom / 2.0f;
         const float cy = camera.y + float(e.height) / camera.zoom / 2.0f;
@@ -826,7 +876,25 @@ struct MapView {
         case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
         case SDLK_L: showLocks = !showLocks; return;
         case SDLK_M: minimapVisible = !minimapVisible; return;
-        default: return;
+        case SDLK_PAUSE:
+        case SDLK_GRAVE: paused = !paused; return;
+        case SDLK_DELETE: {
+            PlayerInput input(world);
+            for (std::size_t i = 0; i < world.units().size(); ++i)
+                if (world.units()[i].selected && world.units()[i].player == player) world.orderDestroy(i);
+            return;
+        }
+        case SDLK_BACKSPACE: {
+            long sx = 0, sy = 0, n = 0;
+            for (const auto& u : world.units())
+                if (u.selected && u.alive()) sx += u.x(), sy += u.y(), ++n;
+            if (n > 0) lookAt(float(sx / n), float(sy / n), e);
+            return;
+        }
+        case SDLK_SPACE: // к месту последнего события у игрока
+            if (world.lastAlert.step >= 0) lookAt(float(world.lastAlert.x), float(world.lastAlert.y), e);
+            return;
+        default: selectionKey(key); return;
         }
         camera.x = cx - float(e.width) / camera.zoom / 2.0f;
         camera.y = cy - float(e.height) / camera.zoom / 2.0f;
@@ -907,6 +975,7 @@ struct MapView {
         const auto type = [&] { return units->find(c.s); };
         if (c.kind == "move") world.orderMove(std::size_t(c.a[0]), c.a[1], c.a[2]);
         else if (c.kind == "attack") world.orderAttack(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "destroy") world.orderDestroy(std::size_t(c.a[0]));
         else if (c.kind == "gather") world.orderGather(std::size_t(c.a[0]), std::size_t(c.a[1]));
         else if (c.kind == "build") world.orderBuild(std::size_t(c.a[0]), std::size_t(c.a[1]));
         else if (c.kind == "enter") world.orderEnter(std::size_t(c.a[0]), std::size_t(c.a[1]));
@@ -1746,6 +1815,8 @@ int main(int argc, char** argv) {
                 const bool resultOpen = !menus.empty() && ((mapView->ended && (menus.currentName() == "EndGameMessage" || menus.currentName() == "PostGameStat")) ||
                                                            menus.currentName() == "F10game" || menus.currentName() == "F1game");
                 const bool gameMenu = resultOpen && menus.currentName() != "EndGameMessage" && menus.currentName() != "PostGameStat";
+                mapView->ctrlHeld = window.ctrl;
+                mapView->altHeld = window.alt;
                 for (std::uint32_t key : window.pressedKeys) {
                     mapView->handleKey(key, e);
                     if (key == SDLK_SPACE) mapView->skipDialog(); // пропуск диалога
@@ -1765,7 +1836,7 @@ int main(int argc, char** argv) {
                             mapView->handleClick(click, e);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
-                if (!mapView->ended && !resultOpen) mapView->advance(dt);
+                if (!mapView->ended && !resultOpen && !mapView->paused) mapView->advance(dt);
                 mapView->playSounds(sounds.get(), e);
                 // Итог: раз в секунду симуляции проверяется, осталась ли одна команда.
                 if (!mapView->ended && mapView->script && mapView->script->ending) {

@@ -109,6 +109,8 @@ public:
 
     // Приказ идти в мировую точку (x, y). Здания не ходят. Снимает цель.
     void orderMove(std::size_t unit, int x, int y);
+    // Приказ уничтожить своё здание или подразделение (клавиша Delete): без счёта убитых.
+    void orderDestroy(std::size_t unit);
     // Приказ атаковать юнит target.
     void orderAttack(std::size_t unit, std::size_t target);
 
@@ -256,6 +258,12 @@ public:
         std::string s;               // имя типа юнита или улучшения
     };
     std::vector<Command> journal;
+    // Последнее событие у команды игрока (по нему прыгает пробел): место и шаг; step −1 — не было.
+    struct Alert {
+        int x = 0, y = 0;
+        std::int64_t step = -1;
+    };
+    Alert lastAlert;
     bool recording = false;
 
     // Победившая команда: живые боевые юниты (не здания) игроков 0..6 остались
