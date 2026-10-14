@@ -1,5 +1,6 @@
 #include "ui/menus.hpp"
 
+#include <random>
 #include <cstdio>
 #include <fstream>
 #include <functional>
@@ -70,6 +71,7 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
             std::fprintf(stderr, "campaign.xml: %s\n", e.what());
         }
     }
+    files_.emplace("Loading", "dialogs/mm/M_Loading.DialogsSystem.xml");
     campaignDone_.assign(campaigns_.campaigns.size(), 0);
     for (std::size_t i = 0; i < campaignDone_.size() && i < settings.campaignDone.size(); ++i)
         campaignDone_[i] = settings.campaignDone[i];
@@ -115,6 +117,18 @@ void Menus::update() {
     syncProfiles(dialog);
     syncSaves(dialog);
     syncStats(dialog);
+    if (currentName() == "Loading")
+        dialog.forEach([&](Widget& w) {
+            if (!hasAction(w, "cva_LoadingTips")) return;
+            if (loadingTip_.empty()) { // случайный совет из Text/Add/tips.txt (#Tips0…)
+                std::vector<std::string> tips;
+                for (int n = 0; ctx_.texts.contains("#Tips" + std::to_string(n)); ++n)
+                    tips.push_back(assets::utf8ToCp1251(ctx_.texts.lookup("#Tips" + std::to_string(n))));
+                if (!tips.empty()) loadingTip_ = tips[std::size_t(std::random_device{}()) % tips.size()];
+            }
+            w.text = loadingTip_;
+        });
+    else loadingTip_.clear();
     bool hasTabs = false;
     dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {

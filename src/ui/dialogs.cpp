@@ -495,8 +495,8 @@ void Dialog::drawTextButton(Widget& w, const View& view) {
     w.drawnW = size.width;
     w.drawnH = size.height;
     // Кадры шрифта — одной высоты, буквы прижаты к низу кадра, а высота виджета равна высоте букв:
-    // нижний край кадра первой строки совпадает с нижним краем виджета.
-    const int y = w.absY + w.height - ctx_.text.fonts().lineHeight(*font);
+    // нижний край кадра последней строки совпадает с нижним краем виджета (многострочный текст — от верха).
+    const int y = w.absY + std::max(0, w.height - size.height);
     ctx_.text.draw(*font, w.text, x, y, limit, w.align == Align::Center ? Align::Center : Align::Left, view);
 }
 

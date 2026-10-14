@@ -1572,6 +1572,7 @@ int main(int argc, char** argv) {
             pattern = sprites.createTexture(testPattern());
         }
 
+        int loadingStage = 0; // 0 — нет, 1 — рисуется экран загрузки, 2 — загрузка идёт
         std::optional<std::string> pendingStart; // карта, выбранная в меню
         std::optional<oc2::world::SaveGame> pendingLoad; // сохранение, выбранное в меню
         std::uint64_t last = SDL_GetTicksNS();
@@ -1615,8 +1616,16 @@ int main(int argc, char** argv) {
                 }
             }
             // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
-            if ((pendingStart || pendingLoad) && screen) {
+            // Сначала один кадр экрана загрузки (M_Loading), затем сама загрузка.
+            if ((pendingStart || pendingLoad) && screen && !mapView && loadingStage == 0 && screen->menus->open("Loading")) {
+                loadingStage = 1;
+                window.clicks.clear();
+            } else if ((pendingStart || pendingLoad) && screen && loadingStage == 1) {
+                loadingStage = 2;
+            } else if ((pendingStart || pendingLoad) && screen) {
                 oc2::ui::Menus& menus = *screen->menus;
+                if (loadingStage == 2 && !menus.empty() && menus.currentName() == "Loading") menus.close();
+                loadingStage = 0;
                 MapView::setup.reset();
                 MapView::difficulty = menus.difficulty;
                 if (pendingLoad) {
