@@ -38,6 +38,29 @@ std::string Map3d::missionOptionsXml() const {
     return std::string(reinterpret_cast<const char*>(bytes.data()) + 4, len);
 }
 
+namespace {
+// XML раздела начинается с первого «<>» (перед ним заголовок из имени и длины).
+std::string xmlPayload(std::span<const std::uint8_t> bytes) {
+    const std::string_view all(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    const std::size_t at = all.substr(0, 32).find("<>");
+    return at == std::string_view::npos ? std::string() : std::string(all.substr(at));
+}
+} // namespace
+
+std::string Map3d::scriptXml() const {
+    for (const MapSection& s : sections_) {
+        if (s.tag != "SXML") continue;
+        std::string xml = xmlPayload(sectionData(s));
+        if (xml.find("<vvMAP_ST>") != std::string::npos) return xml;
+    }
+    return {};
+}
+
+std::string Map3d::zonesXml() const {
+    const MapSection* s = section("ZON2");
+    return s ? xmlPayload(sectionData(*s)) : std::string();
+}
+
 Image Map3d::preview() const {
     constexpr std::uint32_t kW = 256, kH = 240;
     const MapSection* v = section("VIE2");

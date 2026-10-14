@@ -85,6 +85,11 @@ public:
     // Настройки миссии (раздел MOPT): u32 длина и XML в Windows-1251. Пусто, если нет.
     std::string missionOptionsXml() const;
 
+    // Сценарий миссии: XML с «vvMAP_ST» из раздела SXML (имя[4] + u32 длина + XML) и зоны из ZON2.
+    // Пусто, если нет.
+    std::string scriptXml() const;
+    std::string zonesXml() const;
+
     // Мини-карта из раздела VIE2: 256×240 точек ARGB4444 (альфа не используется).
     // Пустое изображение, если раздела нет или размер другой.
     Image preview() const;
