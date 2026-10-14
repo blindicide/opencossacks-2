@@ -86,6 +86,7 @@ const char* kHelp =
     "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
     "  --simulate <с>        с --map: до первого кадра прожить <с> секунд игры и вывести итоги ИИ (для проверок)\n"
     "  --mute                без звука и музыки\n"
+    "  --form line|column|square  с --select-own: построить выбранных отрядом (проверка построений)\n"
     "  --select-own          с --map: выбрать все свои юниты и поставить камеру на первого (проверка панели)\n"
     "  --win                 с --map: враги погибают сразу (проверка окна итога)\n"
     "  --version             версия\n"
@@ -141,6 +142,7 @@ struct Options {
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
+    int form = -1;          // проверка: построить выбранных (--select-own) отрядом: 0 шеренга, 1 колонна, 2 каре
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
     bool f1 = false;  // проверка: на первом кадре нажать F1 (помощь)
@@ -205,6 +207,9 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.f1 = true;
         } else if (a == "--esc") {
             o.esc = true;
+        } else if (a == "--form" && hasValue) {
+            const std::string v = argv[++i];
+            o.form = v == "column" ? 1 : v == "square" ? 2 : 0;
         } else if (a == "--select-own") {
             o.selectOwn = true;
         } else if (a == "--dump-script" && hasValue) {
@@ -818,6 +823,25 @@ struct MapView {
         camera.y = y / 2.0f - float(e.height) / camera.zoom / 2.0f;
     }
 
+    // Построение выбранных в отряд (E — шеренга, R — колонна, T — каре).
+    void formSelected(oc2::world::World::Formation form) {
+        std::vector<std::size_t> ids;
+        auto& us = world.units();
+        for (std::size_t i = 0; i < us.size(); ++i)
+            if (us[i].selected && us[i].player == player) ids.push_back(i);
+        if (ids.size() >= 2) world.formSquad(ids, form);
+    }
+
+    // Выбор одного бойца выбирает весь его отряд.
+    void selectSquadmates() {
+        auto& us = world.units();
+        std::vector<bool> take(world.squads.size());
+        for (const auto& u : us)
+            if (u.selected && u.squad >= 0) take[std::size_t(u.squad)] = true;
+        for (auto& u : us)
+            if (u.squad >= 0 && take[std::size_t(u.squad)] && u.alive() && u.player == player) u.selected = true;
+    }
+
     // Выбор по клавишам: Ctrl-A — войска, Ctrl-B — здания, Ctrl-Z — все того же типа,
     // Ctrl-P — свободные крестьяне, Ctrl-0…9 запоминает выбранных, 0…9 — вызывает группу.
     bool selectionKey(std::uint32_t key) {
@@ -875,6 +899,9 @@ struct MapView {
         case SDLK_MINUS:
         case SDLK_KP_MINUS: camera.zoom = std::max(camera.zoom / 2.0f, 0.125f); break;
         case SDLK_L: showLocks = !showLocks; return;
+        case SDLK_E: formSelected(oc2::world::World::Formation::Line); return;
+        case SDLK_R: formSelected(oc2::world::World::Formation::Column); return;
+        case SDLK_T: formSelected(oc2::world::World::Formation::Square); return;
         case SDLK_M: minimapVisible = !minimapVisible; return;
         case SDLK_PAUSE:
         case SDLK_GRAVE: paused = !paused; return;
@@ -975,6 +1002,9 @@ struct MapView {
         const auto type = [&] { return units->find(c.s); };
         if (c.kind == "move") world.orderMove(std::size_t(c.a[0]), c.a[1], c.a[2]);
         else if (c.kind == "attack") world.orderAttack(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "movegroup") world.orderMoveGroup(oc2::world::World::parseIds(c.s), c.a[0], c.a[1]);
+        else if (c.kind == "form")
+            world.formSquad(oc2::world::World::parseIds(c.s), static_cast<oc2::world::World::Formation>(c.a[0]));
         else if (c.kind == "destroy") world.orderDestroy(std::size_t(c.a[0]));
         else if (c.kind == "gather") world.orderGather(std::size_t(c.a[0]), std::size_t(c.a[1]));
         else if (c.kind == "build") world.orderBuild(std::size_t(c.a[0]), std::size_t(c.a[1]));
@@ -1108,15 +1138,10 @@ struct MapView {
                     if (us[i].selected && us[i].player == player && world.orderGather(i, *s)) any = true;
                 if (any) return;
             }
-            long cx = 0, cy = 0, n = 0;
-            for (const auto& u : us)
-                if (u.selected && u.player == player) cx += u.x(), cy += u.y(), ++n;
-            if (n == 0) return;
-            cx /= n;
-            cy /= n;
+            std::vector<std::size_t> ids;
             for (std::size_t i = 0; i < us.size(); ++i)
-                if (us[i].selected && us[i].player == player)
-                    world.orderMove(i, tx + int(us[i].x() - cx), ty + int(us[i].y() - cy));
+                if (us[i].selected && us[i].player == player) ids.push_back(i);
+            if (!ids.empty()) world.orderMoveGroup(ids, tx, ty);
         }
     }
 
@@ -1135,6 +1160,7 @@ struct MapView {
                 us[*i].selected = true;
                 if (sounds && us[*i].player == player) sounds->play(us[*i].desc->selectSound);
             }
+            selectSquadmates();
             return;
         }
         const float x1 = std::min(x0, c.x), x2 = std::max(x0, c.x), y1 = std::min(y0, c.y), y2 = std::max(y0, c.y);
@@ -1146,6 +1172,7 @@ struct MapView {
                          gy <= y2;
             if (u.selected && !first) first = u.desc;
         }
+        selectSquadmates();
         if (first && sounds) sounds->play(first->selectSound);
     }
 
@@ -1488,6 +1515,7 @@ int main(int argc, char** argv) {
                         if (!opts->at) mapView->lookAt(float(u.x()), float(u.y()), vulkan.extent());
                         u.selected = true;
                     }
+            if (opts->form >= 0) mapView->formSelected(static_cast<oc2::world::World::Formation>(opts->form));
             if (opts->at) mapView->lookAt((*opts->at)[0], (*opts->at)[1], vulkan.extent());
             if (opts->move) {
                 auto& us = mapView->world.units();

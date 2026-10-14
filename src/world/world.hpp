@@ -41,6 +41,8 @@ struct Unit {
     int targetX16 = 0, targetY16 = 0;          // текущая точка пути
     std::vector<std::pair<int, int>> path;     // следующие точки (мировые), в обратном порядке
     bool selected = false;
+    int squad = -1;   // номер отряда в World::squads (−1 — одиночка)
+    int panic = 0;    // шагов бегства после разгрома отряда: не ищет врага
 
     // Бой.
     int life = 0;
@@ -109,6 +111,33 @@ public:
 
     // Приказ идти в мировую точку (x, y). Здания не ходят. Снимает цель.
     void orderMove(std::size_t unit, int x, int y);
+    // Отряды и построения (своё упрощение по подсказкам игры: шеренга, колонна, каре).
+    // Отряд — однотипные юниты одного игрока, идущие строем с общей скоростью. Дух падает
+    // от потерь и попаданий и восстанавливается в покое; отряд разбегается при потере 70 %,
+    // при духе 0 или после 10 % потерь без офицера рядом и низком духе.
+    enum class Formation : std::uint8_t { Line, Column, Square };
+    struct Squad {
+        int player = 0;
+        Formation form = Formation::Line;
+        int facing = 0;                    // 0..255
+        std::vector<std::size_t> members;
+        int initial = 0;
+        int spirit = 100;
+        int idle = 0;                      // шагов без движения
+        int calm = 0;                      // шагов без попаданий
+        int step = 0;                      // общая скорость (1/16 за шаг)
+    };
+    std::vector<Squad> squads;
+    // Строит выбранных в отряды по типам (от 2 юнитов в типе; уже целый отряд лишь меняет построение).
+    bool formSquad(const std::vector<std::size_t>& ids, Formation form);
+    // Приказ идти в точку: отряды — строем лицом к цели, одиночки — толпой с прежним взаимным расположением.
+    void orderMoveGroup(const std::vector<std::size_t>& ids, int x, int y);
+    static std::string joinIds(const std::vector<std::size_t>& ids);
+    static std::vector<std::size_t> parseIds(const std::string& s);
+    // Кавалерия (имя «NatKxxx») и офицер (имя «…Of»): по именам .md.
+    static bool isCavalry(const Unit& u);
+    static bool isOfficer(const Unit& u);
+
     // Приказ уничтожить своё здание или подразделение (клавиша Delete): без счёта убитых.
     void orderDestroy(std::size_t unit);
     // Приказ атаковать юнит target.
@@ -340,6 +369,11 @@ private:
     void starve();
 
     std::vector<Unit> units_;
+
+    void updateSquads();
+    void routSquad(std::size_t index);
+    int stepOf(const Unit& u) const;
+    bool holding(const Unit& u) const; // шеренга стоит на месте — держит позицию
     LockMap lock_;
     std::uint64_t steps_ = 0;
     std::uint32_t rng_ = 0x9e3779b9u; // свой генератор: исход боя повторяем при тех же приказах

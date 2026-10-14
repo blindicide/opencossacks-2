@@ -795,7 +795,20 @@ void World::hit(Unit& t, int damage, const Unit* by) {
         enemies(t.player, by->player))
         lastAlert = {t.x(), t.y(), std::int64_t(steps_)};
     if (const Mods* m = modsOf(t); m && m->shield > 0) damage = std::max(damage - m->shield, damage / 4);
+    if (t.squad >= 0 && by) {
+        const Squad& sq = squads[std::size_t(t.squad)];
+        if (sq.form == Formation::Square && isCavalry(*by)) damage = damage * 2 / 5; // каре против конницы
+        if (holding(t)) { // держащая позицию шеренга: спереди крепче, сзади слабее
+            const int front = (cos256(sq.facing) * (by->x() - t.x()) + sin256(sq.facing) * (by->y() - t.y())) >= 0;
+            damage = front ? damage * 4 / 5 : damage * 5 / 4;
+        }
+    }
     t.life -= damage;
+    if (t.squad >= 0) { // потери и огонь подрывают дух отряда
+        Squad& sq = squads[std::size_t(t.squad)];
+        sq.calm = 0;
+        sq.spirit -= t.life > 0 ? 1 : (by && isCavalry(*by) ? 10 : 6);
+    }
     if (t.life > 0) return;
     t.life = 0;
     ++lostCount[std::size_t(t.player & 7)][t.desc];
@@ -826,10 +839,16 @@ void World::emitSounds(const Unit& u) {
 void World::updateCombat(std::size_t index) {
     Unit& u = units_[index];
     const assets::UnitDesc& d = *u.desc;
+    if (u.panic > 0) { // разбитый бежит, не воюет
+        --u.panic;
+        u.target.reset();
+        return;
+    }
     if (u.target && !units_[*u.target].alive()) u.target.reset();
 
-    // Поиск врага рядом — раз в 10 шагов, у стоящих без дела.
-    if (!u.target && !u.moving && d.searchEnemyRadius > 0 && u.player != 7 && (steps_ + index) % 10 == 0) {
+    // Поиск врага рядом — раз в 10 шагов, у стоящих без дела (колонна на марше не ввязывается).
+    const bool column = u.squad >= 0 && squads[std::size_t(u.squad)].form == Formation::Column;
+    if (!u.target && !u.moving && !column && d.searchEnemyRadius > 0 && u.player != 7 && (steps_ + index) % 10 == 0) {
         long long best = (long long)d.searchEnemyRadius * d.searchEnemyRadius;
         for (std::size_t j = 0; j < units_.size(); ++j) {
             const Unit& e = units_[j];
@@ -913,6 +932,20 @@ void World::thinkAi(std::size_t index) {
     if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam) return;
     if (u.target || u.moving || u.attacking || u.desc->step <= 0) return;
     if (u.desc->peasant) return; // крестьянами распоряжается стратегический ИИ, в атаку их не шлют
+    if (u.squad < 0 && !isOfficer(u)) { // ИИ строит стоящих рядом однотипных в шеренгу
+        std::vector<std::size_t> mates;
+        for (std::size_t j = 0; j < units_.size() && mates.size() < 24; ++j) {
+            const Unit& e = units_[j];
+            if (e.desc != u.desc || e.player != u.player || !e.alive() || e.squad >= 0 || e.moving || e.target) continue;
+            const long dx = e.x() - u.x(), dy = e.y() - u.y();
+            if (dx * dx + dy * dy < 300L * 300L) mates.push_back(j);
+        }
+        if (mates.size() >= 4) {
+            const auto guard = RecordGuard(*this); // сам не пишется: порядок детерминирован шагами
+            formSquad(mates, Formation::Line);
+            return;
+        }
+    }
     long long best = (long long)kAiRadius * kAiRadius;
     std::optional<std::size_t> target;
     for (std::size_t j = 0; j < units_.size(); ++j) {
@@ -992,6 +1025,7 @@ void World::step() {
     ++steps_;
     updateObjects();
     updateUpkeep();
+    updateSquads();
     for (std::size_t index = 0; index < units_.size(); ++index) {
         Unit& u = units_[index];
         if (u.building()) { // кадры зданий — слои, не время
@@ -1034,7 +1068,8 @@ void World::step() {
                         const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
                         // Цель успела уйти дальше полуторной дальности — промах.
                         if (reach <= attackMax(u, int(w)) * 1.5)
-                            if (Unit* victim = shotVictim(u, t)) hit(*victim, u.desc->damage[w], &u);
+                            if (Unit* victim = shotVictim(u, t))
+                                hit(*victim, holding(u) ? u.desc->damage[w] * 115 / 100 : u.desc->damage[w], &u);
                     }
                 }
             }
@@ -1073,7 +1108,8 @@ void World::step() {
             const int dx = u.targetX16 - u.x16, dy = u.targetY16 - u.y16;
             // Смещение за шаг: (cos·шаг >> 8, sin·шаг >> 8) в единицах 1/16 (FUN_018af490, FUN_00f370e0).
             const double dist = std::hypot(double(dx), double(dy));
-            if (dist <= double(u.desc->step)) {
+            const int stepv = stepOf(u);
+            if (dist <= double(stepv)) {
                 u.x16 = u.targetX16;
                 u.y16 = u.targetY16;
                 if (u.path.empty()) {
@@ -1091,10 +1127,14 @@ void World::step() {
                 const int turn = std::clamp(diff, -u.desc->rotate, u.desc->rotate);
                 u.direction = (u.direction + turn) & 255;
                 if (std::abs(diff - turn) <= 32) {
-                    u.x16 += (cos256(u.direction) * u.desc->step) >> 8;
-                    u.y16 += (sin256(u.direction) * u.desc->step) >> 8;
+                    u.x16 += (cos256(u.direction) * stepv) >> 8;
+                    u.y16 += (sin256(u.direction) * stepv) >> 8;
                 }
             }
+        }
+        if (!u.moving && !u.target && u.squad >= 0) { // стоящий в строю поворачивается лицом строя
+            const int diff = ((squads[std::size_t(u.squad)].facing - u.direction + 384) & 255) - 128;
+            u.direction = (u.direction + std::clamp(diff, -u.desc->rotate, u.desc->rotate)) & 255;
         }
         const bool carrying = u.carry > 0 && u.gather == Unit::Gather::ToBase;
         setAnimation(u, u.moving ? (carrying ? carryAnimation(*u.desc, u.gatherResource)

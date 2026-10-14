@@ -772,6 +772,44 @@ TEST_CASE("Мир: таблицы направлений и ходьба") {
     CHECK(std::abs(w.units()[t].direction - 128) <= 2 && w.units()[t].x16 < 16000); // на развороте чуть сносит
 }
 
+TEST_CASE("Мир: отряды — строй, скорость и разгром") {
+    using namespace oc2::world;
+    const UnitDesc a = UnitDesc::parse("NAME AusMsk\nGEOMETRY 1 10 40\nLIFE 100\nUNITRADIUS 8\nUSERLC 0 G SHADOW 0 0\n"
+                                       "@REST 9 0 0 3\n@MOTION_L 9 0 4 7\n");
+    const UnitDesc slow = UnitDesc::parse("NAME AusSlw\nGEOMETRY 1 10 20\nLIFE 100\nUNITRADIUS 8\nUSERLC 0 G SHADOW 0 0\n"
+                                          "@REST 9 0 0 3\n@MOTION_L 9 0 4 7\n");
+    const UnitDesc officer = UnitDesc::parse("NAME AusOf\nGEOMETRY 1 10 40\n");
+    const UnitDesc horse = UnitDesc::parse("NAME AusKGus\nGEOMETRY 1 10 40\n");
+    CHECK(!World::isCavalry(Unit{&a}) && World::isCavalry(Unit{&horse}) && World::isOfficer(Unit{&officer}));
+    World w;
+    std::vector<std::size_t> ids;
+    for (int i = 0; i < 6; ++i) ids.push_back(w.addUnit(i == 0 ? slow : a, 0, 100 + i * 7, 100 + (i % 2) * 5, 0));
+    CHECK(World::parseIds(World::joinIds(ids)) == ids);
+    CHECK(w.formSquad(ids, World::Formation::Line)); // типы разные: «медленный» один, остальные пять
+    CHECK(w.squads.size() == 1 && w.squads[0].members.size() == 5 && w.units()[ids[0]].squad < 0);
+    w.orderMoveGroup({ids[1], ids[2], ids[3], ids[4], ids[5]}, 1000, 100);
+    CHECK(w.squads[0].facing <= 4 || w.squads[0].facing >= 252); // лицом на восток
+    for (int i = 0; i < 400; ++i) w.step();
+    // Строй пришёл: все стоят у цели в двух шеренгах, ряд по оси юг—север.
+    int minX = 1 << 30, maxX = 0;
+    for (std::size_t i = 1; i < ids.size(); ++i) {
+        minX = std::min(minX, w.units()[ids[i]].x());
+        maxX = std::max(maxX, w.units()[ids[i]].x());
+        CHECK(!w.units()[ids[i]].moving);
+    }
+    CHECK(maxX - minX <= 40 && minX > 900 && minX < 1010);
+    // Колонна идёт быстрее: ×1.2 от шага 40 = 48.
+    CHECK(w.formSquad({ids[1], ids[2], ids[3], ids[4], ids[5]}, World::Formation::Column));
+    w.step();
+    CHECK(w.squads[0].step == 48);
+    // Упавший дух — разгром: отряд распадается, бойцы паникуют; без духа из двух останется горстка.
+    w.squads[0].spirit = 0;
+    w.step();
+    CHECK(w.squads[0].members.empty() && w.units()[ids[5]].squad < 0 && w.units()[ids[5]].panic > 0);
+    w.orderDestroy(ids[1]);
+    CHECK(!w.units()[ids[1]].alive());
+}
+
 TEST_CASE("Мир: добыча — работа, ноша, сдача в здание") {
     using namespace oc2::world;
     const auto table = SpriteList::parseSources("[WORKTRANSFORM]\r\nD00 X\r\n[SOURCES]\r\n//ObjectID\tResource\r\n"
