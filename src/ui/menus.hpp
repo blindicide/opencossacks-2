@@ -86,6 +86,8 @@ public:
     // Коды наций (Nations.lst) в порядке пунктов списка «Нация» после «По карте».
     static const char* nationCode(int index);
     std::array<Slot, kSlots> slots;
+    // Сложность миссий 0..2 (cva_CampDiff, cva_ProfAdd_Diff); игра берёт её при запуске.
+    int difficulty = 1;
     // Последний запуск — стычка из меню (применять таблицу игроков), а не миссия кампании.
     bool setupStart() const { return setupStart_; }
 
@@ -122,6 +124,7 @@ private:
     bool resultShown_ = false;
     bool backToMain_ = false;
     bool setupStart_ = false;
+    int animQuality_ = 2, arcadeMode_ = 0, autosave_ = 0; // прочие выпадающие списки окон
     bool optionsShown_ = false;
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры
     std::optional<std::string> lastStart_; // последняя начатая карта (cva_MM_ReplayCurMiss)

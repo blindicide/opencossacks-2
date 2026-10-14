@@ -282,6 +282,21 @@ void Menus::syncPlayerTable(Dialog& dialog) {
             }
         }
     });
+    // Прочие выпадающие списки: строки и связанное значение.
+    auto fill = [&](Widget& w, std::initializer_list<const char*> items, int& value) {
+        if (w.items.empty())
+            for (const char* i : items) w.items.push_back(cp(i));
+        sync(w, value);
+    };
+    dialog.forEach([&](Widget& w) {
+        if (w.kind != WidgetKind::ComboBox) return;
+        for (const Widget::Action& a : w.actions) {
+            if (a.type == "cva_CampDiff" || a.type == "cva_ProfAdd_Diff") fill(w, {"Лёгкая", "Нормальная", "Трудная"}, difficulty);
+            else if (a.type == "cva_Opt_AnimQuality") fill(w, {"Низкое", "Среднее", "Высокое"}, animQuality_);
+            else if (a.type == "cva_Opt_ArcadeMode") fill(w, {"Выключен", "Включён"}, arcadeMode_);
+            else if (a.type == "cva_MP_Autosave") fill(w, {"Выключено", "Включено"}, autosave_);
+        }
+    });
 }
 
 bool Menus::hasAction(const Widget& w, const char* type) {

@@ -1430,6 +1430,7 @@ int main(int argc, char** argv) {
             // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
             if (pendingStart && screen) {
                 MapView::setup.reset();
+                MapView::difficulty = screen->menus->difficulty;
                 if (screen->menus->setupStart()) MapView::setup = screen->menus->slots;
                 try {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart,
