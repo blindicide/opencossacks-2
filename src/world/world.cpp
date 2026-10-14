@@ -1015,7 +1015,11 @@ std::optional<int> World::winningTeam() const {
 
 void World::thinkAi(std::size_t index) {
     Unit& u = units_[index];
-    if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam || (humanMask >> u.player & 1)) return;
+    if (netGame) {
+        if (u.player == 7 || (humanMask >> u.player & 1)) return;
+    } else if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam || (humanMask >> u.player & 1)) {
+        return;
+    }
     if (u.target || u.moving || u.attacking || u.desc->step <= 0) return;
     if (u.desc->peasant) return; // крестьянами распоряжается стратегический ИИ, в атаку их не шлют
     if (u.squad < 0 && !isOfficer(u)) { // ИИ строит стоящих рядом однотипных в шеренгу

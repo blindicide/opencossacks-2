@@ -115,7 +115,9 @@ void Menus::update() {
         dialog.forEach([&](Widget& w) {
             if (w.type == "TabButton" && w.state == 1 && tab.empty()) tab = w.group;
         });
-    syncPlayerTable(dialog);
+    if (currentName() == "MultiRoom" && net.active()) syncNetRoom(dialog);
+    else syncPlayerTable(dialog);
+    if (currentName() == "Multi") syncNetMulti(dialog);
     syncProfiles(dialog);
     syncSaves(dialog);
     syncStats(dialog);
@@ -616,7 +618,7 @@ void Menus::typeText(const std::string& utf8, bool backspace) {
         if (w.kind != WidgetKind::InputBox || !w.focused) return;
         if (backspace && !w.text.empty()) w.text.pop_back(); // cp1251 — один байт на знак
         for (char c : assets::utf8ToCp1251(utf8))
-            if (static_cast<unsigned char>(c) >= 32 && int(w.text.size()) < std::min(w.maxLen, 24)) w.text.push_back(c);
+            if (static_cast<unsigned char>(c) >= 32 && int(w.text.size()) < (hasAction(w, "cva_BR_ChatInput") ? 90 : std::min(w.maxLen, 24))) w.text.push_back(c);
     });
 }
 
@@ -701,6 +703,11 @@ void Menus::click(Widget& w) {
     if (w.kind == WidgetKind::CheckBox) w.checked = !w.checked;
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
+        bool stop = false;
+        if (netClick(w, a, stop)) {
+            if (stop) return;
+            continue;
+        }
         if (profileClick(w, a)) return;
         if (saveClick(w, a)) return; // «Загрузить» без выбранной строки ничего не делает
         if (a.type == "cva_BR_PlColor" && w.id >= 0 && w.id < kSlots) {

@@ -12,6 +12,7 @@
 #include "world/savegame.hpp"
 #include "assets/mission_list.hpp"
 #include "core/settings.hpp"
+#include "net/session.hpp"
 #include "ui/dialogs.hpp"
 
 namespace oc2::ui {
@@ -138,11 +139,22 @@ public:
     std::array<Slot, kSlots> slots;
     // Сложность миссий 0..2 (cva_CampDiff, cva_ProfAdd_Diff); игра берёт её при запуске.
     int difficulty = 1;
+    // Сетевая игра: сессия комнаты (создаётся окнами «Сетевая игра» и «Комната»); main.cpp ведёт ходы.
+    net::Session net;
+    // Enter в окне: отправка сообщения чата комнаты.
+    void enterPressed();
+    // Сообщение сети для показа в окне «Сетевая игра» (потеря связи, отказ хозяина) — UTF-8.
+    void setNetError(std::string text) { netError_ = std::move(text); }
     // Последний запуск — стычка из меню (применять таблицу игроков), а не миссия кампании.
     bool setupStart() const { return setupStart_; }
 
 private:
     void syncPlayerTable(Dialog& dialog);
+    void syncNetMulti(Dialog& dialog);
+    void syncNetRoom(Dialog& dialog);
+    bool inNetRoom() const;
+    void startNetGame();
+    bool netClick(const Widget& w, const Widget::Action& a, bool& stop);
     void syncProfiles(Dialog& dialog);
     void syncSaves(Dialog& dialog);
     void syncStats(Dialog& dialog);
@@ -198,6 +210,9 @@ private:
     int addRace_ = 0, addDiff_ = 1, addPort_ = 0;          // поля окна «Новый профиль»
     int animQuality_ = 2, arcadeMode_ = 0, autosave_ = 0, videoMode_ = 0, waterQuality_ = 2; // прочие выпадающие списки окон
     bool optionsShown_ = false;
+    bool nickInit_ = false, chatDirty_ = false;
+    std::string netError_;
+    std::vector<std::string> chatLines_;
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры
     std::optional<std::string> lastStart_; // последняя начатая карта (cva_MM_ReplayCurMiss)
 };

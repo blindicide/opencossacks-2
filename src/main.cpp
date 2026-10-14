@@ -24,6 +24,7 @@
 #include "assets/game_paths.hpp"
 #include "assets/image.hpp"
 #include "core/version.hpp"
+#include "net/session.hpp"
 #include "core/settings.hpp"
 #include "platform/audio.hpp"
 #include "platform/sound_bank.hpp"
@@ -635,6 +636,16 @@ struct MapView {
             if (world.sowField(*placing, player, x, y) > 0) placing = nullptr;
             return;
         }
+        if (netSession) { // сеть: закладка и приказ строителям уходят одним приказом
+            if (!world.canPlace(*placing, x, y) || !world.affordable(*placing, player)) return;
+            std::string ids;
+            for (std::size_t i = 0; i < world.units().size(); ++i)
+                if (world.units()[i].selected && world.units()[i].player == player && !world.units()[i].building())
+                    ids += (ids.empty() ? "" : ",") + std::to_string(i);
+            world.commandSink({world.stepCount(), "placebuild", {player, x, y, 0}, placing->typeName + "|" + ids});
+            placing = nullptr;
+            return;
+        }
         const auto b = world.placeBuilding(*placing, player, x, y);
         if (!b) return; // место занято или не хватает ресурсов — выбор остаётся
         placing = nullptr;
@@ -643,6 +654,11 @@ struct MapView {
     }
     std::string startMap;   // карта игры (в сохранении)
     int player = 0;         // за кого играем: приказы слушают только его юниты
+    // Сетевая игра: сессия комнаты (lockstep-ходы), пока идёт матч по сети.
+    static inline oc2::net::Session* netSession = nullptr;
+    int stepInTurn = 0;       // шагов мира выполнено в текущем ходу
+    int netStalled = 0;       // кадров подряд, что ждём ходы других игроков
+    std::string netNotice;    // «Ожидание игроков…», «Рассинхронизация» и т. п.
     // Сценарий миссии (правила из карты). Есть правила — ИИ запускает сам сценарий.
     std::unique_ptr<oc2::world::MissionScript> script;
     static inline int difficulty = 1; // сложность миссии 0..2 (GetDiff)
@@ -738,6 +754,12 @@ struct MapView {
         if (setup) // команды из таблицы: одинаковый номер — союзники (8+ не пересекается с «своим номером»)
             for (int p = 0; p < oc2::ui::Menus::kSlots; ++p)
                 if ((*setup)[std::size_t(p)].team) world.team[std::size_t(p)] = 8 + (*setup)[std::size_t(p)].team;
+        if (netSession) {
+            player = netSession->mySlot;
+            world.netGame = true;
+            world.humanMask = netSession->humanMask();
+            world.commandSink = [this](const oc2::world::World::Command& c) { netSession->submit(c); };
+        }
         world.humanTeam = world.team[std::size_t(player)];
         dataDir = data;
         std::size_t missing = 0;
@@ -1006,6 +1028,7 @@ struct MapView {
         for (int p = 0; p < 7; ++p) {
             if (only >= 0 && p != only) continue;
             if (p == player && !self) continue;
+            if (netSession && (netSession->humanMask() >> p & 1)) continue;
             if (setup && !(*setup)[std::size_t(p)].active) continue;
             const std::string code = oc2::world::playerNation(world, *units, p);
             if (code.empty()) continue;
@@ -1036,7 +1059,7 @@ struct MapView {
     VkExtent2D viewExtent{1280, 720}; // размер окна для камеры сценария; обновляется каждый кадр
     void runScript() {
         script->step();
-        if (script->myNation) {
+        if (script->myNation && !netSession) {
             player = *script->myNation;
             world.humanTeam = world.team[std::size_t(player & 7)];
             script->myNation.reset();
@@ -1163,7 +1186,9 @@ struct MapView {
         case SDLK_T: formSelected(oc2::world::World::Formation::Square); return;
         case SDLK_M: minimapVisible = !minimapVisible; return;
         case SDLK_PAUSE:
-        case SDLK_GRAVE: paused = !paused; return;
+        case SDLK_GRAVE:
+            if (!netSession) paused = !paused;
+            return;
         case SDLK_DELETE: {
             PlayerInput input(world);
             for (std::size_t i = 0; i < world.units().size(); ++i)
@@ -1224,6 +1249,10 @@ struct MapView {
 
     // Шаги симуляции за прошедшее время (не больше 5 за кадр, чтобы не отставать бесконечно).
     void advance(double dt) {
+        if (netSession) {
+            advanceNet(dt);
+            return;
+        }
         stepTime += dt;
         for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
             tick();
@@ -1245,15 +1274,92 @@ struct MapView {
     // Пока жив, приказы мира пишутся в журнал сохранения (ввод игрока, а не ИИ и сценарий).
     struct PlayerInput {
         oc2::world::World& w;
-        explicit PlayerInput(oc2::world::World& world) : w(world) { w.recording = true; }
-        ~PlayerInput() { w.recording = false; }
+        explicit PlayerInput(oc2::world::World& world) : w(world), was(world.recording) { w.recording = true; }
+        ~PlayerInput() { w.recording = was; }
+        bool was = false;
     };
 
     // Пропуск диалога сценария (пробел); пишется в журнал, чтобы загрузка повторила тот же ход.
     void skipDialog() {
-        if (!script) return;
+        if (!script || netSession) return;
         world.journal.push_back({world.stepCount(), "skip", {}, {}});
         script->skipDialog();
+    }
+
+    // Сетевой ход: приказ участника slot выполняется только над его юнитами; остальное — игнор.
+    void applyNetCommand(int slot, oc2::world::World::Command c) {
+        try {
+            const auto& us = world.units();
+            const auto own = [&](int i) { return i >= 0 && std::size_t(i) < us.size() && us[std::size_t(i)].player == slot; };
+            const std::string& k = c.kind;
+            if (k == "move" || k == "attack" || k == "stop" || k == "destroy" || k == "gather" || k == "build" ||
+                k == "enter" || k == "produce" || k == "research") {
+                if (!own(c.a[0])) return;
+                applyCommand(c);
+            } else if (k == "place" || k == "sow") {
+                c.a[0] = slot;
+                applyCommand(c);
+            } else if (k == "movegroup" || k == "form") {
+                std::string ids;
+                for (std::size_t i : oc2::world::World::parseIds(c.s))
+                    if (own(int(i))) ids += (ids.empty() ? "" : ",") + std::to_string(i);
+                if (ids.empty()) return;
+                c.s = ids;
+                applyCommand(c);
+            } else if (k == "leave") {
+                if (c.a[0] < 0 || std::size_t(c.a[0]) >= us.size()) return;
+                bool mine = false;
+                for (std::size_t o : us[std::size_t(c.a[0])].occupants) mine |= o < us.size() && us[o].player == slot;
+                if (mine) applyCommand(c);
+            } else if (k == "placebuild") {
+                const std::size_t bar = c.s.find('|');
+                if (bar == std::string::npos) return;
+                const auto* d = units->find(c.s.substr(0, bar));
+                if (!d) return;
+                const auto b = world.placeBuilding(*d, slot, c.a[1], c.a[2]);
+                if (!b) return;
+                for (std::size_t i : oc2::world::World::parseIds(c.s.substr(bar + 1)))
+                    if (own(int(i)) && !us[i].building()) world.orderBuild(i, *b);
+            }
+        } catch (const std::exception&) {
+            // приказ с неверными номерами — одинаково отбрасывается у всех
+        }
+    }
+
+    // Шаги мира в сетевой игре: ход = kTurnSteps шагов; новый ход начинается, только когда пришли
+    // приказы всех участников (иначе мир ждёт). Приказы идут через commandSink, не из журнала.
+    void advanceNet(double dt) {
+        using oc2::net::Session;
+        netSession->pump();
+        if (netSession->lost()) {
+            netNotice = "Соединение потеряно";
+            return;
+        }
+        stepTime += dt;
+        const bool rec = std::exchange(world.recording, false);
+        bool stalled = false;
+        for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
+            if (stepInTurn == 0) {
+                if (!netSession->turnReady()) {
+                    stalled = true;
+                    break;
+                }
+                const int t = netSession->turn();
+                for (auto& [slot, cmd] : netSession->beginTurn()) applyNetCommand(slot, std::move(cmd));
+                if (t % Session::kSumEvery == 0) netSession->reportHash(t, world.stateHash());
+                netSession->pump();
+            }
+            tick();
+            stepTime -= oc2::world::kStepSeconds;
+            if (++stepInTurn >= Session::kTurnSteps) stepInTurn = 0;
+        }
+        world.recording = rec;
+        netStalled = stalled ? netStalled + 1 : 0;
+        if (stepTime > 0.5) stepTime = 0.5; // при простое не копится «долг» шагов
+        if (netSession->desyncTurn() >= 0) netNotice = "Рассинхронизация";
+        else if (netSession->goneCount() > 0) netNotice = "Игрок отключился";
+        else if (netStalled > 20) netNotice = "Ожидание игроков…";
+        else netNotice.clear();
     }
 
     // Приказ из журнала сохранения.
@@ -1666,12 +1772,13 @@ oc2::ui::Menus::GameStats buildGameStats(Screen& screen, const MapView& view, bo
 // Сценарий миссии на экране: список задач слева сверху, плашка сообщения, диалог внизу (портреты не рисуем).
 // Надпись «ПАУЗА» (PAUSETEXT) по центру сверху, пока симуляция стоит по клавише Pause.
 void drawPauseBanner(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
-    if (!view.paused) return;
+    if (!view.paused && view.netNotice.empty()) return;
     const oc2::ui::Font* font = screen.fonts->findTagged("G18");
     if (!font) font = screen.fonts->findTagged("S");
     if (!font) return;
     const oc2::ui::View& v = screen.hudView;
-    const std::string cp = oc2::assets::utf8ToCp1251(screen.texts.contains("PAUSETEXT") ? screen.texts.lookup("PAUSETEXT") : "ПАУЗА");
+    const std::string cp = oc2::assets::utf8ToCp1251(!view.paused ? view.netNotice
+                                                     : screen.texts.contains("PAUSETEXT") ? screen.texts.lookup("PAUSETEXT") : "ПАУЗА");
     const auto size = screen.text->measure(*font, cp, 400, oc2::ui::Align::Center);
     const float w = float(size.width + 40) * v.scale, h = float(size.height + 16) * v.scale;
     const float x = (float(e.width) - w) / 2.0f, y = 48.0f * v.scale;
@@ -2025,6 +2132,10 @@ int main(int argc, char** argv) {
             }
             // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
             // Сначала один кадр экрана загрузки (M_Loading), затем сама загрузка.
+            if (!mapView && MapView::netSession && screen) { // сетевая игра закончена: выходим из комнаты
+                screen->menus->net.leave();
+                MapView::netSession = nullptr;
+            }
             if ((pendingStart || pendingLoad) && screen && !mapView && loadingStage == 0 && screen->menus->open("Loading")) {
                 loadingStage = 1;
                 window.clicks.clear();
@@ -2050,9 +2161,10 @@ int main(int argc, char** argv) {
                     while (!menus.empty() && menus.currentName() == "F10game") menus.close();
                 } else if (menus.setupStart())
                     MapView::setup = menus.slots;
+                MapView::netSession = !pendingLoad && !pendingBig && menus.net.phase() == oc2::net::Session::Phase::Playing ? &menus.net : nullptr;
                 try {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart, screen->images.get());
-                    mapView->centerOnPlayer(0, vulkan.extent());
+                    mapView->centerOnPlayer(mapView->player, vulkan.extent());
                     mapView->sounds = sounds.get();
                     if (!pendingBig && screen->menus->settings.fogOfWar && !opts->noFog) mapView->world.enableFog(mapView->world.humanTeam);
                     if (pendingBig && bigScreen) {
@@ -2149,6 +2261,8 @@ int main(int argc, char** argv) {
                                                  window.pressedKeys.end())
                     menus.typeText(window.typed, std::find(window.pressedKeys.begin(), window.pressedKeys.end(),
                                                            SDLK_BACKSPACE) != window.pressedKeys.end());
+                if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_RETURN) != window.pressedKeys.end())
+                    menus.enterPressed();
                 for (const auto& click : window.clicks) {
                     if (click.button == 1 && !hovered) {
                         menus.current().closeCombos();
@@ -2206,7 +2320,7 @@ int main(int argc, char** argv) {
                             mapView->handleClick(click, e);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
-                if (!mapView->ended && !resultOpen && !mapView->paused) {
+                if (!mapView->ended && (!resultOpen || (mapView->netSession && gameMenu)) && !mapView->paused) {
                     mapView->advance(dt);
                     mapView->bigBattleAi();
                 }
@@ -2249,7 +2363,7 @@ int main(int argc, char** argv) {
                     drawPanelHint(*screen, b->desc, b->upgrade, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
                     const bool open = runMenu();
-                    if (auto name = menus.takeSaveRequest()) {
+                    if (auto name = menus.takeSaveRequest(); name && !mapView->netSession) {
                         oc2::world::SaveGame g;
                         g.name = *name;
                         g.time = std::time(nullptr);

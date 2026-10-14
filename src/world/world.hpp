@@ -349,6 +349,8 @@ public:
     int humanTeam = -1;
     // Сетевая игра: биты игроков-людей — их юнитами тактический ИИ не распоряжается (даже вне humanTeam).
     unsigned humanMask = 0;
+    // Сетевая игра: решает только humanMask (humanTeam у участников разный и разошёлся бы).
+    bool netGame = false;
 
     // Проверочное: убить всех боевых юнитов не из команды team.
     void killAllExcept(int team);
