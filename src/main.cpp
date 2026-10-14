@@ -143,6 +143,7 @@ struct Options {
     bool mute = false;  // без звука
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
+    bool f1 = false;  // проверка: на первом кадре нажать F1 (помощь)
     bool skipFilm = false; // проверка сценария: пропускать диалоги
     bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
@@ -200,6 +201,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--f1") {
+            o.f1 = true;
         } else if (a == "--esc") {
             o.esc = true;
         } else if (a == "--select-own") {
@@ -1582,6 +1585,15 @@ int main(int argc, char** argv) {
             last = now;
             if (!opts->typeText.empty() && frame == 20) window.typed = opts->typeText;
             if (opts->esc && frame == 1) window.pressedKeys.push_back(SDLK_ESCAPE); // проверка меню игры
+            if (opts->f1 && frame == 1) window.pressedKeys.push_back(SDLK_F1); // проверка помощи
+            if (mapView && screen && !mapView->ended &&
+                std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_F1) != window.pressedKeys.end()) {
+                // Помощь (F1): окно поверх игры, повторное нажатие закрывает.
+                oc2::ui::Menus& m = *screen->menus;
+                if (!m.empty() && m.currentName() == "F1game") m.close();
+                else if (m.empty()) m.open("F1game");
+                window.pressedKeys.clear();
+            }
             if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
                 window.pressedKeys.end()) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
@@ -1592,7 +1604,7 @@ int main(int argc, char** argv) {
                 } else if (mapView && screen) {
                     // Меню игры (F10): Esc открывает его, повторное нажатие закрывает.
                     oc2::ui::Menus& m = *screen->menus;
-                    if (!m.empty() && m.currentName() == "F10game") m.close();
+                    if (!m.empty() && (m.currentName() == "F10game" || m.currentName() == "F1game")) m.close();
                     else if (m.empty() || m.currentName() != "EndGameMessage") m.open("F10game");
                     window.pressedKeys.clear();
                     window.clicks.clear();
@@ -1723,8 +1735,8 @@ int main(int argc, char** argv) {
                 // Итог боя показан — карта стоит, нажатия идут окну итога.
                 // Окно итога или меню игры открыто — карта стоит, нажатия идут окну.
                 const bool resultOpen = !menus.empty() && ((mapView->ended && (menus.currentName() == "EndGameMessage" || menus.currentName() == "PostGameStat")) ||
-                                                           menus.currentName() == "F10game");
-                const bool gameMenu = resultOpen && menus.currentName() == "F10game";
+                                                           menus.currentName() == "F10game" || menus.currentName() == "F1game");
+                const bool gameMenu = resultOpen && menus.currentName() != "EndGameMessage" && menus.currentName() != "PostGameStat";
                 for (std::uint32_t key : window.pressedKeys) {
                     mapView->handleKey(key, e);
                     if (key == SDLK_SPACE) mapView->skipDialog(); // пропуск диалога
