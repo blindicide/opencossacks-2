@@ -341,6 +341,7 @@ struct MapView {
         const oc2::assets::UnitDesc* desc;
         float x, y, size;
         bool leave = false; // выпустить крестьянина из шахты
+        const oc2::assets::UpgradeDef* upgrade = nullptr; // кнопка улучшения вместо юнита
     };
     // Выбранный свой юнит или здание, у которого есть [FIXED_PRODUCE].
     std::optional<std::size_t> producer() const {
@@ -372,6 +373,11 @@ struct MapView {
         for (const auto& it : *items)
             if (const oc2::assets::UnitDesc* d = units->find(it.member))
                 out.push_back({d, x0 + float(it.column) * cell, y0 + float(it.row) * cell, cell});
+        // Улучшения, которые исследует это здание ([UPGRADEPLACE]), — в клетках из #POSITION.
+        for (const std::string& name : units->upgradesAt(units->typeOf(world.units()[*who].desc)))
+            if (const oc2::assets::UpgradeDef* up = units->upgrade(name))
+                out.push_back({nullptr, x0 + float(up->column) * cell, y0 + float(std::min(up->row, rows - 1)) * cell,
+                               cell, false, up});
         return out;
     }
 
@@ -385,6 +391,23 @@ struct MapView {
         }
         sprites.fillRect(x0 - 4.0f, y0 - 4.0f, x1 - x0 + 8.0f, y1 - y0 + 8.0f, 0xF0201810);
         for (const auto& b : buttons) {
+            if (b.upgrade) { // улучшение: значка в данных нет — плитка с уровнем точками
+                const auto who = producer();
+                const bool done = world.researched[std::size_t(player & 7)].count(b.upgrade->name) > 0;
+                const bool running = who && world.units()[*who].researchLeft > 0 && world.units()[*who].research == b.upgrade->name;
+                bool can = !done && !running && who && world.units()[*who].researchLeft == 0;
+                for (std::size_t r = 0; can && r < b.upgrade->cost.size(); ++r)
+                    can = world.resources[std::size_t(player & 7)][r] >= b.upgrade->cost[r];
+                sprites.fillRect(b.x + 1.0f, b.y + 1.0f, b.size - 2.0f, b.size - 2.0f,
+                                 done ? 0xFF305830 : running ? 0xFF806020 : can ? 0xFF907048 : 0xFF504030);
+                for (int l = 0; l < b.upgrade->level; ++l)
+                    sprites.fillRect(b.x + 6.0f + float(l) * 8.0f, b.y + b.size - 12.0f, 6.0f, 6.0f, 0xFFFFE060);
+                if (running) {
+                    const float part = 1.0f - float(world.units()[*who].researchLeft) / float(std::max(1, b.upgrade->time));
+                    sprites.fillRect(b.x + 2.0f, b.y + b.size - 6.0f, (b.size - 4.0f) * part, 4.0f, 0xFF40E040);
+                }
+                continue;
+            }
             const oc2::render::GpId id = images->id(b.desc->bigIconFile);
             const auto frame = std::size_t(b.desc->bigIconFrame);
             if (!images->valid(id) || frame >= images->frameCount(id)) {
@@ -393,7 +416,7 @@ struct MapView {
             }
             const float w = float(images->frameWidth(id, frame)), h = float(images->frameHeight(id, frame));
             const float scale = (b.size - 2.0f) / std::max({w, h, 1.0f});
-            const bool can = world.affordable(*b.desc, player);
+            const bool can = world.affordable(*b.desc, player) && world.available(*b.desc, player);
             images->draw(id, frame, b.x + 1.0f, b.y + 1.0f, can ? 0xFFFFFFFF : 0xFF707070, scale);
             // Очередь здания: полоса готовности над значком первого, точки — сколько заказано.
             if (const auto who = producer(); who && world.units()[*who].building()) {
@@ -455,7 +478,12 @@ struct MapView {
                     if (world.units()[i].selected && !world.units()[i].occupants.empty()) world.leaveMine(i);
                 return true;
             }
-            if (c.button == 1 && (b.desc->building || b.desc->spriteObject)) placing = b.desc;
+            if (b.upgrade) {
+                if (c.button == 1)
+                    if (const auto who = producer()) world.orderResearch(*who, *b.upgrade);
+                return true;
+            }
+            if (c.button == 1 && (b.desc->building || b.desc->spriteObject) && world.available(*b.desc, player)) placing = b.desc;
             if (c.button == 1 && !b.desc->building && !b.desc->spriteObject)
                 if (const auto who = producer(); who && world.orderProduce(*who, *b.desc) && sounds)
                     sounds->play(b.desc->selectSound);
@@ -999,8 +1027,10 @@ struct Screen {
 };
 
 // Подсказка над кнопкой панели: текст из mdlist (разметка {C …}, {F…}) и строка цены.
-void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc& desc, float mx, float my,
-                   oc2::render::SpriteRenderer& sprites) {
+void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc* unitDesc, const oc2::assets::UpgradeDef* upgrade,
+                   float mx, float my, oc2::render::SpriteRenderer& sprites) {
+    static const oc2::assets::UnitDesc kNoDesc;
+    const oc2::assets::UnitDesc& desc = unitDesc ? *unitDesc : kNoDesc;
     std::string upper = desc.name;
     for (char& c : upper) c = char(std::toupper(static_cast<unsigned char>(c)));
     const std::string key = "UNITSMD\\" + upper + ".MD.HINT";
@@ -1008,8 +1038,16 @@ void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc& desc, float mx, 
     if (text == key) text = desc.name;
     static constexpr const char* kNames[] = {"дерево", "золото", "камень", "еда", "железо", "уголь"};
     std::string price;
-    for (std::size_t r = 0; r < desc.price.size(); ++r)
-        if (desc.price[r] > 0) price += (price.empty() ? "" : ", ") + std::string(kNames[r]) + " " + std::to_string(desc.price[r]);
+    if (upgrade) {
+        text = "Улучшение " + upgrade->name + " (уровень " + std::to_string(upgrade->level) + ")";
+        for (std::size_t r = 0; r < upgrade->cost.size(); ++r)
+            if (upgrade->cost[r] > 0)
+                price += (price.empty() ? "" : ", ") + std::string(kNames[r]) + " " + std::to_string(upgrade->cost[r]);
+    } else {
+        for (std::size_t r = 0; r < desc.price.size(); ++r)
+            if (desc.price[r] > 0)
+                price += (price.empty() ? "" : ", ") + std::string(kNames[r]) + " " + std::to_string(desc.price[r]);
+    }
     if (!price.empty()) text += "\\{C FF203060}Цена: " + price;
     const std::string cp = oc2::assets::utf8ToCp1251(text);
     const oc2::ui::Font* font = screen.fonts->findTagged("S");
@@ -1355,8 +1393,8 @@ int main(int argc, char** argv) {
                 if (hud) hud->draw(screen->hudView);
                 // Подсказка кнопки панели: «UNITSMD\ИМЯ.MD.HINT» из Text/mdlist.txt и цена.
                 drawSelectionInfo(*screen, *mapView, e, sprites);
-                if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave)
-                    drawPanelHint(*screen, *b->desc, window.mouseX, window.mouseY, sprites);
+                if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave && (b->desc || b->upgrade))
+                    drawPanelHint(*screen, b->desc, b->upgrade, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
                     const bool open = runMenu();
                     if (menus.takeBackToMain()) {
