@@ -88,7 +88,7 @@ bool Menus::open(const std::string& name) {
 }
 
 void Menus::close() {
-    if (!stack_.empty() && stack_.back().name == "Options") optionsShown_ = false;
+    optionsShown_ = false;
     if (!stack_.empty()) stack_.pop_back();
 }
 
@@ -113,10 +113,9 @@ void Menus::update() {
         if (w.type == "TabButton") w.state = w.group == tab ? 1 : 0;
     });
     // Окно настроек: ползунки и флажки берут значения из settings при открытии.
-    if (currentName() == "Options" && !optionsShown_) {
-        syncOptions(true);
-        optionsShown_ = true;
-    }
+    const bool optionsOpen = currentName() == "Options" || modalDesk() == "Options";
+    if (optionsOpen && !optionsShown_) syncOptions(true);
+    optionsShown_ = optionsOpen;
     dialog.forEach([&](Widget& w) {
         // Список кампаний окна выбора (у окна загрузки CampList — список сохранений).
         if (w.name == "CampList" && w.listElement && !hasAction(w, "cva_LS_FileList") &&
@@ -207,6 +206,9 @@ void Menus::update() {
                 }
             }
             if (a.type == "cva_M_ModalDesk") w.visible = w.name == modalDesk();
+            // Меню игры: вариант панели «Main» по режиму игры (SinGlobalMap, SinBattles, MulBattles).
+            if (a.type == "cva_InGameMenu_MainDesk" && a.node && w.visible)
+                w.visible = a.node->value("ID").value_or("") == mainDesk_;
             // FUN_013d8a00 (упрощённо): «Начать» доступна, если есть карта; проверки
             // состава игроков и команд оригинала ещё не перенесены.
             if (a.type == "cva_MM_SinglStart") w.enabled = selectedMission.has_value();
@@ -268,6 +270,20 @@ void Menus::click(Widget& w) {
             close();
             return;
         }
+        if (a.type == "cva_MM_AcceptInDesk") { // «Принять» панели настроек в меню игры
+            syncOptions(false);
+            settings.save(core::Settings::defaultPath());
+            continue; // дальше — cva_M_ModalDeskSet:Main
+        }
+        if (a.type == "cva_MM_ReplayCurMiss") { // «Начать миссию заново»
+            if (lastStart_) startRequest_ = *lastStart_;
+            close();
+            return;
+        }
+        if (a.type == "cva_InGameMenu_MainDesk_Set") { // режим игры для панели меню F10
+            if (a.node) mainDesk_ = a.node->value("ID").value_or(mainDesk_);
+            continue;
+        }
         if (a.type == "cva_MM_Accept" || a.type == "cva_MM_Cancel") { // «Принять» и «Отмена» окна настроек
             if (a.type == "cva_MM_Accept" && currentName() == "Options") {
                 syncOptions(false);
@@ -304,7 +320,7 @@ void Menus::click(Widget& w) {
             }
             return;
         }
-        if (a.type == "cva_M_CrossFade" || a.type == "cva_InGameMenu_MainDesk_Set" || a.type == "cva_vGameMode_Set" ||
+        if (a.type == "cva_M_CrossFade" || a.type == "cva_vGameMode_Set" ||
             a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" ||
             a.type == "cva_ClearClick" || a.type.rfind("cva_Opt_", 0) == 0)
             continue; // оформление и профиль — без последствий

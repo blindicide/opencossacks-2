@@ -67,6 +67,7 @@ public:
     std::optional<std::string> takeStartRequest() {
         auto r = std::move(startRequest_);
         startRequest_.reset();
+        if (r) lastStart_ = r;
         return r;
     }
 
@@ -101,6 +102,8 @@ private:
     bool resultShown_ = false;
     bool backToMain_ = false;
     bool optionsShown_ = false;
+    std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры
+    std::optional<std::string> lastStart_; // последняя начатая карта (cva_MM_ReplayCurMiss)
 };
 
 } // namespace oc2::ui

@@ -135,6 +135,7 @@ struct Options {
     bool locks = false; // показать закрытые клетки с самого начала
     bool mute = false;  // без звука
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
+    bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
     bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
@@ -189,6 +190,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &x, &y) != 2)
                 throw std::runtime_error("--at ждёт мировые координаты вида 11939,14758");
             o.at = std::array<float, 2>{x, y};
+        } else if (a == "--esc") {
+            o.esc = true;
         } else if (a == "--select-own") {
             o.selectOwn = true;
         } else if (a == "--win") {
@@ -1285,6 +1288,7 @@ int main(int argc, char** argv) {
             const std::uint64_t now = SDL_GetTicksNS();
             const double dt = double(now - last) / 1e9;
             last = now;
+            if (opts->esc && frame == 1) window.pressedKeys.push_back(SDLK_ESCAPE); // проверка меню игры
             if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
                 window.pressedKeys.end()) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
@@ -1293,8 +1297,10 @@ int main(int argc, char** argv) {
                     mapView->placing = nullptr; // отмена выбора места
                     window.pressedKeys.clear();
                 } else if (mapView && screen) {
-                    if (screen->menus->empty()) break; // игра открыта ключом --map, меню нет
-                    mapView.reset();
+                    // Меню игры (F10): Esc открывает его, повторное нажатие закрывает.
+                    oc2::ui::Menus& m = *screen->menus;
+                    if (!m.empty() && m.currentName() == "F10game") m.close();
+                    else if (m.empty() || m.currentName() != "EndGameMessage") m.open("F10game");
                     window.pressedKeys.clear();
                     window.clicks.clear();
                 } else {
@@ -1392,7 +1398,10 @@ int main(int argc, char** argv) {
                     window.mouseInside = true;
                 }
                 // Итог боя показан — карта стоит, нажатия идут окну итога.
-                const bool resultOpen = mapView->ended && !menus.empty() && menus.currentName() == "EndGameMessage";
+                // Окно итога или меню игры открыто — карта стоит, нажатия идут окну.
+                const bool resultOpen = !menus.empty() && ((mapView->ended && menus.currentName() == "EndGameMessage") ||
+                                                           menus.currentName() == "F10game");
+                const bool gameMenu = resultOpen && menus.currentName() == "F10game";
                 for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
                 if (window.wheel != 0.0f && !resultOpen)
                     mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
@@ -1408,7 +1417,7 @@ int main(int argc, char** argv) {
                             mapView->handleClick(click, e);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
-                if (!mapView->ended) mapView->advance(dt);
+                if (!mapView->ended && !resultOpen) mapView->advance(dt);
                 mapView->playSounds(sounds.get(), e);
                 // Итог: раз в секунду симуляции проверяется, осталась ли одна команда.
                 if (!mapView->ended && mapView->world.stepCount() % 25 == 0)
@@ -1440,7 +1449,7 @@ int main(int argc, char** argv) {
                         while (!menus.empty() && menus.currentName() != "Main") menus.close();
                         window.clicks.clear();
                         if (menus.empty()) break;
-                    } else if (!open) {
+                    } else if (!open && !gameMenu) {
                         break;
                     }
                 }
