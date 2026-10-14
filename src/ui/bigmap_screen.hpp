@@ -61,7 +61,7 @@ public:
     void select(int sector) { selected_ = sector; }
 
 private:
-    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit, Hero, Diversion, Market };
+    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit, Hero, Diversion, Market, Diplomacy };
 
     struct Rect {
         float x, y, w, h;
@@ -121,6 +121,8 @@ private:
     int selected_ = -1;
     int hover_ = -1;
     Modal modal_ = Modal::None;
+    std::string dipLog_; // последний ответ в окне дипломатии
+    int dipNation_ = -1, dipPending_ = -1; // дипломатия: выбранная нация и действие, ждущее подтверждения (0 война … 4 альянс)
     int marketFrom_ = 0, marketTo_ = 1; // рынок: что отдаём и что получаем (номера ресурсов мира)
     std::optional<world::BigGame::Attack> pending_; // нападение, о котором спрашивает окно
     bool battleWait_ = false;                       // бой идёт на карте сектора

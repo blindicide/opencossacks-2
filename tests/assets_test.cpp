@@ -1719,6 +1719,20 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
         CHECK(g.exchange(0, 1, 1000) && g.nation(0).res[0] == wood - 1000 && g.nation(0).res[1] == gold0 + 320);
         CHECK(!g.exchange(0, 0, 10) && !g.exchange(0, 1, wood * 2));
     }
+    // Дипломатия: сначала война со всеми; мир запрещает нападение, договор истекает, войну можно объявить.
+    {
+        using Treaty = oc2::world::BigGame::Treaty;
+        CHECK(g.atWar(0, 1) && g.canAttack(1) && !g.canDeclareWar(1) && g.canPropose(Treaty::Peace, 1) && !g.canPropose(Treaty::Passage, 1));
+        CHECK(g.treatyPrice(Treaty::Peace, 1) == 3 + g.ownedBy(1) / 2);
+        for (int i = 0; i < 40 && g.atWar(0, 1); ++i) {
+            g.propose(Treaty::Peace, 1);
+        }
+        CHECK(!g.atWar(0, 1) && !g.canAttack(1) && g.canDeclareWar(1));
+        const auto copy = oc2::world::BigGame::deserialize(data, g.serialize());
+        CHECK(copy && !copy->atWar(0, 1) && copy->atWar(0, 2));
+        g.declareWar(1);
+        CHECK(g.atWar(0, 1) && g.canAttack(1));
+    }
     // Победа нападавшего меняет владельца, расходует и возвращает отряды, даёт опыт и добавку ресурсов.
     oc2::world::BigGame::Attack a;
     a.nation = 1;

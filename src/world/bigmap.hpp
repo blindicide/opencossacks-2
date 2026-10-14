@@ -105,6 +105,26 @@ public:
     // Ресурсы нации, которых ей не хватает (торговцы рассказывают об этом на рынке).
     std::vector<int> shortages(int nation) const;
 
+    // Дипломатия (CDT_/CDM_ из BigMapData.txt). В начале кампании все нации воюют друг с другом;
+    // мир действует, пока кто-то не объявит войну, пакт о ненападении и право прохода — 10 ходов,
+    // альянс — оба сразу. Цены в тысячах золота и шансы согласия ИИ — догадка (таблицы не разобраны).
+    enum class Treaty { Peace, NonAggression, Passage, Alliance };
+    struct Relation {
+        bool war = true;
+        int nonAggressionUntil = 0; // ход, до которого (включительно) действует пакт
+        int passageUntil = 0;
+    };
+    const Relation& relation(int a, int b) const { return relations_[std::size_t(a * assets::kBigNations + b)]; }
+    bool atWar(int a, int b) const { return a != b && relation(a, b).war; }
+    bool hasPassage(int a, int b) const { return a == b || (!atWar(a, b) && relation(a, b).passageUntil >= turn_); }
+    // Цена договора для игрока в тысячах золота.
+    int treatyPrice(Treaty t, int nation) const;
+    bool canDeclareWar(int nation) const { return nation != player_ && nations_[std::size_t(nation)].alive && !atWar(player_, nation); }
+    bool canPropose(Treaty t, int nation) const;
+    void declareWar(int nation); // игрок объявляет войну
+    // Игрок предлагает договор: ИИ принимает или отклоняет (messages), золото уходит при согласии.
+    bool propose(Treaty t, int nation);
+
     bool adjacent(int a, int b) const;
     // Можно ли игроку напасть на сектор: чужой, рядом со своим, в армии есть отряды.
     bool canAttack(int target) const;
@@ -150,7 +170,7 @@ public:
 
     // Предложение игроку, на которое нужен ответ (мятеж, наёмники, продажа сектора, задание).
     struct Offer {
-        enum class Kind { Rebellion, AddSquad, SellSector, Quest } kind = Kind::Quest;
+        enum class Kind { Rebellion, AddSquad, SellSector, Quest, Treaty } kind = Kind::Quest;
         Message text;
         int sector = -1;
         int gold = 0;           // цена, награда или выкуп
@@ -185,6 +205,11 @@ private:
     void rollEvents();
     void completeQuests(const Attack& a, const Outcome& o, int defender);
     void loseSector(int sector);
+    void setRelation(int a, int b, const Relation& r) {
+        relations_[std::size_t(a * assets::kBigNations + b)] = r;
+        relations_[std::size_t(b * assets::kBigNations + a)] = r;
+    }
+    void diplomacyTurn();
     int randomOwned(int nation);
     bool isPort(int sector) const;
     std::string sectorKey(int id) const { return data_->map.sectors[std::size_t(id)].name; }
@@ -198,6 +223,7 @@ private:
     std::vector<ActiveQuest> quests_;
     std::vector<int> lastFired_; // по определениям Quests.dat: ход последнего срабатывания
     std::array<NationState, assets::kBigNations> nations_;
+    std::array<Relation, assets::kBigNations * assets::kBigNations> relations_{};
 };
 
 } // namespace oc2::world

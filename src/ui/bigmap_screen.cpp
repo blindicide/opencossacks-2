@@ -297,6 +297,7 @@ void BigMapScreen::drawSidePanel() {
     }
     if (button({r.x + 8, r.y + r.h - 34, r.w - 16, 26}, "Герои")) modal_ = Modal::Hero;
     if (button({r.x + 8, r.y + r.h - 64, r.w - 16, 26}, t("CWV_Market"))) modal_ = Modal::Market;
+    if (button({r.x + 8, r.y + r.h - 94, r.w - 16, 26}, t("CWV_Diplomacy"))) modal_ = Modal::Diplomacy, dipPending_ = -1;
 }
 
 void BigMapScreen::drawSectorStrip() {
@@ -374,7 +375,7 @@ void BigMapScreen::drawModal() {
     fill({0, 0, 1024, 768}, 0x90000000);
     const world::BigGame& g = *game_;
     const float h = modal_ == Modal::Attack || modal_ == Modal::Defend || modal_ == Modal::Offer ? 260.0f : modal_ == Modal::Quit || modal_ == Modal::GameOver ? 200.0f : 420.0f;
-    const Rect r = modal_ == Modal::Hero ? Rect{112, 130, 800, 400} : Rect{262, (768 - h) / 2 - 40, 500, h};
+    const Rect r = modal_ == Modal::Diplomacy ? Rect{112, 110, 800, 460} : modal_ == Modal::Hero ? Rect{112, 130, 800, 400} : Rect{262, (768 - h) / 2 - 40, 500, h};
     panel(r);
     float y = r.y + 14;
     switch (modal_) {
@@ -430,7 +431,7 @@ void BigMapScreen::drawModal() {
             break;
         }
         const auto& o = game_->offers.front();
-        say("{C FF2A1C10}" + t("CDT_MessHead25"), r.x, y, int(r.w), Align::Center);
+        say("{C FF2A1C10}" + t(o.kind == world::BigGame::Offer::Kind::Treaty ? "CDT_MessHead1" : "CDT_MessHead25"), r.x, y, int(r.w), Align::Center);
         y += 30;
         say("{C FF402010}" + format(o.text), r.x + 14, y, int(r.w) - 28);
         const bool can = game_->canAccept(o);
@@ -526,6 +527,76 @@ void BigMapScreen::drawModal() {
             y += 38;
         }
         if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, "Отмена")) modal_ = Modal::None;
+        break;
+    }
+    case Modal::Diplomacy: {
+        say("{C FF2A1C10}" + t("CWV_Diplomacy"), r.x, y, int(r.w), Align::Center);
+        y += 34;
+        if (dipNation_ < 0 || dipNation_ == g.player()) dipNation_ = g.player() == 0 ? 1 : 0;
+        // Слева — нации с краткой записью отношений, справа — действия над выбранной.
+        float ly = y;
+        for (int n = 0; n < assets::kBigNations; ++n) {
+            if (n == g.player()) continue;
+            const auto& rel = g.relation(g.player(), n);
+            std::string mark = t(rel.war ? "CDT_ST_WAR" : rel.nonAggressionUntil >= g.turn() && rel.passageUntil >= g.turn() ? "CDT_ST_ALLY"
+                                           : rel.nonAggressionUntil >= g.turn() ? "CDT_ST_NONA" : rel.passageUntil >= g.turn() ? "CDT_ST_PASS" : "CDT_ST_PEACE");
+            const bool alive = g.nation(n).alive;
+            if (button({r.x + 14, ly, 230, 30}, std::string(assets::bigNationName(n)) + (alive ? "  " + mark : ""), alive && n != dipNation_)) {
+                dipNation_ = n;
+                dipPending_ = -1;
+            }
+            ly += 36;
+        }
+        const int n = dipNation_;
+        const auto& rel = g.relation(g.player(), n);
+        const float rx = r.x + 270, rw = r.w - 284;
+        float ry = y;
+        ry += say("{C FF2A1C10}" + std::string(assets::bigNationName(n)), rx, ry, int(rw));
+        std::string state;
+        if (rel.war) state = t("CHINT_WAR");
+        else {
+            const bool nonagg = rel.nonAggressionUntil >= g.turn(), pass = rel.passageUntil >= g.turn();
+            state = t(nonagg && pass ? "CHINT_ALLY" : nonagg ? "CHINT_NONA" : pass ? "CHINT_PASS" : "CHINT_PEACE");
+            const int left = std::max(rel.nonAggressionUntil, rel.passageUntil) - g.turn() + 1;
+            if (nonagg || pass) {
+                std::string tl = t("CHINT_TurnsLeft");
+                if (const auto at = tl.find("%d"); at != std::string::npos) tl.replace(at, 2, std::to_string(left));
+                state += " " + tl;
+            }
+        }
+        ry += say("{C FF402010}" + state, rx, ry, int(rw)) + 6;
+        ry += say("{C FF402010}" + t("CDT_Actions"), rx, ry, int(rw)) + 2;
+        if (dipPending_ < 0) {
+            for (int i = 0; i < 5; ++i) {
+                const bool can = i == 0 ? g.canDeclareWar(n) : g.canPropose(world::BigGame::Treaty(i - 1), n);
+                const int price = i == 0 ? 0 : g.treatyPrice(world::BigGame::Treaty(i - 1), n);
+                std::string label = t("CDB_Button" + std::to_string(i + 1));
+                if (price) label += " (" + std::to_string(price) + "000)";
+                if (button({rx, ry, rw, 30}, label, can) && can) dipPending_ = i;
+                ry += 36;
+            }
+        } else {
+            const int i = dipPending_;
+            const int price = i == 0 ? 0 : g.treatyPrice(world::BigGame::Treaty(i - 1), n);
+            ry += say(format({"CDM_LetAContract" + std::to_string(i), {std::string(assets::bigNationName(n)), std::to_string(price)}}), rx, ry, int(rw)) + 8;
+            const bool afford = i == 0 || g.nation(g.player()).res[1] >= price * 1000;
+            if (!afford) {
+                std::string poor = t("CDM_NoEnoughMoney");
+                if (const auto at = poor.find("%d"); at != std::string::npos) poor.replace(at, 2, std::to_string(price));
+                ry += say(poor, rx, ry, int(rw)) + 4;
+            }
+            if (button({rx, ry, 120, 30}, t("CDB_YesButton"), afford) && afford) {
+                if (i == 0) game_->declareWar(n);
+                else game_->propose(world::BigGame::Treaty(i - 1), n);
+                dipPending_ = -1;
+                autosave();
+                for (const auto& m : game_->messages) dipLog_ = format(m);
+                game_->messages.clear();
+            }
+            if (button({rx + 130, ry, 120, 30}, t("CDB_NoButton"))) dipPending_ = -1;
+        }
+        if (!dipLog_.empty()) say(dipLog_, r.x + 14, r.y + r.h - 84, int(r.w) - 28);
+        if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, t("CDB_Close"))) modal_ = Modal::None, dipLog_.clear();
         break;
     }
     case Modal::Market: {
@@ -704,7 +775,7 @@ void BigMapScreen::frame(const View& v, const Input& in) {
     }
     if (in.esc) {
         if (modal_ == Modal::None) modal_ = Modal::Quit;
-        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion || modal_ == Modal::Market) modal_ = Modal::None;
+        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion || modal_ == Modal::Market || modal_ == Modal::Diplomacy) modal_ = Modal::None;
     }
     if (in.enter && modal_ == Modal::None) endTurn();
 

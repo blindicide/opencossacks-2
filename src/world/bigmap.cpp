@@ -181,6 +181,88 @@ std::vector<int> BigGame::shortages(int nation) const {
     return out;
 }
 
+int BigGame::treatyPrice(Treaty t, int nation) const {
+    static const int base[4] = {3, 2, 2, 5};
+    return base[int(t)] + ownedBy(nation) / 2;
+}
+
+bool BigGame::canPropose(Treaty t, int nation) const {
+    if (nation == player_ || !nations_[std::size_t(nation)].alive) return false;
+    const Relation& r = relation(player_, nation);
+    switch (t) {
+    case Treaty::Peace: return r.war;
+    case Treaty::NonAggression: return !r.war && r.nonAggressionUntil < turn_;
+    case Treaty::Passage: return !r.war && r.passageUntil < turn_;
+    case Treaty::Alliance: return !r.war && (r.nonAggressionUntil < turn_ || r.passageUntil < turn_);
+    }
+    return false;
+}
+
+void BigGame::declareWar(int nation) {
+    if (!canDeclareWar(nation)) return;
+    setRelation(player_, nation, Relation{});
+}
+
+bool BigGame::propose(Treaty t, int nation) {
+    if (!canPropose(t, nation)) return false;
+    NationState& me = nations_[std::size_t(player_)];
+    const int price = treatyPrice(t, nation);
+    if (me.res[1] < price * 1000) return false;
+    // ИИ соглашается чаще, когда игрок слабее его по числу секторов; мир труднее, чем пакты.
+    int chance = 55 + (ownedBy(nation) - ownedBy(player_)) * 3;
+    if (t == Treaty::Peace) chance -= 15;
+    chance = std::clamp(chance, 15, 85);
+    if (int(rnd() % 100) >= chance) {
+        messages.push_back({"CDM_DontWantContract", {assets::bigNationName(nation)}});
+        return true;
+    }
+    me.res[1] -= price * 1000;
+    nations_[std::size_t(nation)].res[1] += price * 1000;
+    Relation r = relation(player_, nation);
+    r.war = false;
+    if (t == Treaty::NonAggression || t == Treaty::Alliance) r.nonAggressionUntil = turn_ + 10;
+    if (t == Treaty::Passage || t == Treaty::Alliance) r.passageUntil = turn_ + 10;
+    setRelation(player_, nation, r);
+    messages.push_back({"CDT_Accepted", {}});
+    return true;
+}
+
+// Конец сроков договоров и послания ИИ: предложение мира тем, кто воюет с игроком, и война от соседей.
+void BigGame::diplomacyTurn() {
+    for (int n = 0; n < kBigNations; ++n) {
+        if (n == player_) continue;
+        Relation r = relation(player_, n);
+        if (r.war) continue;
+        const bool nonaggEnded = r.nonAggressionUntil != 0 && r.nonAggressionUntil < turn_;
+        const bool passEnded = r.passageUntil != 0 && r.passageUntil < turn_;
+        if (nonaggEnded) r.nonAggressionUntil = 0, messages.push_back({"CDM_EndOfContr2", {assets::bigNationName(n)}});
+        if (passEnded) r.passageUntil = 0, messages.push_back({"CDM_EndOfContr3", {assets::bigNationName(n)}});
+        setRelation(player_, n, r);
+    }
+    for (int n = 0; n < kBigNations; ++n) {
+        if (n == player_ || !nations_[std::size_t(n)].alive) continue;
+        const Relation r = relation(player_, n);
+        bool neighbour = false;
+        for (const assets::BigSector& s : data_->map.sectors)
+            if (sectors_[std::size_t(s.id)].owner == n && attackBase(player_, s.id)) neighbour = true;
+        bool queued = false;
+        for (const Offer& o : offers) queued = queued || (o.kind == Offer::Kind::Treaty && o.giver == n);
+        if (queued) continue;
+        if (r.war && rnd() % 100 < 6) { // соседи устают воевать и просят мира за золото
+            Offer o;
+            o.kind = Offer::Kind::Treaty;
+            o.giver = n;
+            o.gold = (1 + int(rnd() % 3)) * 1000;
+            o.quest = "Peace";
+            o.text = {"CDM_ProposeContr1", {assets::bigNationName(n), std::to_string(o.gold / 1000)}};
+            offers.push_back(o);
+        } else if (!r.war && r.nonAggressionUntil < turn_ && neighbour && rnd() % 100 < 3) {
+            setRelation(player_, n, Relation{});
+            messages.push_back({"CDM_ProposeContr0", {assets::bigNationName(n)}});
+        }
+    }
+}
+
 bool BigGame::adjacent(int a, int b) const {
     const auto& nb = data_->map.sectors[std::size_t(a)].neighbors;
     return std::find(nb.begin(), nb.end(), b) != nb.end();
@@ -189,12 +271,15 @@ bool BigGame::adjacent(int a, int b) const {
 std::optional<int> BigGame::attackBase(int nation, int target) const {
     for (int n : data_->map.sectors[std::size_t(target)].neighbors)
         if (sectors_[std::size_t(n)].owner == nation) return n;
+    // Право прохода: армия идёт через сектор союзника.
+    for (int n : data_->map.sectors[std::size_t(target)].neighbors)
+        if (hasPassage(nation, sectors_[std::size_t(n)].owner)) return n;
     return std::nullopt;
 }
 
 bool BigGame::canAttack(int target) const {
     if (target < 0 || target >= sectorCount()) return false;
-    if (sectors_[std::size_t(target)].owner == player_) return false;
+    if (sectors_[std::size_t(target)].owner == player_ || !atWar(player_, sectors_[std::size_t(target)].owner)) return false;
     return attackBase(player_, target) && !nations_[std::size_t(player_)].army.empty();
 }
 
@@ -377,7 +462,10 @@ void BigGame::startTurn() {
         if (done) quests_.erase(quests_.begin() + std::ptrdiff_t(i));
         else ++i;
     }
-    if (nations_[std::size_t(player_)].alive) rollEvents();
+    if (nations_[std::size_t(player_)].alive) {
+        diplomacyTurn();
+        rollEvents();
+    }
 }
 
 std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
@@ -395,7 +483,9 @@ std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
     double bestRatio = 1.15;
     const double power = attackPower(n.army);
     for (const assets::BigSector& s : data_->map.sectors) {
-        if (sectors_[std::size_t(s.id)].owner == nation || !attackBase(nation, s.id)) continue;
+        if (sectors_[std::size_t(s.id)].owner == nation || !atWar(nation, sectors_[std::size_t(s.id)].owner) ||
+            !attackBase(nation, s.id))
+            continue;
         const double ratio = power / std::max(1, defencePower(s.id));
         if (ratio > bestRatio) bestRatio = ratio, best = s.id;
     }
@@ -655,6 +745,15 @@ bool BigGame::answer(bool accept) {
             messages.push_back({"CQM_SellSector1", {assets::bigNationName(o.giver), std::to_string(o.gold)}});
         }
         break;
+    case Offer::Kind::Treaty:
+        if (accept && atWar(player_, o.giver)) {
+            Relation r;
+            r.war = false;
+            setRelation(player_, o.giver, r);
+            me.res[1] += o.gold;
+            messages.push_back({"CDT_Accepted", {}});
+        }
+        break;
     case Offer::Kind::Quest:
         if (accept) quests_.push_back({o.quest, o.giver, o.target, o.sector, o.gold, o.deadline});
         break;
@@ -691,7 +790,7 @@ int BigGame::result() const {
 
 std::string BigGame::serialize() const {
     std::ostringstream o;
-    o << "BIG3 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
+    o << "BIG4 " << player_ << ' ' << turn_ << ' ' << seed_ << '\n';
     for (std::size_t i = 0; i < sectors_.size(); ++i)
         o << "S " << i << ' ' << sectors_[i].owner << ' ' << sectors_[i].garrison << ' ' << sectors_[i].level << ' ' << sectors_[i].blocked << ' ' << sectors_[i].dry << '\n';
     for (int i = 0; i < kBigNations; ++i) {
@@ -704,6 +803,11 @@ std::string BigGame::serialize() const {
     }
     for (const ActiveQuest& q : quests_)
         o << "Q " << q.name << ' ' << q.giver << ' ' << q.target << ' ' << q.sector << ' ' << q.gold << ' ' << q.deadline << '\n';
+    for (int a = 0; a < kBigNations; ++a)
+        for (int b = a + 1; b < kBigNations; ++b) {
+            const Relation& r = relation(a, b);
+            o << "D " << a << ' ' << b << ' ' << r.war << ' ' << r.nonAggressionUntil << ' ' << r.passageUntil << '\n';
+        }
     o << "L " << lastFired_.size();
     for (int v : lastFired_) o << ' ' << v;
     o << '\n';
@@ -715,8 +819,8 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
     std::string tag;
     int player = 0, turn = 1;
     std::uint32_t seed = 1;
-    if (!(in >> tag >> player >> turn >> seed) || (tag != "BIG1" && tag != "BIG2" && tag != "BIG3") || player < 0 || player >= kBigNations) return std::nullopt;
-    const bool v2 = tag != "BIG1", v3 = tag == "BIG3";
+    if (!(in >> tag >> player >> turn >> seed) || (tag != "BIG1" && tag != "BIG2" && tag != "BIG3" && tag != "BIG4") || player < 0 || player >= kBigNations) return std::nullopt;
+    const bool v2 = tag != "BIG1", v3 = tag == "BIG3" || tag == "BIG4";
     BigGame g(std::move(data), player, seed);
     g.turn_ = turn;
     std::size_t sectorsSeen = 0;
@@ -751,6 +855,14 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
                 return std::nullopt;
             if (q.sector < 0 && q.name == "DefendSector") return std::nullopt;
             g.quests_.push_back(q);
+        } else if (tag == "D") {
+            int a, b, war;
+            Relation r;
+            if (!(in >> a >> b >> war >> r.nonAggressionUntil >> r.passageUntil) || a < 0 || b < 0 || a >= kBigNations ||
+                b >= kBigNations || a == b)
+                return std::nullopt;
+            r.war = war != 0;
+            g.setRelation(a, b, r);
         } else if (tag == "L") {
             std::size_t count;
             if (!(in >> count) || count > 1000) return std::nullopt;
