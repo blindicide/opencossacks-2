@@ -86,6 +86,7 @@ add_executable(opencossacks2
     src/ui/rich_text.cpp
     src/ui/dialogs.cpp
     src/ui/menus.cpp
+    src/ui/bigmap_screen.cpp
 )
 target_link_libraries(opencossacks2 PRIVATE oc2_assets oc2_world SDL3::SDL3-static volk vma)
 if(WIN32)

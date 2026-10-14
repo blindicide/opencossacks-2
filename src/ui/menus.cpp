@@ -776,6 +776,10 @@ void Menus::click(Widget& w) {
             continue; // дальше по цепочке: cva_MM_Campaign, cva_Camp_Select
         }
         if (a.type == "cva_MM_Campaign") { // выбор кампании
+            if (mainDesk_ == "SinGlobalMap") { // «Битва за Европу»: глобальная карта вместо списка кампаний
+                globalMapRequest_ = true;
+                continue;
+            }
             stack_.back().modalDesk = "CampSelect";
             continue;
         }

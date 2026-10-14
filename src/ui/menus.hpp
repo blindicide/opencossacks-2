@@ -102,6 +102,12 @@ public:
         return r;
     }
     // Запрос загрузить игру (cva_LoadInGame_Accept): выбранное сохранение. Возвращается один раз.
+    // «Начать кампанию» в «Битве за Европу»: открыть глобальную карту.
+    bool takeGlobalMapRequest() {
+        const bool r = globalMapRequest_;
+        globalMapRequest_ = false;
+        return r;
+    }
     std::optional<world::SaveGame> takeLoadRequest() {
         auto r = std::move(loadRequest_);
         loadRequest_.reset();
@@ -179,6 +185,7 @@ private:
     std::string deskBeforeDelete_;
     std::optional<std::string> saveRequest_;
     std::optional<world::SaveGame> loadRequest_;
+    bool globalMapRequest_ = false;
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
     std::optional<GameStats> stats_;

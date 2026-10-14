@@ -50,6 +50,7 @@
 #include "ui/dialogs.hpp"
 #include "ui/fonts.hpp"
 #include "ui/menus.hpp"
+#include "ui/bigmap_screen.hpp"
 #include "ui/rich_text.hpp"
 
 namespace fs = std::filesystem;
@@ -146,6 +147,9 @@ struct Options {
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
     bool f1 = false;  // проверка: на первом кадре нажать F1 (помощь)
+    bool bigMap = false;   // сразу открыть «Завоевание Европы»
+    int bigNation = -1;    // и выбрать эту нацию
+    int bigSelect = -1;    // и этот сектор
     bool skipFilm = false; // проверка сценария: пропускать диалоги
     bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
@@ -217,6 +221,11 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             const auto bytes = readFile(argv[++i]);
             std::fputs(oc2::assets::Map3d::parse(bytes).scriptXml().c_str(), stdout);
             return std::nullopt;
+        } else if (a == "--bigmap") {
+            o.bigMap = true;
+            if (hasValue && argv[i + 1][0] != '-') o.bigNation = int(std::strtol(argv[++i], nullptr, 10));
+        } else if (a == "--bigsel" && hasValue) {
+            o.bigSelect = int(std::strtol(argv[++i], nullptr, 10));
         } else if (a == "--skip-film") {
             o.skipFilm = true;
         } else if (a == "--win") {
@@ -741,6 +750,154 @@ struct MapView {
         std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu, источников ресурсов %zu\n",
                     path->string().c_str(), map.vertsInLine(), map.rows(), mesh.size() / 3, objects->staticCount(),
                     world.units().size(), world.sources.size());
+    }
+
+    // Бой за сектор «Завоевания Европы»: свои отряды — игрок 0, чужие — игрок 1. Карты секторов
+    // пусты (только нейтралы), поэтому отряды расставляются здесь на открытой земле: нападающие
+    // у одного края, обороняющиеся у другого.
+    struct BigBattle {
+        oc2::world::BigGame::Attack attack;
+        bool playerAttacks = true;
+        std::array<std::vector<std::vector<std::size_t>>, 2> squads; // [сторона][отряд] → юниты
+        std::array<std::vector<std::string>, 2> types;
+        int aiTimer = 0;
+    };
+    std::optional<BigBattle> big;
+
+    void setupBigBattle(const oc2::world::BigGame::Attack& attack, const std::vector<std::string>& defenders,
+                        bool playerAttacks) {
+        BigBattle b;
+        b.attack = attack;
+        b.playerAttacks = playerAttacks;
+        const std::vector<std::string>& mine = playerAttacks ? attack.squads : defenders;
+        const std::vector<std::string>& theirs = playerAttacks ? defenders : attack.squads;
+        b.types = {mine, theirs};
+        world.team[0] = 0;
+        world.team[1] = 1;
+        world.humanTeam = 0;
+        player = 0;
+        const oc2::world::LockMap& lm = world.lockMap();
+        const int W = lm.width(), H = lm.height();
+        auto roomy = [&](int cx, int cy) {
+            for (int dy = -3; dy <= 3; ++dy)
+                for (int dx = -3; dx <= 3; ++dx)
+                    if (lm.locked(cx + dx, cy + dy)) return false;
+            return true;
+        };
+        std::vector<std::pair<int, int>> open;
+        int minX = W, maxX = 0, minY = H, maxY = 0;
+        for (int cy = 4; cy < H - 4; cy += 4)
+            for (int cx = 4; cx < W - 4; cx += 4)
+                if (roomy(cx, cy)) {
+                    open.emplace_back(cx, cy);
+                    minX = std::min(minX, cx), maxX = std::max(maxX, cx);
+                    minY = std::min(minY, cy), maxY = std::max(maxY, cy);
+                }
+        if (open.empty()) open.emplace_back(W / 2, H / 2), minX = maxX = W / 2, minY = maxY = H / 2;
+        const bool alongX = maxX - minX >= maxY - minY;
+        auto nearestTo = [&](double fx, double fy) {
+            const int tx = int(minX + fx * (maxX - minX)), ty = int(minY + fy * (maxY - minY));
+            long long best = -1;
+            std::pair<int, int> at = open[0];
+            for (const auto& o : open) {
+                const long long d = (long long)(o.first - tx) * (o.first - tx) + (long long)(o.second - ty) * (o.second - ty);
+                if (best < 0 || d < best) best = d, at = o;
+            }
+            return at;
+        };
+        // Нападающие — слева (или сверху), обороняющиеся — справа; игрок и враг по ролям.
+        const auto from = alongX ? nearestTo(0.30, 0.5) : nearestTo(0.5, 0.30);
+        const auto to = alongX ? nearestTo(0.70, 0.5) : nearestTo(0.5, 0.70);
+        const std::array<std::pair<int, int>, 2> anchor = {playerAttacks ? from : to, playerAttacks ? to : from};
+        for (int side = 0; side < 2; ++side) {
+            // Шеренги отрядов поперёк линии боя, дальше по глубине — следующие ряды.
+            const std::pair<int, int> dirAway = alongX ? std::make_pair((anchor[std::size_t(side)].first < anchor[std::size_t(1 - side)].first) ? -1 : 1, 0)
+                                                       : std::make_pair(0, (anchor[std::size_t(side)].second < anchor[std::size_t(1 - side)].second) ? -1 : 1);
+            const int sideCols = 4;
+            for (std::size_t k = 0; k < b.types[std::size_t(side)].size(); ++k) {
+                const oc2::assets::UnitDesc* desc = units->find(b.types[std::size_t(side)][k]);
+                if (!desc) desc = units->find("UnitFuz(" + std::string(oc2::assets::bigNationCode(0)) + ")");
+                if (!desc) {
+                    b.squads[std::size_t(side)].emplace_back();
+                    continue;
+                }
+                const bool gun = desc->name.rfind("Art", 0) == 0;
+                const int count = gun ? 4 : 12;
+                const int col = int(k % sideCols) - 1, row = int(k / sideCols);
+                const int across = col * 260 - 100, depth = row * 190;
+                const int sx = anchor[std::size_t(side)].first * 16 + (alongX ? depth * dirAway.first : across);
+                const int sy = anchor[std::size_t(side)].second * 16 + (alongX ? across : depth * dirAway.second);
+                const int dir = alongX ? (dirAway.first > 0 ? 192 : 64) : (dirAway.second > 0 ? 0 : 128);
+                std::vector<std::size_t> ids;
+                for (int u = 0; u < count; ++u) {
+                    int x = sx + (u % 4) * 48, y = sy + (u / 4) * 48;
+                    if (const auto o = lm.nearestOpen(x / 16, y / 16, 14)) x = o->first * 16 + 8, y = o->second * 16 + 8;
+                    ids.push_back(world.addUnit(*desc, side, x, y, dir));
+                }
+                if (ids.size() >= 2) world.formSquad(ids, oc2::world::World::Formation::Line);
+                b.squads[std::size_t(side)].push_back(std::move(ids));
+            }
+        }
+        big = std::move(b);
+    }
+
+    // Простой ИИ боя за сектор: раз в две секунды замершие отряды врага идут на ближайшего живого
+    // юнита игрока; встретив его, они вступают в бой сами (обычная реакция юнитов).
+    void bigBattleAi() {
+        if (!big || ++big->aiTimer < 50) return;
+        big->aiTimer = 0;
+        // Оборона стоит на месте, пока к ней не подошли; нападающий ИИ идёт вперёд.
+        if (big->playerAttacks) return;
+        const auto& us = world.units();
+        for (const auto& ids : big->squads[1]) {
+            bool busy = false;
+            long long cx = 0, cy = 0;
+            int alive = 0;
+            for (std::size_t id : ids)
+                if (us[id].alive()) {
+                    ++alive;
+                    cx += us[id].x(), cy += us[id].y();
+                    busy = busy || us[id].moving || us[id].target;
+                }
+            if (!alive || busy) continue;
+            cx /= alive, cy /= alive;
+            long long best = -1;
+            int tx = 0, ty = 0;
+            for (const auto& group : big->squads[0])
+                for (std::size_t id : group)
+                    if (us[id].alive()) {
+                        const long long d = (us[id].x() - cx) * (us[id].x() - cx) + (us[id].y() - cy) * (us[id].y() - cy);
+                        if (best < 0 || d < best) best = d, tx = us[id].x(), ty = us[id].y();
+                    }
+            if (best < 0) return;
+            std::vector<std::size_t> live;
+            for (std::size_t id : ids)
+                if (us[id].alive()) live.push_back(id);
+            world.orderMoveGroup(live, tx, ty);
+        }
+    }
+
+    // Итог боя: отряд уцелел, если жива треть его юнитов. retreat — игрок ушёл с поля боя (бой проигран).
+    oc2::world::BigGame::Outcome bigOutcome(bool retreat) {
+        oc2::world::BigGame::Outcome out;
+        const auto& us = world.units();
+        auto alive = [&](const std::vector<std::size_t>& ids) {
+            int n = 0;
+            for (std::size_t id : ids) n += us[id].alive();
+            return n * 3 >= int(ids.size());
+        };
+        const int atk = big->playerAttacks ? 0 : 1, def = 1 - atk;
+        const auto winner = world.winningTeam();
+        const int humanTeam = world.team[0];
+        bool humanWon = !retreat && winner && *winner == humanTeam;
+        out.attackerWon = big->playerAttacks ? humanWon : !humanWon;
+        out.survived.assign(big->attack.squads.size(), false);
+        for (std::size_t i = 0; i < big->squads[std::size_t(atk)].size() && i < out.survived.size(); ++i)
+            out.survived[i] = alive(big->squads[std::size_t(atk)][i]);
+        // Отряды, у которых не нашлось описания юнитов, считаются уцелевшими.
+        for (std::size_t i = big->squads[std::size_t(atk)].size(); i < out.survived.size(); ++i) out.survived[i] = true;
+        for (const auto& ids : big->squads[std::size_t(def)]) out.defenderLost += !alive(ids);
+        return out;
     }
 
     // Стратегический ИИ игрокам 0..6 с юнитами (кроме нашего, если не self), по сценарию их нации.
@@ -1683,6 +1840,10 @@ int main(int argc, char** argv) {
         int loadingStage = 0; // 0 — нет, 1 — рисуется экран загрузки, 2 — загрузка идёт
         std::optional<std::string> pendingStart; // карта, выбранная в меню
         std::optional<oc2::world::SaveGame> pendingLoad; // сохранение, выбранное в меню
+        std::unique_ptr<oc2::ui::BigMapScreen> bigScreen; // «Завоевание Европы»
+        std::optional<oc2::ui::BigMapScreen::BattleRequest> pendingBig; // бой за сектор, который сейчас грузится
+        std::optional<oc2::world::BigGame::Outcome> bigDone; // бой за сектор закончен
+        bool bigRequested = opts->bigMap;
         std::uint64_t last = SDL_GetTicksNS();
         std::string shownTitle;
         for (long frame = 0; window.pumpEvents(); ++frame) {
@@ -1703,8 +1864,8 @@ int main(int argc, char** argv) {
                 else if (m.empty()) m.open("F1game");
                 window.pressedKeys.clear();
             }
-            if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
-                window.pressedKeys.end()) {
+            if (!(bigScreen && !mapView) && std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
+                                                window.pressedKeys.end()) {
                 // В игре Esc возвращает в меню (если игра начата из него), в меню закрывает
                 // текущее окно, из главного — выход.
                 if (mapView && mapView->placing) {
@@ -1754,6 +1915,12 @@ int main(int argc, char** argv) {
                     mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart, screen->images.get());
                     mapView->centerOnPlayer(0, vulkan.extent());
                     mapView->sounds = sounds.get();
+                    if (pendingBig && bigScreen) {
+                        const auto& att = pendingBig->attack;
+                        mapView->setupBigBattle(att, bigScreen->defendersOf(att.target), pendingBig->playerAttacks);
+                        if (opts->win) mapView->world.killAllExcept(mapView->world.team[0]); // проверка: победа сразу
+                        mapView->centerOnPlayer(0, vulkan.extent());
+                    }
                     if (pendingLoad) {
                         mapView->replay(*pendingLoad);
                         mapView->centerOnPlayer(mapView->player, vulkan.extent());
@@ -1761,11 +1928,33 @@ int main(int argc, char** argv) {
                 } catch (const std::exception& ex) {
                     std::fprintf(stderr, "не удалось начать игру: %s\n", ex.what());
                 }
+                if (pendingBig && !mapView && bigScreen) bigScreen->battleFinished(oc2::world::BigGame::Outcome{false, std::vector<bool>(pendingBig->attack.squads.size(), true), 0}); // карта не открылась — бой не состоялся
+                pendingBig.reset();
                 pendingStart.reset();
                 pendingLoad.reset();
                 window.clicks.clear();
                 last = SDL_GetTicksNS(); // время загрузки не идёт в симуляцию
                 continue;
+            }
+            if (screen && !bigScreen && !mapView && loadingStage == 0 &&
+                (bigRequested || screen->menus->takeGlobalMapRequest())) {
+                bigRequested = false;
+                if (auto data = oc2::ui::BigMapScreen::loadData(opts->dataDir)) {
+                    bigScreen = std::make_unique<oc2::ui::BigMapScreen>(
+                        *screen->ctx, data, oc2::core::Settings::defaultPath().parent_path() / "bigmap.sav");
+                    if (opts->bigNation >= 0) bigScreen->start(opts->bigNation);
+                    if (opts->bigSelect >= 0) bigScreen->select(opts->bigSelect);
+                } else {
+                    std::fprintf(stderr, "Завоевание Европы: нет данных кампании\n");
+                }
+                window.clicks.clear();
+            }
+            if (bigDone && mapView && bigScreen) { // бой за сектор закончен: назад на глобальную карту
+                mapView.reset();
+                bigScreen->battleFinished(*bigDone);
+                bigDone.reset();
+                window.clicks.clear();
+                last = SDL_GetTicksNS();
             }
             if (viewer) {
                 for (std::uint32_t key : window.pressedKeys) viewer->handleKey(key);
@@ -1837,6 +2026,7 @@ int main(int argc, char** argv) {
                 }
                 if (auto start = menus.takeStartRequest()) pendingStart = std::move(start);
                 if (auto load = menus.takeLoadRequest()) pendingLoad = std::move(load);
+                if (menus.takeGlobalMapRequest()) bigRequested = true;
                 if (menus.empty()) return false;
                 menus.current().draw(screen->view);
                 return true;
@@ -1875,7 +2065,10 @@ int main(int argc, char** argv) {
                             mapView->handleClick(click, e);
                     for (const auto& release : window.releases) mapView->handleRelease(release, mapView->player);
                 }
-                if (!mapView->ended && !resultOpen && !mapView->paused) mapView->advance(dt);
+                if (!mapView->ended && !resultOpen && !mapView->paused) {
+                    mapView->advance(dt);
+                    mapView->bigBattleAi();
+                }
                 mapView->playSounds(sounds.get(), e);
                 // Итог: раз в секунду симуляции проверяется, осталась ли одна команда.
                 if (!mapView->ended && mapView->script && mapView->script->ending) {
@@ -1888,10 +2081,14 @@ int main(int argc, char** argv) {
                     if (auto winner = mapView->world.winningTeam()) {
                         mapView->ended = true;
                         mapView->dragStart.reset();
-                        const bool won = *winner == mapView->world.team[std::size_t(mapView->player)];
-                        menus.setGameResult(won);
-                        menus.setGameStats(buildGameStats(*screen, *mapView, won));
-                        menus.open("EndGameMessage");
+                        if (mapView->big) {
+                            bigDone = mapView->bigOutcome(false);
+                        } else {
+                            const bool won = *winner == mapView->world.team[std::size_t(mapView->player)];
+                            menus.setGameResult(won);
+                            menus.setGameStats(buildGameStats(*screen, *mapView, won));
+                            menus.open("EndGameMessage");
+                        }
                     }
                 mapView->terrain->draw(cmd, mapView->camera, float(double(SDL_GetTicksNS()) / 1e9));
                 mapView->objects->draw(mapView->camera, float(e.width), float(e.height), mapView->world,
@@ -1930,6 +2127,7 @@ int main(int argc, char** argv) {
                     }
                     if (menus.takeBackToMain()) {
                         // Конец игры: к главному меню (без него, при --map, — выход).
+                        if (mapView->big && bigScreen) bigScreen->battleFinished(mapView->bigOutcome(true)); // отступление
                         mapView.reset();
                         while (!menus.empty() && menus.currentName() != "Main") menus.close();
                         window.clicks.clear();
@@ -1938,6 +2136,32 @@ int main(int argc, char** argv) {
                         break;
                     }
                 }
+            } else if (bigScreen && screen && loadingStage == 0 && !pendingStart) {
+                screen->fit(e);
+                oc2::ui::BigMapScreen::Input in;
+                if (opts->mouse) {
+                    in.mx = (*opts->mouse)[0], in.my = (*opts->mouse)[1];
+                } else if (window.mouseInside) {
+                    in.mx = screen->toVirtualX(window.mouseX), in.my = screen->toVirtualY(window.mouseY);
+                }
+                if (!opts->clickSeq.empty() && frame >= 1) { // проверка: нажатия из --clicks, как в меню
+                    const auto i = std::min(std::size_t((frame - 1) / 3), opts->clickSeq.size() - 1);
+                    in.mx = opts->clickSeq[i][0], in.my = opts->clickSeq[i][1];
+                    if (frame >= 2 && (frame - 2) % 3 == 0 && std::size_t((frame - 2) / 3) < opts->clickSeq.size()) in.click = true;
+                }
+                for (const auto& c : window.clicks)
+                    if (c.button == 1) in.click = true, in.mx = screen->toVirtualX(c.x), in.my = screen->toVirtualY(c.y);
+                auto pressed = [&](std::uint32_t key) {
+                    return std::find(window.pressedKeys.begin(), window.pressedKeys.end(), key) != window.pressedKeys.end();
+                };
+                in.esc = pressed(SDLK_ESCAPE);
+                in.enter = pressed(SDLK_RETURN);
+                bigScreen->frame(screen->view, in);
+                if (auto b = bigScreen->takeBattle()) {
+                    pendingBig = *b;
+                    pendingStart = bigScreen->battleMap();
+                }
+                if (bigScreen->done()) bigScreen.reset();
             } else if (screen) {
                 if (!runMenu()) break;
             } else if (viewer) {
