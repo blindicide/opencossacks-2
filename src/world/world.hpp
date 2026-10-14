@@ -231,7 +231,32 @@ public:
     // Один шаг симуляции (kStepSeconds при обычной скорости).
     void step();
 
+    // Запись приказа в журнал. Вложенные приказы (build → move) не пишутся: на время вызова запись выключена.
+    struct RecordGuard {
+        World& w;
+        bool was;
+        explicit RecordGuard(World& world) : w(world), was(world.recording) { w.recording = false; }
+        ~RecordGuard() { w.recording = was; }
+        RecordGuard(const RecordGuard&) = delete;
+        RecordGuard& operator=(const RecordGuard&) = delete;
+    };
+    [[nodiscard]] RecordGuard record(const char* kind, int a = 0, int b = 0, int c = 0, int d = 0, const std::string& s = {}) {
+        if (recording) journal.push_back({steps_, kind, {a, b, c, d}, s});
+        return RecordGuard(*this);
+    }
+
     std::uint64_t stepCount() const { return steps_; }
+
+    // Журнал приказов игрока (для сохранений: симуляция детерминирована, игра восстанавливается
+    // повтором приказов с тех же шагов). Пишутся, пока recording (ввод игрока), а не приказы ИИ и сценария.
+    struct Command {
+        std::uint64_t step = 0;
+        std::string kind;            // move, attack, gather, build, enter, leave, produce, research, place, sow, skip
+        std::array<int, 4> a{};
+        std::string s;               // имя типа юнита или улучшения
+    };
+    std::vector<Command> journal;
+    bool recording = false;
 
     // Победившая команда: живые боевые юниты (не здания) игроков 0..6 остались
     // только у одной команды, а в начале команд было не меньше двух. Упрощение

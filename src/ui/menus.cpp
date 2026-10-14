@@ -86,6 +86,8 @@ bool Menus::open(const std::string& name) {
         loaded_[name] = std::make_unique<Dialog>(ctx_, *path);
     }
     stack_.push_back({name, "Main"});
+    savesDirty_ = true;
+    savePick_ = -1;
     return true;
 }
 
@@ -110,6 +112,7 @@ void Menus::update() {
         });
     syncPlayerTable(dialog);
     syncProfiles(dialog);
+    syncSaves(dialog);
     bool hasTabs = false;
     dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {
@@ -346,6 +349,85 @@ void Menus::syncProfiles(Dialog& dialog) {
     });
 }
 
+// Список сохранений: строки и названия в полях ввода.
+void Menus::syncSaves(Dialog& dialog) {
+    const bool dirty = savesDirty_;
+    if (savesDirty_) {
+        saves_ = world::SaveGame::list();
+        savePick_ = std::min(savePick_, int(saves_.size()) - 1);
+        savesDirty_ = false;
+    }
+    dialog.forEach([&](Widget& w) {
+        if (hasAction(w, "cva_LS_FileList") && w.listElement && w.name != "CampList" &&
+            (w.children.size() != saves_.size() || dirty)) {
+            std::vector<std::string> names;
+            for (const auto& g : saves_) names.push_back(assets::utf8ToCp1251(g.name));
+            dialog.setListItems(w, names);
+            if (savePick_ >= 0) Dialog::selectListItem(w, savePick_);
+        }
+    });
+}
+
+// Действия сохранения и загрузки; true — действие обработано.
+bool Menus::saveClick(const Widget& w, const Widget::Action& a) {
+    auto typed = [&](const char* action) {
+        std::string name;
+        current().forEach([&](Widget& i) {
+            if (i.kind == WidgetKind::InputBox && hasAction(i, action)) name = assets::cp1251ToUtf8(i.text);
+        });
+        return name;
+    };
+    if (a.type == "cva_LoadInGame_Accept") {
+        // Кнопка «Начать» окна сражений грузит сохранение только на вкладке «Загрузить»,
+        // в меню игры «Загрузить» грузит всегда.
+        const bool battles = currentName() == "SingleBattles";
+        if (battles && activeTab_[currentName()] != "Load") return false;
+        if (savePick_ >= 0 && std::size_t(savePick_) < saves_.size()) loadRequest_ = saves_[std::size_t(savePick_)];
+        return true;
+    }
+    if (a.type == "cva_SaveInGame_Accept") {
+        std::string name = typed("cva_LS_SaveName");
+        if (name.empty() && savePick_ >= 0 && std::size_t(savePick_) < saves_.size()) name = saves_[std::size_t(savePick_)].name;
+        if (name.empty()) name = "Сохранение";
+        saveRequest_ = std::move(name);
+        savesDirty_ = true;
+        close();
+        return true;
+    }
+    if (a.type == "cva_DeleteSaveFile") {
+        if (savePick_ >= 0 && std::size_t(savePick_) < saves_.size()) {
+            deskBeforeDelete_ = modalDesk();
+            stack_.back().modalDesk = "Delete Save";
+        }
+        return true;
+    }
+    if (a.type == "cva_DeleteButton") {
+        if (a.node && a.node->value("Delete").value_or("") == "true" && savePick_ >= 0 &&
+            std::size_t(savePick_) < saves_.size()) {
+            world::SaveGame::remove(saves_[std::size_t(savePick_)].name);
+            savePick_ = -1;
+            savesDirty_ = true;
+            current().forEach([](Widget& i) {
+                if (i.kind == WidgetKind::InputBox) i.text.clear();
+            });
+        }
+        stack_.back().modalDesk = deskBeforeDelete_.empty() ? "Main" : deskBeforeDelete_;
+        return true;
+    }
+    (void)w;
+    return false;
+}
+
+void Menus::restoreStart(const world::SaveGame& g) {
+    setupStart_ = g.setup;
+    difficulty = g.difficulty;
+    if (g.campaign >= 0 && g.mission >= 0 && std::size_t(g.campaign) < campaignDone_.size())
+        activeMission_ = {std::size_t(g.campaign), g.mission};
+    else
+        activeMission_.reset();
+    lastStart_ = g.map;
+}
+
 // Действия окон профилей; true — действие обработано.
 bool Menus::profileClick(const Widget& w, const Widget::Action& a) {
     auto save = [&] { settings.save(core::Settings::defaultPath()); };
@@ -442,6 +524,7 @@ void Menus::click(Widget& w) {
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
         if (profileClick(w, a)) return;
+        if (saveClick(w, a)) return; // «Загрузить» без выбранной строки ничего не делает
         if (a.type == "cva_BR_PlColor" && w.id >= 0 && w.id < kSlots) {
             Slot& slot = slots[std::size_t(w.id)];
             slot.color = (slot.color + 1) % 8;
@@ -465,6 +548,16 @@ void Menus::click(Widget& w) {
         if (a.type == "va_ListItem") { // FUN_013d4bb0
             if (Widget* list = current().listOf(w)) {
                 Dialog::selectListItem(*list, w.listIndex);
+                if (hasAction(*list, "cva_LS_FileList") && list->name != "CampList") { // список сохранений
+                    savePick_ = w.listIndex;
+                    if (savePick_ >= 0 && std::size_t(savePick_) < saves_.size())
+                        current().forEach([&](Widget& i) {
+                            if (i.kind == WidgetKind::InputBox &&
+                                (hasAction(i, "cva_LS_SaveName") || hasAction(i, "cva_LS_LoadName")))
+                                i.text = assets::utf8ToCp1251(saves_[std::size_t(savePick_)].name);
+                        });
+                    continue;
+                }
                 if (hasAction(*list, "cva_ProfList")) {
                     profilePick_ = std::max(0, w.listIndex);
                     continue;
@@ -480,7 +573,7 @@ void Menus::click(Widget& w) {
         }
         // FUN_013ddfc0 — отмена действий панели, FUN_013e7150 — загрузка сохранения из
         // списка файлов; списка сохранений ещё нет, обе — без последствий.
-        if (a.type == "cva_MM_CancelInDesk" || a.type == "cva_LoadInGame_Accept") continue;
+        if (a.type == "cva_MM_CancelInDesk") continue;
         if (a.type == "cva_MM_SinglStart") {
             // FUN_013d94c0: начать игру на выбранной карте (без выбора оригинал создаёт
             // случайную карту — генератора пока нет). Выбора карты в меню ещё нет:

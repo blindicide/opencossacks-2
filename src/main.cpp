@@ -11,7 +11,9 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ctime>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -39,6 +41,7 @@
 #include "assets/sprite_list.hpp"
 #include "render/map_objects.hpp"
 #include "world/mission_script.hpp"
+#include "world/savegame.hpp"
 #include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
 #include "world/unit_catalog.hpp"
@@ -133,6 +136,7 @@ struct Options {
     std::string produce;
     bool mine = false;
     bool aiSelf = false;
+    bool saveCheck = false; // с --map: сохранить, загрузить и сравнить состояние
     int simulate = 0; // секунд
     bool click = false;
     bool locks = false; // показать закрытые клетки с самого начала
@@ -220,6 +224,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%d,%d,%d", &p, &x, &y) != 3)
                 throw std::runtime_error("--move ждёт «игрок,x,y», например 0,13000,1800");
             o.move = std::array<int, 3>{p, x, y};
+        } else if (a == "--save-check") {
+            o.saveCheck = true;
         } else if (a == "--ai-self") {
             o.aiSelf = true;
         } else if (a == "--simulate" && hasValue) {
@@ -535,6 +541,7 @@ struct MapView {
         for (std::size_t i = 0; i < world.units().size(); ++i)
             if (world.units()[i].selected && world.units()[i].player == player) world.orderBuild(i, *b);
     }
+    std::string startMap;   // карта игры (в сохранении)
     int player = 0;         // за кого играем: приказы слушают только его юниты
     // Сценарий миссии (правила из карты). Есть правила — ИИ запускает сам сценарий.
     std::unique_ptr<oc2::world::MissionScript> script;
@@ -553,6 +560,7 @@ struct MapView {
     // shared — изображения меню (общий кэш текстур), иначе создаются свои.
     MapView(oc2::render::VulkanContext& vulkan, oc2::render::SpriteRenderer& sprites, const fs::path& data,
             const fs::path& mapFile, oc2::render::GpImages* shared = nullptr) {
+        startMap = mapFile.generic_string();
         const auto path = oc2::assets::findCaseInsensitive(data, mapFile);
         if (!path) throw std::runtime_error("нет карты " + (data / mapFile).string());
         mapData = std::make_unique<oc2::assets::Map3d>(oc2::assets::Map3d::parse(readFile(*path)));
@@ -861,15 +869,71 @@ struct MapView {
     void advance(double dt) {
         stepTime += dt;
         for (int i = 0; i < 5 && stepTime >= oc2::world::kStepSeconds; ++i) {
-            stepWorld();
-            effects->step();
-            for (const auto& shot : world.shotEvents)
-                if (auto sound = effects->spawn(shot.weapon, shot.x, shot.y, shot.direction))
-                    world.soundEvents.push_back({*sound, shot.x, shot.y});
-            world.shotEvents.clear();
+            tick();
             stepTime -= oc2::world::kStepSeconds;
         }
         if (stepTime > oc2::world::kStepSeconds) stepTime = 0.0;
+    }
+
+    // Один шаг симуляции вместе с эффектами выстрелов.
+    void tick() {
+        stepWorld();
+        effects->step();
+        for (const auto& shot : world.shotEvents)
+            if (auto sound = effects->spawn(shot.weapon, shot.x, shot.y, shot.direction))
+                world.soundEvents.push_back({*sound, shot.x, shot.y});
+        world.shotEvents.clear();
+    }
+
+    // Пока жив, приказы мира пишутся в журнал сохранения (ввод игрока, а не ИИ и сценарий).
+    struct PlayerInput {
+        oc2::world::World& w;
+        explicit PlayerInput(oc2::world::World& world) : w(world) { w.recording = true; }
+        ~PlayerInput() { w.recording = false; }
+    };
+
+    // Пропуск диалога сценария (пробел); пишется в журнал, чтобы загрузка повторила тот же ход.
+    void skipDialog() {
+        if (!script) return;
+        world.journal.push_back({world.stepCount(), "skip", {}, {}});
+        script->skipDialog();
+    }
+
+    // Приказ из журнала сохранения.
+    void applyCommand(const oc2::world::World::Command& c) {
+        const auto type = [&] { return units->find(c.s); };
+        if (c.kind == "move") world.orderMove(std::size_t(c.a[0]), c.a[1], c.a[2]);
+        else if (c.kind == "attack") world.orderAttack(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "gather") world.orderGather(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "build") world.orderBuild(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "enter") world.orderEnter(std::size_t(c.a[0]), std::size_t(c.a[1]));
+        else if (c.kind == "leave") world.leaveMine(std::size_t(c.a[0]));
+        else if (c.kind == "produce") {
+            if (const auto* d = type()) world.orderProduce(std::size_t(c.a[0]), *d);
+        } else if (c.kind == "research") {
+            if (const auto* u = units->upgrade(c.s)) world.orderResearch(std::size_t(c.a[0]), *u, c.a[1]);
+        } else if (c.kind == "place") {
+            if (const auto* d = type()) world.placeBuilding(*d, c.a[0], c.a[1], c.a[2]);
+        } else if (c.kind == "sow") {
+            if (const auto* d = type()) world.sowField(*d, c.a[0], c.a[1], c.a[2]);
+        } else if (c.kind == "skip") {
+            if (script) script->skipDialog();
+        }
+    }
+
+    // Загрузка сохранения: игра уже построена с теми же картой и таблицей игроков — проигрываются
+    // приказы журнала до сохранённого шага (без звуков). Журнал остаётся, чтобы следующие сохранения были полными.
+    void replay(const oc2::world::SaveGame& g) {
+        oc2::platform::SoundBank* const saved = std::exchange(sounds, nullptr);
+        std::size_t next = 0;
+        for (;;) {
+            while (next < g.journal.size() && g.journal[next].step <= world.stepCount()) applyCommand(g.journal[next++]);
+            if (world.stepCount() >= g.steps) break;
+            tick();
+        }
+        world.soundEvents.clear();
+        world.journal = g.journal;
+        sounds = saved;
     }
 
     // Мировая точка под пикселем экрана: Y проекции = y/2 − z, z зависит от y — несколько уточнений.
@@ -926,6 +990,7 @@ struct MapView {
     // Левая кнопка — начало рамки; правая — идти в точку. Группа сохраняет строй:
     // каждый идёт со своим смещением от центра группы.
     void handleClick(const oc2::platform::Window::Click& c, VkExtent2D e) {
+        const PlayerInput input(world);
         auto& us = world.units();
         if (panelClick(c, e)) return;
         if (placing) {
@@ -1283,6 +1348,7 @@ int main(int argc, char** argv) {
                 long cx = 0, cy = 0, n = 0;
                 for (const auto& u : us)
                     if (u.selected) cx += u.x(), cy += u.y(), ++n;
+                const MapView::PlayerInput input(mapView->world);
                 for (std::size_t i = 0; n > 0 && i < us.size(); ++i)
                     if (us[i].selected)
                         mapView->world.orderMove(i, (*opts->move)[1] + int(us[i].x() - cx / n),
@@ -1375,6 +1441,34 @@ int main(int argc, char** argv) {
                                     n.second ? (" (+" + std::to_string(n.second) + " строится)").c_str() : "");
                 }
             }
+            if (opts->saveCheck) { // сохранение → файл → загрузка: состояние должно совпасть
+                auto hash = [](const oc2::world::World& w) {
+                    std::uint64_t h = 1469598103934665603ULL;
+                    for (const auto& u : w.units())
+                        for (const std::int64_t v : {std::int64_t(u.x()), std::int64_t(u.y()), std::int64_t(u.life), std::int64_t(u.alive())})
+                            h = (h ^ std::uint64_t(v)) * 1099511628211ULL;
+                    for (const auto& r : w.resources)
+                        for (const int v : r) h = (h ^ std::uint64_t(v)) * 1099511628211ULL;
+                    return h;
+                };
+                oc2::world::SaveGame g;
+                g.name = "selfcheck";
+                g.map = mapView->startMap;
+                g.steps = mapView->world.stepCount();
+                g.journal = mapView->world.journal;
+                const bool ok = g.write();
+                const auto back = oc2::world::SaveGame::read(oc2::world::SaveGame::pathFor(g.name));
+                oc2::world::SaveGame::remove(g.name);
+                std::printf("сохранение: файл %s, приказов %zu, шаг %llu\n", ok && back ? "записан и прочитан" : "НЕ РАБОТАЕТ",
+                            g.journal.size(), (unsigned long long)g.steps);
+                if (back) {
+                    MapView copy(vulkan, sprites, opts->dataDir, back->map, screen->images.get());
+                    copy.replay(*back);
+                    const auto a = hash(mapView->world), b = hash(copy.world);
+                    std::printf("состояние: %016llx и %016llx — %s\n", (unsigned long long)a, (unsigned long long)b,
+                                a == b ? "совпало" : "РАСХОДИТСЯ");
+                }
+            }
             if (opts->gather) {
                 auto& w = mapView->world;
                 int ordered = 0;
@@ -1401,6 +1495,7 @@ int main(int argc, char** argv) {
         }
 
         std::optional<std::string> pendingStart; // карта, выбранная в меню
+        std::optional<oc2::world::SaveGame> pendingLoad; // сохранение, выбранное в меню
         std::uint64_t last = SDL_GetTicksNS();
         std::string shownTitle;
         for (long frame = 0; window.pumpEvents(); ++frame) {
@@ -1433,19 +1528,37 @@ int main(int argc, char** argv) {
                 }
             }
             // Начало игры из меню — вне кадра: загрузка карты занимает секунды и пользуется GPU.
-            if (pendingStart && screen) {
+            if ((pendingStart || pendingLoad) && screen) {
+                oc2::ui::Menus& menus = *screen->menus;
                 MapView::setup.reset();
-                MapView::difficulty = screen->menus->difficulty;
-                if (screen->menus->setupStart()) MapView::setup = screen->menus->slots;
+                MapView::difficulty = menus.difficulty;
+                if (pendingLoad) {
+                    // Загрузка: та же карта и таблица игроков, затем повтор приказов до сохранённого шага.
+                    const oc2::world::SaveGame& g = *pendingLoad;
+                    menus.restoreStart(g);
+                    MapView::difficulty = g.difficulty;
+                    if (g.setup) {
+                        oc2::ui::Menus::Slot* slot = menus.slots.data();
+                        for (const auto& s : g.slots) *slot++ = {s[0], s[1], s[2], s[3] != 0};
+                        MapView::setup = menus.slots;
+                    }
+                    pendingStart = g.map;
+                    while (!menus.empty() && menus.currentName() == "F10game") menus.close();
+                } else if (menus.setupStart())
+                    MapView::setup = menus.slots;
                 try {
-                    mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart,
-                                                        screen->images.get());
+                    mapView = std::make_unique<MapView>(vulkan, sprites, opts->dataDir, *pendingStart, screen->images.get());
                     mapView->centerOnPlayer(0, vulkan.extent());
                     mapView->sounds = sounds.get();
+                    if (pendingLoad) {
+                        mapView->replay(*pendingLoad);
+                        mapView->centerOnPlayer(mapView->player, vulkan.extent());
+                    }
                 } catch (const std::exception& ex) {
                     std::fprintf(stderr, "не удалось начать игру: %s\n", ex.what());
                 }
                 pendingStart.reset();
+                pendingLoad.reset();
                 window.clicks.clear();
                 last = SDL_GetTicksNS(); // время загрузки не идёт в симуляцию
                 continue;
@@ -1519,6 +1632,7 @@ int main(int argc, char** argv) {
                         if (r.button == 1) draggedSlider = nullptr;
                 }
                 if (auto start = menus.takeStartRequest()) pendingStart = std::move(start);
+                if (auto load = menus.takeLoadRequest()) pendingLoad = std::move(load);
                 if (menus.empty()) return false;
                 menus.current().draw(screen->view);
                 return true;
@@ -1538,7 +1652,7 @@ int main(int argc, char** argv) {
                 const bool gameMenu = resultOpen && menus.currentName() == "F10game";
                 for (std::uint32_t key : window.pressedKeys) {
                     mapView->handleKey(key, e);
-                    if (key == SDLK_SPACE && mapView->script) mapView->script->skipDialog(); // пропуск диалога
+                    if (key == SDLK_SPACE) mapView->skipDialog(); // пропуск диалога
                 }
                 if (window.wheel != 0.0f && !resultOpen)
                     mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
@@ -1587,6 +1701,24 @@ int main(int argc, char** argv) {
                     drawPanelHint(*screen, b->desc, b->upgrade, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
                     const bool open = runMenu();
+                    if (auto name = menus.takeSaveRequest()) {
+                        oc2::world::SaveGame g;
+                        g.name = *name;
+                        g.time = std::time(nullptr);
+                        g.map = mapView->startMap;
+                        g.setup = MapView::setup.has_value();
+                        if (MapView::setup)
+                            for (std::size_t i = 0; i < g.slots.size(); ++i) {
+                                const auto& sl = (*MapView::setup)[i];
+                                g.slots[i] = {sl.nation, sl.team, sl.color, sl.active ? 1 : 0};
+                            }
+                        g.difficulty = MapView::difficulty;
+                        g.player = mapView->player;
+                        if (const auto m = menus.activeMission()) g.campaign = int(m->first), g.mission = m->second;
+                        g.steps = mapView->world.stepCount();
+                        g.journal = mapView->world.journal;
+                        if (!g.write()) std::fprintf(stderr, "не удалось сохранить «%s»\n", name->c_str());
+                    }
                     if (menus.takeBackToMain()) {
                         // Конец игры: к главному меню (без него, при --map, — выход).
                         mapView.reset();

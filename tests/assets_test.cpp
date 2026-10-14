@@ -34,6 +34,7 @@
 #include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
 #include "world/mission_script.hpp"
+#include "world/savegame.hpp"
 #include "world/world.hpp"
 
 #include <bzlib.h>
@@ -1398,6 +1399,33 @@ TEST_CASE("Настройки: запись и чтение") {
     b.load(path);
     CHECK(b.soundVolume == 10 && b.musicVolume == 100 && !b.musicOn && b.arcade && b.showHint);
     std::filesystem::remove(path);
+}
+
+TEST_CASE("Сохранение игры: запись и чтение журнала приказов") {
+    oc2::world::SaveGame g;
+    g.name = "Проверка / тест";
+    g.map = "Missions/Skirmish/Skirmish1.m3d";
+    g.setup = true;
+    g.slots[1] = {3, 2, 5, 0};
+    g.difficulty = 2;
+    g.campaign = 1;
+    g.mission = 4;
+    g.steps = 1234;
+    g.journal.push_back({10, "move", {7, 100, 200, 0}, ""});
+    g.journal.push_back({20, "produce", {3, 0, 0, 0}, "ДЕРЕВНЯ (FR)"});
+    const auto file = oc2::world::SaveGame::pathFor(g.name);
+    CHECK(file.filename().string().find('/') == std::string::npos);
+    CHECK(g.write());
+    const auto back = oc2::world::SaveGame::read(file);
+    oc2::world::SaveGame::remove(g.name);
+    CHECK(back.has_value());
+    if (!back) return;
+    CHECK(back->name == g.name && back->map == g.map && back->setup && back->difficulty == 2);
+    CHECK(back->slots[1] == g.slots[1] && back->campaign == 1 && back->mission == 4 && back->steps == 1234);
+    CHECK(back->journal.size() == 2);
+    if (back->journal.size() != 2) return;
+    CHECK(back->journal[0].kind == "move" && back->journal[0].a[2] == 200 && back->journal[0].step == 10);
+    CHECK(back->journal[1].s == "ДЕРЕВНЯ (FR)");
 }
 
 TEST_CASE("Сценарий миссии: правила, задачи, итог и фильм") {

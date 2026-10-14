@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "assets/campaign_list.hpp"
+#include "world/savegame.hpp"
 #include "assets/mission_list.hpp"
 #include "core/settings.hpp"
 #include "ui/dialogs.hpp"
@@ -74,6 +75,23 @@ public:
         return r;
     }
 
+    // Запрос сохранить игру (cva_SaveInGame_Accept): имя сохранения (UTF-8). Возвращается один раз.
+    std::optional<std::string> takeSaveRequest() {
+        auto r = std::move(saveRequest_);
+        saveRequest_.reset();
+        return r;
+    }
+    // Запрос загрузить игру (cva_LoadInGame_Accept): выбранное сохранение. Возвращается один раз.
+    std::optional<world::SaveGame> takeLoadRequest() {
+        auto r = std::move(loadRequest_);
+        loadRequest_.reset();
+        return r;
+    }
+    // Миссия кампании, запущенная из меню: (кампания, номер миссии) — для записи в сохранение.
+    std::optional<std::pair<std::size_t, int>> activeMission() const { return activeMission_; }
+    // Игра загружена из сохранения: победа в ней по-прежнему открывает следующую миссию кампании.
+    void restoreStart(const world::SaveGame& g);
+
     // Игроки стычки (таблица cva_BR_*): строка 0 — человек, 1..6 — компьютер или «нет игрока».
     struct Slot {
         int nation = 0;   // 0 — по карте, иначе номер в kNations
@@ -100,6 +118,8 @@ public:
 private:
     void syncPlayerTable(Dialog& dialog);
     void syncProfiles(Dialog& dialog);
+    void syncSaves(Dialog& dialog);
+    bool saveClick(const Widget& w, const Widget::Action& a);
     bool profileClick(const Widget& w, const Widget::Action& a);
     std::string resultMessage_;
     UiContext& ctx_;
@@ -128,6 +148,13 @@ private:
     std::vector<int> campaignDone_;
     std::optional<std::pair<std::size_t, int>> activeMission_;
     std::optional<std::string> startRequest_;
+    // Сохранения (окно «Загрузить», меню игры F10): список файлов, выбранная строка, запросы для main.cpp.
+    std::vector<world::SaveGame> saves_;
+    int savePick_ = -1;
+    bool savesDirty_ = true;
+    std::string deskBeforeDelete_;
+    std::optional<std::string> saveRequest_;
+    std::optional<world::SaveGame> loadRequest_;
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
     bool backToMain_ = false;

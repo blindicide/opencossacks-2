@@ -79,6 +79,7 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
 }
 
 void World::orderMove(std::size_t index, int x, int y) {
+    const auto rec = record("move", int(index), x, y);
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside) return;
     u.target.reset();
@@ -89,6 +90,7 @@ void World::orderMove(std::size_t index, int x, int y) {
 }
 
 void World::orderAttack(std::size_t index, std::size_t target) {
+    const auto rec = record("attack", int(index), int(target));
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || target >= units_.size() || target == index) return;
     u.target = target;
@@ -118,6 +120,7 @@ bool World::canShoot(const Unit& u, int w) const {
 }
 
 std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, int player, int x, int y) {
+    const auto rec = record("place", player, x, y, 0, desc.typeName);
     if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player) || !available(desc, player)) return std::nullopt;
     auto& have = resources[std::size_t(player & 7)];
     for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
@@ -187,6 +190,7 @@ bool World::available(const assets::UnitDesc& desc, int player) const {
 }
 
 bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int costPercent) {
+    const auto rec = record("research", int(index), costPercent, 0, 0, up.name);
     Unit& b = units_.at(index);
     if (!b.building() || b.underConstruction || !b.alive() || b.researchLeft > 0 || researched[std::size_t(b.player & 7)].count(up.name) ||
         blocked[std::size_t(b.player & 7)].count(up.name))
@@ -202,6 +206,7 @@ bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int c
 }
 
 bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
+    const auto rec = record("produce", int(index), 0, 0, 0, unit.typeName);
     Unit& b = units_.at(index);
     if (!b.building() || b.underConstruction || !b.alive() || unit.building || !affordable(unit, b.player) ||
         !available(unit, b.player))
@@ -291,6 +296,7 @@ void World::updateProduction(std::size_t index) {
 }
 
 bool World::orderEnter(std::size_t index, std::size_t mineIndex) {
+    const auto rec = record("enter", int(index), int(mineIndex));
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || !u.desc->peasant || mineIndex >= units_.size()) return false;
     const Unit& m = units_[mineIndex];
@@ -328,6 +334,7 @@ void World::updateEnter(std::size_t index) {
 }
 
 bool World::leaveMine(std::size_t mineIndex) {
+    const auto rec = record("leave", int(mineIndex));
     Unit& m = units_.at(mineIndex);
     if (m.occupants.empty()) return false;
     const std::size_t index = m.occupants.back();
@@ -358,6 +365,7 @@ void World::updateMine(std::size_t index) {
 }
 
 bool World::orderBuild(std::size_t index, std::size_t building) {
+    const auto rec = record("build", int(index), int(building));
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || !u.desc->peasant || building >= units_.size()) return false;
     const Unit& b = units_[building];
@@ -441,6 +449,7 @@ std::size_t World::addObject(int object, int x, int y) {
 }
 
 int World::sowField(const assets::UnitDesc& desc, int player, int x, int y) {
+    const auto rec = record("sow", player, x, y, 0, desc.typeName);
     const int stage = rules_.find(desc.exSprite);
     if (!desc.spriteObject || stage < 0 || !affordable(desc, player)) return 0;
     std::vector<std::pair<int, int>> spots;
@@ -492,6 +501,7 @@ std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) cons
 }
 
 bool World::orderGather(std::size_t index, std::size_t source) {
+    const auto rec = record("gather", int(index), int(source));
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || source >= sources.size() || sources[source].resource < 0) return false;
     if (u.desc->portion[std::size_t(sources[source].resource)] <= 0) return false;
