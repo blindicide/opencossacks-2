@@ -598,6 +598,38 @@ void World::pathTo(Unit& u, int x, int y) {
     u.moving = true;
 }
 
+int World::random(int n) {
+    rng_ = rng_ * 1664525u + 1013904223u;
+    return n > 0 ? int((rng_ >> 8) % std::uint32_t(n)) : 0;
+}
+
+// Разброс как в FUN_00f2c8c0: точка прицеливания сдвигается по каждой оси на
+// (r − 512)·d·RAZBROS/32000, где r — 0..999, d = ((max(|dx|,|dy|) + |dx| + |dy|)/2)/32.
+// Попадание — по ближайшему врагу к этой точке в пределах его радиуса и kHitRadius
+// (снарядов с собственным столкновением ещё нет — своё допущение).
+Unit* World::shotVictim(const Unit& u, Unit& t) {
+    const int razbros = u.desc->razbros;
+    if (razbros <= 0 || t.building()) return &t;
+    const int dx = std::abs(t.x() - u.x()), dy = std::abs(t.y() - u.y());
+    const int d = ((std::max(dx, dy) + dx + dy) / 2) >> 5;
+    const int ax = t.x() + (random(1000) - 512) * d * razbros / 32000;
+    const int ay = t.y() + (random(1000) - 512) * d * razbros / 32000;
+    constexpr int kHitRadius = 24;
+    Unit* best = nullptr;
+    long long bestDist = 0;
+    for (Unit& e : units_) {
+        if (!e.alive() || e.inside || e.building() || !enemies(u.player, e.player)) continue;
+        const long long ex = e.x() - ax, ey = e.y() - ay;
+        const long long dist = ex * ex + ey * ey;
+        const long long reach = kHitRadius + e.desc->unitRadius;
+        if (dist <= reach * reach && (!best || dist < bestDist)) {
+            best = &e;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
 void World::hit(Unit& t, int damage) {
     if (!t.alive()) return;
     t.life -= damage;
@@ -837,7 +869,8 @@ void World::step() {
                         Unit& t = units_[*u.target];
                         const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
                         // Цель успела уйти дальше полуторной дальности — промах.
-                        if (reach <= u.desc->attackMax[w] * 1.5) hit(t, u.desc->damage[w]);
+                        if (reach <= u.desc->attackMax[w] * 1.5)
+                            if (Unit* victim = shotVictim(u, t)) hit(*victim, u.desc->damage[w]);
                     }
                 }
             }

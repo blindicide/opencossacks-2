@@ -188,6 +188,8 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                 points.emplace_back(intAt(w, 2 + 2 * std::size_t(i), "x"), intAt(w, 3 + 2 * std::size_t(i), "y"));
         } else if (key == "ROTATE") {
             d.rotate = std::max(1, intAt(w, 1, "поворот"));
+        } else if (key == "RAZBROS") {
+            d.razbros = std::max(0, intAt(w, 1, "разброс"));
         } else if (key == "UNITRADIUS") {
             d.unitRadius = intAt(w, 1, "радиус");
         } else if (key == "USERLC" && w.size() >= 3) {

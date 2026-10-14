@@ -275,6 +275,10 @@ private:
     std::vector<Unit> units_;
     LockMap lock_;
     std::uint64_t steps_ = 0;
+    std::uint32_t rng_ = 0x9e3779b9u; // свой генератор: исход боя повторяем при тех же приказах
+    int random(int n); // 0..n-1
+    // Куда на самом деле попал выстрел оружием w юнита u по цели t (разброс RAZBROS); nullptr — мимо.
+    Unit* shotVictim(const Unit& u, Unit& t);
 };
 
 } // namespace oc2::world

@@ -1002,6 +1002,25 @@ TEST_CASE("Мир: расход угля и железа на выстрел") {
     CHECK(w.units()[b].life == 90 && w.resources[0][coal] == 0 && w.resources[0][iron] == 0);
 }
 
+TEST_CASE("Мир: разброс выстрела RAZBROS") {
+    using namespace oc2::world;
+    const auto lost = [](const char* razbros) {
+        const UnitDesc gun = UnitDesc::parse(std::string("NAME G\nGEOMETRY 1 10 40\nLIFE 100000\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                                         "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\n"
+                                                         "DAMAGE 1 1\nATTACK_RADIUS 1 0 600\nATTACK_PAUSE 1 5\n") + razbros);
+        World w;
+        const std::size_t a = w.addUnit(gun, 0, 100, 100, 0);
+        const std::size_t b = w.addUnit(gun, 1, 500, 100, 0); // 400 до цели
+        w.orderAttack(a, b);
+        for (int i = 0; i < 3000; ++i) w.step();
+        return 100000 - w.units()[b].life;
+    };
+    const int exact = lost(""), scattered = lost("RAZBROS 150\n");
+    CHECK(exact > 100);
+    CHECK(scattered > exact / 2 && scattered < exact * 95 / 100); // часть выстрелов мимо
+    CHECK(lost("RAZBROS 150\n") == scattered); // повторяемо
+}
+
 TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
     using namespace oc2::world;
     const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"
