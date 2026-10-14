@@ -6,7 +6,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <functional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/settings.hpp"
@@ -38,6 +41,7 @@
 #include "world/bigmap.hpp"
 #include "world/savegame.hpp"
 #include "world/world.hpp"
+#include "net/session.hpp"
 
 #include <bzlib.h>
 
@@ -1261,6 +1265,61 @@ TEST_CASE("Сценарий ИИ: папки, цепочки условий, д�
     const AiAction& buy = f.rules[0].actions[1];
     CHECK(buy.kind == AiAction::Kind::BuyResource && buy.resource == 3 && buy.sellResource == -1 && buy.amount == 300);
     CHECK(aiCompare(5, AiOp::MoreEqual, 5) && !aiCompare(5, AiOp::Less, 5) && aiDifficultyLevel("hard") == 2);
+}
+
+TEST_CASE("Сетевая игра: комната и ходы lockstep по локальному соединению") {
+    using oc2::net::Session;
+    CHECK(Session::decode(Session::encode({0, "place", {1, -5, 700, 0}, "Дом"}))->a[1] == -5);
+    CHECK(Session::decode("bad") == std::nullopt);
+    Session host, guest;
+    std::string error;
+    if (!host.host("Хозяин", 0, error)) { // в окружении нет сокетов — остальное пропускаем
+        std::printf("  сеть недоступна: %s\n", error.c_str());
+        return;
+    }
+    const auto until = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 2000; ++i) {
+            if (done()) return true;
+            host.pump();
+            guest.pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    };
+    CHECK(guest.join("Гость", "127.0.0.1", host.port(), error));
+    CHECK(until([&] { return guest.joined(); }) && guest.mySlot == 1);
+    CHECK(host.room.slots[1].kind == 2 && host.room.slots[1].name == "Гость");
+    guest.setMine(3, 2, 5);
+    CHECK(until([&] { return host.room.slots[1].nation == 3 && host.room.slots[1].team == 2; }));
+    host.room.map = "Maps/test.m3d";
+    host.room.slots[2].kind = 0;
+    host.publishRoom();
+    CHECK(until([&] { return guest.room.map == "Maps/test.m3d" && guest.room.slots[2].kind == 0; }));
+    guest.chat("привет");
+    CHECK(until([&] { return !host.takeChat().empty(); }));
+    host.start();
+    CHECK(until([&] { return guest.takeStarted(); }) && host.humanMask() == 3u && guest.humanMask() == 3u);
+    // Приказ, отданный на ходу t, выполняется у обоих на ходу t + kDelay, в одном порядке слотов.
+    std::vector<std::string> a, b;
+    for (int t = 0; t < 8; ++t) {
+        CHECK(until([&] { return host.turnReady() && guest.turnReady(); }));
+        if (t == 1) host.submit({0, "move", {7, 100, 200, 0}, {}});
+        if (t == 1) guest.submit({0, "stop", {9, 0, 0, 0}, {}});
+        for (auto& [slot, c] : host.beginTurn()) a.push_back(std::to_string(t) + ":" + std::to_string(slot) + c.kind);
+        for (auto& [slot, c] : guest.beginTurn()) b.push_back(std::to_string(t) + ":" + std::to_string(slot) + c.kind);
+    }
+    CHECK(a == b && a.size() == 2);
+    const std::string want = std::to_string(1 + Session::kDelay) + ":";
+    CHECK(a.size() == 2 && a[0] == want + "0move" && a[1] == want + "1stop");
+    // Совпадающие суммы расхождением не считаются, разные — считаются.
+    host.reportHash(32, 111);
+    guest.reportHash(32, 111);
+    CHECK(until([&] { return false; }) == false && host.desyncTurn() < 0);
+    host.reportHash(64, 1);
+    guest.reportHash(64, 2);
+    CHECK(until([&] { return host.desyncTurn() == 64 && guest.desyncTurn() == 64; }));
+    guest.leave();
+    CHECK(until([&] { return host.gone(1); }));
 }
 
 int main() { return oc2::test::runAll(); }

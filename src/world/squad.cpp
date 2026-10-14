@@ -134,6 +134,7 @@ static void layout(World& w, World::Squad& sq, int cx, int cy, int facing) {
 
 bool World::formSquad(const std::vector<std::size_t>& ids, Formation form) {
     const auto rec = record("form", int(form), 0, 0, 0, joinIds(ids));
+    if (rec.deferred) return true;
     std::map<const assets::UnitDesc*, std::vector<std::size_t>> byType;
     int player = -1;
     for (const std::size_t id : ids) {
@@ -201,6 +202,7 @@ bool World::formSquad(const std::vector<std::size_t>& ids, Formation form) {
 
 void World::orderMoveGroup(const std::vector<std::size_t>& ids, int x, int y) {
     const auto rec = record("movegroup", x, y, 0, 0, joinIds(ids));
+    if (rec.deferred) return;
     std::vector<std::size_t> loose;
     std::map<int, bool> seen;
     std::vector<int> groups;

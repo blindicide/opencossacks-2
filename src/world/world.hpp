@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -297,17 +298,24 @@ public:
     struct RecordGuard {
         World& w;
         bool was;
-        explicit RecordGuard(World& world) : w(world), was(world.recording) { w.recording = false; }
+        bool deferred; // приказ ушёл в commandSink (сетевая игра): выполнять сейчас не надо
+        explicit RecordGuard(World& world, bool defer = false) : w(world), was(world.recording), deferred(defer) { w.recording = false; }
         ~RecordGuard() { w.recording = was; }
         RecordGuard(const RecordGuard&) = delete;
         RecordGuard& operator=(const RecordGuard&) = delete;
     };
     [[nodiscard]] RecordGuard record(const char* kind, int a = 0, int b = 0, int c = 0, int d = 0, const std::string& s = {}) {
+        if (recording && commandSink) {
+            commandSink({steps_, kind, {a, b, c, d}, s});
+            return RecordGuard(*this, true);
+        }
         if (recording) journal.push_back({steps_, kind, {a, b, c, d}, s});
         return RecordGuard(*this);
     }
 
     std::uint64_t stepCount() const { return steps_; }
+    // Контрольная сумма состояния (юниты и ресурсы): сетевые узлы сверяют её и замечают расхождение.
+    std::uint64_t stateHash() const;
 
     // Журнал приказов игрока (для сохранений: симуляция детерминирована, игра восстанавливается
     // повтором приказов с тех же шагов). Пишутся, пока recording (ввод игрока), а не приказы ИИ и сценария.
@@ -318,6 +326,9 @@ public:
         std::string s;               // имя типа юнита или улучшения
     };
     std::vector<Command> journal;
+    // Сетевая игра: приказы игрока не выполняются на месте, а уходят сюда и возвращаются
+    // со всеми узлами на согласованном шаге (см. net/session).
+    std::function<void(const Command&)> commandSink;
     // Последнее событие у команды игрока (по нему прыгает пробел): место и шаг; step −1 — не было.
     struct Alert {
         int x = 0, y = 0;
@@ -336,6 +347,8 @@ public:
     // идут атаковать ближайшего врага в радиусе kAiRadius. humanTeam = −1 — ИИ выключен.
     static constexpr int kAiRadius = 2500;
     int humanTeam = -1;
+    // Сетевая игра: биты игроков-людей — их юнитами тактический ИИ не распоряжается (даже вне humanTeam).
+    unsigned humanMask = 0;
 
     // Проверочное: убить всех боевых юнитов не из команды team.
     void killAllExcept(int team);

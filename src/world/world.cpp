@@ -80,6 +80,7 @@ std::size_t World::addUnit(const assets::UnitDesc& desc, int player, int x, int 
 
 void World::orderMove(std::size_t index, int x, int y) {
     const auto rec = record("move", int(index), x, y);
+    if (rec.deferred) return;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside) return;
     u.target.reset();
@@ -91,6 +92,7 @@ void World::orderMove(std::size_t index, int x, int y) {
 
 void World::orderStop(std::size_t index) {
     const auto rec = record("stop", int(index));
+    if (rec.deferred) return;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building()) return;
     u.target.reset();
@@ -103,6 +105,7 @@ void World::orderStop(std::size_t index) {
 
 void World::orderDestroy(std::size_t index) {
     const auto rec = record("destroy", int(index));
+    if (rec.deferred) return;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside) return;
     hit(u, u.life + 1, nullptr);
@@ -111,6 +114,7 @@ void World::orderDestroy(std::size_t index) {
 
 void World::orderAttack(std::size_t index, std::size_t target) {
     const auto rec = record("attack", int(index), int(target));
+    if (rec.deferred) return;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || target >= units_.size() || target == index) return;
     u.target = target;
@@ -141,6 +145,7 @@ bool World::canShoot(const Unit& u, int w) const {
 
 std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, int player, int x, int y) {
     const auto rec = record("place", player, x, y, 0, desc.typeName);
+    if (rec.deferred) return std::nullopt;
     if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player) || !available(desc, player)) return std::nullopt;
     auto& have = resources[std::size_t(player & 7)];
     for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) {
@@ -214,6 +219,7 @@ bool World::available(const assets::UnitDesc& desc, int player) const {
 
 bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int costPercent) {
     const auto rec = record("research", int(index), costPercent, 0, 0, up.name);
+    if (rec.deferred) return true;
     Unit& b = units_.at(index);
     if (!b.building() || b.underConstruction || !b.alive() || b.researchLeft > 0 || researched[std::size_t(b.player & 7)].count(up.name) ||
         blocked[std::size_t(b.player & 7)].count(up.name))
@@ -233,6 +239,7 @@ bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int c
 
 bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
     const auto rec = record("produce", int(index), 0, 0, 0, unit.typeName);
+    if (rec.deferred) return true;
     Unit& b = units_.at(index);
     if (!b.building() || b.underConstruction || !b.alive() || unit.building || !affordable(unit, b.player) ||
         !available(unit, b.player))
@@ -327,6 +334,7 @@ void World::updateProduction(std::size_t index) {
 
 bool World::orderEnter(std::size_t index, std::size_t mineIndex) {
     const auto rec = record("enter", int(index), int(mineIndex));
+    if (rec.deferred) return true;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || !u.desc->peasant || mineIndex >= units_.size()) return false;
     const Unit& m = units_[mineIndex];
@@ -365,6 +373,7 @@ void World::updateEnter(std::size_t index) {
 
 bool World::leaveMine(std::size_t mineIndex) {
     const auto rec = record("leave", int(mineIndex));
+    if (rec.deferred) return true;
     Unit& m = units_.at(mineIndex);
     if (m.occupants.empty()) return false;
     const std::size_t index = m.occupants.back();
@@ -396,6 +405,7 @@ void World::updateMine(std::size_t index) {
 
 bool World::orderBuild(std::size_t index, std::size_t building) {
     const auto rec = record("build", int(index), int(building));
+    if (rec.deferred) return true;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || !u.desc->peasant || building >= units_.size()) return false;
     const Unit& b = units_[building];
@@ -480,6 +490,7 @@ std::size_t World::addObject(int object, int x, int y) {
 
 int World::sowField(const assets::UnitDesc& desc, int player, int x, int y) {
     const auto rec = record("sow", player, x, y, 0, desc.typeName);
+    if (rec.deferred) return 1;
     const int stage = rules_.find(desc.exSprite);
     if (!desc.spriteObject || stage < 0 || !affordable(desc, player)) return 0;
     std::vector<std::pair<int, int>> spots;
@@ -535,6 +546,7 @@ std::optional<std::size_t> World::sourceNear(int x, int y, int maxDistance) cons
 
 bool World::orderGather(std::size_t index, std::size_t source) {
     const auto rec = record("gather", int(index), int(source));
+    if (rec.deferred) return true;
     Unit& u = units_.at(index);
     if (!u.alive() || u.inside || u.building() || source >= sources.size() || sources[source].resource < 0) return false;
     if (u.desc->portion[std::size_t(sources[source].resource)] <= 0) return false;
@@ -1003,7 +1015,7 @@ std::optional<int> World::winningTeam() const {
 
 void World::thinkAi(std::size_t index) {
     Unit& u = units_[index];
-    if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam) return;
+    if (humanTeam < 0 || u.player == 7 || team[std::size_t(u.player & 7)] == humanTeam || (humanMask >> u.player & 1)) return;
     if (u.target || u.moving || u.attacking || u.desc->step <= 0) return;
     if (u.desc->peasant) return; // крестьянами распоряжается стратегический ИИ, в атаку их не шлют
     if (u.squad < 0 && !isOfficer(u)) { // ИИ строит стоящих рядом однотипных в шеренгу
@@ -1265,6 +1277,21 @@ void World::step() {
         }
     }
     separate();
+}
+
+std::uint64_t World::stateHash() const {
+    std::uint64_t h = 1469598103934665603ull; // FNV-1a
+    const auto mix = [&h](std::uint64_t v) {
+        for (int i = 0; i < 8; ++i) h = (h ^ ((v >> (8 * i)) & 0xFF)) * 1099511628211ull;
+    };
+    mix(steps_);
+    for (const Unit& u : units_) {
+        mix(std::uint64_t(std::uint32_t(u.x16)) | std::uint64_t(std::uint32_t(u.y16)) << 32);
+        mix(std::uint64_t(std::uint32_t(u.life)) | std::uint64_t(std::uint32_t(u.player)) << 32);
+    }
+    for (const auto& row : resources)
+        for (const int r : row) mix(std::uint64_t(std::uint32_t(r)));
+    return h;
 }
 
 } // namespace oc2::world
