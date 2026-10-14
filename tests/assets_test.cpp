@@ -795,8 +795,8 @@ TEST_CASE("Мир: отряды — строй, скорость и разгро
     // Строй пришёл: все стоят у цели в двух шеренгах, ряд по оси юг—север.
     int minX = 1 << 30, maxX = 0;
     for (std::size_t i = 1; i < ids.size(); ++i) {
-        minX = std::min(minX, w.units()[ids[i]].x());
-        maxX = std::max(maxX, w.units()[ids[i]].x());
+        minX = (std::min)(minX, w.units()[ids[i]].x());
+        maxX = (std::max)(maxX, w.units()[ids[i]].x());
         CHECK(!w.units()[ids[i]].moving);
     }
     CHECK(maxX - minX <= 40 && minX > 900 && minX < 1010);

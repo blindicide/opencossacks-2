@@ -10,6 +10,9 @@ if(_ver MATCHES "kVersion = \"[0-9.]+-([^\"]+)\"")
 endif()
 
 project(opencossacks2 VERSION ${OC2_VERSION} LANGUAGES C CXX)
+if(WIN32)
+  add_compile_definitions(NOMINMAX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
