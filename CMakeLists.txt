@@ -34,6 +34,7 @@ add_library(oc2_assets STATIC
     src/assets/game_paths.cpp
     src/assets/image_decode.cpp
     src/assets/map3d.cpp
+    src/assets/bigmap_data.cpp
     src/assets/mission_list.cpp
     src/assets/mission_options.cpp
     src/assets/png.cpp
@@ -64,6 +65,7 @@ add_library(oc2_world STATIC
     src/world/unit_catalog.cpp
     src/world/world.cpp
     src/world/squad.cpp
+    src/world/bigmap.cpp
 )
 target_include_directories(oc2_world PUBLIC src)
 target_link_libraries(oc2_world PUBLIC oc2_assets)

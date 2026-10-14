@@ -11,6 +11,7 @@
 
 #include "core/settings.hpp"
 #include "assets/audio_decode.hpp"
+#include "assets/bigmap_data.hpp"
 #include "assets/ai_script.hpp"
 #include "assets/settlement.hpp"
 #include "assets/byte_reader.hpp"
@@ -34,6 +35,7 @@
 #include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
 #include "world/mission_script.hpp"
+#include "world/bigmap.hpp"
 #include "world/savegame.hpp"
 #include "world/world.hpp"
 
@@ -1548,4 +1550,74 @@ TEST_CASE("Улучшения: жизнь, дальность, пауза, щи�
     CHECK(w.attackMax(w.units()[t], 0) == 440 && w.attackPause(w.units()[t], 0) == 30 && w.buildStages(0, tower) == 5);
     CHECK(w.maxLife(w.units()[other]) == 2000 && w.buildStages(1, tower) == 10); // у другого игрока без изменений
     CHECK(w.modsOf(w.units()[t])->shield == 80);
+}
+
+TEST_CASE("Завоевание Европы: данные секторов, звания и ход кампании") {
+    using namespace oc2::assets;
+    const std::string sectors =
+        "#SECTORN# 3\n#MAPSIZE# 1410 1068\n"
+        "#SECTOR#\nID 0\nCenter 10 20\nSityXY 30 40\nFortXY 50 60\nDefOwner 0\nDefence 0\nPopulation 0\nSectorName Sector00\n"
+        "Neighbors 1 1\nArrow 5 6 0\nVillages 5\nRessource 4\nOwner 0\n"
+        "#SECTOR#\nID 1\nCenter 0 0\nSityXY 0 0\nFortXY 0 0\nDefOwner 1\nDefence 3\nPopulation 2\nSectorName Sector01\n"
+        "Neighbors 2 0 2\nArrow 1 1 0 2 2 0\nVillages 4\nRessource 2\nOwner 1\n"
+        "#SECTOR#\nID 2\nCenter 0 0\nSityXY 0 0\nFortXY 0 0\nDefOwner 1\nDefence 0\nPopulation 0\nSectorName Sector02\n"
+        "Neighbors 1 1\nArrow 1 1 0\nVillages 4\nRessource 1\nOwner 1\n";
+    const BigMap map = BigMap::parse(sectors);
+    CHECK(map.sectors.size() == 3 && map.width == 1410 && map.height == 1068);
+    CHECK(map.sectors[1].neighbors == std::vector<int>({0, 2}) && map.sectors[1].arrows.size() == 2);
+    CHECK(map.sectors[0].center.first == 10 && map.sectors[0].name == "Sector00" && map.sectors[1].defence == 3);
+
+    const BigMapConst k = BigMapConst::parse(
+        "// Constant\n#SECT_INCOME_GOLD\t500\n#SECT_INCOME_FOOD 2000 // food\nSectGarrisonSquads0 4\nSectGarrisonSquads3 18\n"
+        "LTN_EXPS_LIMIT 500\nSectCaptureExp 200\nDisbandSquadExp 175\nNATCOLOR0 10EF4123\n[END]\n");
+    CHECK(k.integer("SECT_INCOME_GOLD") == 500 && k.integer("SECT_INCOME_FOOD") == 2000);
+    CHECK(k.integer("SectGarrisonSquads3") == 18 && k.integer("нет", 7) == 7 && k.color(0) == 0x10EF4123u);
+
+    const HeroArmy hero = HeroArmy::parse(
+        "#LIEUTENANT 0\n#ENGLAND 4 2 UnitFuz(EN) 3 UnitVol(EN) 1\n#FRANCE 4 2 UnitFuzNG(FR) 3 UnitFuz(FR) 2\n\n"
+        "#CAPTAIN 1\n#ENGLAND 6 5 1 1 UnitKEgr(EN) 2\n"
+        "#COLONEL 3\n#ENGLAND 13 6 2 2 1 2 3 3 UnitGre(EN) 2 UnitEgrNG(EN) 1 ArtPus4(EN) 1\n");
+    const HeroArmyRow& lt = hero.rows[0][0];
+    CHECK(lt.squads == 4 && lt.layout.empty() && lt.specials.size() == 2 && lt.specials[0].first == "UnitFuz(EN)");
+    const HeroArmyRow& cap = hero.rows[1][0];
+    CHECK(cap.squads == 6 && cap.layout == std::vector<int>({5, 1}) && cap.specials.size() == 1 && cap.specials[0].second == 2);
+    const HeroArmyRow& col = hero.rows[3][0];
+    CHECK(col.squads == 13 && col.layout.size() == 6 && col.specials.size() == 3 && col.specials[2].first == "ArtPus4(EN)");
+
+    // Кампания: Англия (0) владеет сектором 0, Франция (1) — 1 и 2.
+    auto data = std::make_shared<oc2::world::BigGame::Data>();
+    data->map = map;
+    data->k = k;
+    data->hero = hero;
+    oc2::world::BigGame g(data, 0, 7);
+    CHECK(g.ownedBy(0) == 1 && g.ownedBy(1) == 2 && g.turn() == 1);
+    CHECK(g.nation(0).army.size() == 4 && g.armyCapacity(0) == 4);
+    CHECK(g.canAttack(1) && !g.canAttack(0) && !g.canAttack(2)); // сектор 2 не граничит с английским
+    CHECK(g.defencePower(1) == 18 * (11 + 2 * 3)); // гарнизон уровня 3
+    CHECK(g.defencePower(2) == 4 * 11);
+    CHECK(g.attackBase(0, 1) == 0);
+    // Доход, найм и цена.
+    const auto inc = g.income(0);
+    CHECK(inc[1] == 500 && inc[3] == 2000);
+    const int gold = g.nation(0).res[1];
+    CHECK(!g.recruit(0, "UnitFuz(EN)")); // армия полна
+    // Победа нападавшего меняет владельца, расходует и возвращает отряды, даёт опыт и добавку ресурсов.
+    oc2::world::BigGame::Attack a;
+    a.nation = 1;
+    a.target = 0;
+    a.squads = {"UnitFuzNG(FR)", "UnitFuzNG(FR)"};
+    oc2::world::BigGame::Outcome o;
+    o.attackerWon = true;
+    o.survived = {true, false};
+    o.defenderLost = 1;
+    g.apply(a, o);
+    CHECK(g.sector(0).owner == 1 && g.ownedBy(0) == 0 && !g.nation(0).alive);
+    CHECK(g.nation(1).exp == 200 + 175 && g.nation(1).army.size() == 4 - 1);
+    CHECK(g.result() == -1);
+    (void)gold;
+    // Сохранение возвращает то же состояние.
+    const std::string text = g.serialize();
+    auto back = oc2::world::BigGame::deserialize(data, text);
+    CHECK(back && back->serialize() == text && back->sector(0).owner == 1);
+    CHECK(!oc2::world::BigGame::deserialize(data, "мусор"));
 }
