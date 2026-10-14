@@ -27,4 +27,17 @@ struct CampaignList {
     static CampaignList parse(std::string_view xml);
 };
 
+// Миссии «Обучения» и «Миссий» из Missions\ew2.xml (cvi_Missions).
+struct Ew2Mission {
+    std::string map;            // FileM3D, путь с «\»
+    std::string nameKey;        // «#EW2_Tut01»
+    std::string descriptionKey; // «#EW2_Tut01_descr»
+    bool tutorial = false;
+};
+
+struct Ew2List {
+    std::vector<Ew2Mission> missions;
+    static Ew2List parse(std::string_view xml);
+};
+
 } // namespace oc2::assets

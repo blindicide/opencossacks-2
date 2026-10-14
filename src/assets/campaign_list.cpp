@@ -31,4 +31,21 @@ CampaignList CampaignList::parse(std::string_view xml) {
     return out;
 }
 
+Ew2List Ew2List::parse(std::string_view xml) {
+    const XmlNode doc = parseXml(xml);
+    const XmlNode* top = &doc;
+    if (!top->child("cvi_Missions") && top->children.size() == 1) top = &top->children.front();
+    Ew2List out;
+    for (const XmlNode& m : top->children) {
+        if (m.name != "cvi_Missions") continue;
+        Ew2Mission mission;
+        mission.map = m.value("FileM3D").value_or("");
+        mission.nameKey = m.value("Name").value_or("");
+        mission.descriptionKey = m.value("Description").value_or("");
+        mission.tutorial = m.value("Tutorial").value_or("") == "true";
+        out.missions.push_back(std::move(mission));
+    }
+    return out;
+}
+
 } // namespace oc2::assets

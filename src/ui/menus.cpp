@@ -72,6 +72,13 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
             std::fprintf(stderr, "campaign.xml: %s\n", e.what());
         }
     }
+    if (auto text = readText("Missions/ew2.xml")) {
+        try {
+            ew2_ = assets::Ew2List::parse(*text);
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "ew2.xml: %s\n", e.what());
+        }
+    }
     files_.emplace("Credits", "dialogs/mm/Credits.DialogsSystem.xml");
     files_.emplace("Loading", "dialogs/mm/M_Loading.DialogsSystem.xml");
     campaignDone_.assign(campaigns_.campaigns.size(), 0);
@@ -166,6 +173,25 @@ void Menus::update() {
             }
         }
         for (const Widget::Action& a : w.actions) {
+            if (a.type == "va_EW2_Mis_List" && w.listElement) {
+                const std::vector<std::size_t> shown = ew2Shown();
+                if (w.children.size() != shown.size() || w.currentElement < 0) {
+                    std::vector<std::string> names;
+                    for (std::size_t m : shown) names.push_back(assets::utf8ToCp1251(ctx_.texts.lookup(ew2_.missions[m].nameKey)));
+                    dialog.setListItems(w, names);
+                    ew2Pick_ = std::min(ew2Pick_, shown.empty() ? 0 : shown.size() - 1);
+                    if (!shown.empty()) Dialog::selectListItem(w, int(ew2Pick_));
+                }
+            }
+            if (a.type == "va_EW2_Mis_Text") {
+                const std::vector<std::size_t> shown = ew2Shown();
+                w.text = shown.empty() ? std::string()
+                                       : assets::utf8ToCp1251(ctx_.texts.lookup(
+                                             ew2_.missions[shown[std::min(ew2Pick_, shown.size() - 1)]].descriptionKey));
+            }
+            if (a.type == "va_EW2_Mis_Start") w.enabled = !ew2Shown().empty();
+            if (a.type == "va_EW2_Mis_CheckTutorial" && a.node)
+                w.visible = (a.node->value("Tutorial").value_or("") == "true") == ew2Tutorial_;
             if (a.type == "cva_CCamp_Sectors") // окно карты своей кампании
                 w.visible = campaign_ && campaigns_.campaigns[*campaign_].desk == w.name;
             if (a.type == "cva_CCamp_Name" && campaign_)
@@ -515,6 +541,7 @@ bool Menus::saveClick(const Widget& w, const Widget::Action& a) {
         // в меню игры «Загрузить» грузит всегда.
         const bool battles = currentName() == "SingleBattles";
         if (battles && activeTab_[currentName()] != "Load") return false;
+        if (currentName() == "Tutorial") return false; // там «Начать» запускает va_EW2_Mis_Start
         if (savePick_ >= 0 && std::size_t(savePick_) < saves_.size()) loadRequest_ = saves_[std::size_t(savePick_)];
         return true;
     }
@@ -757,6 +784,10 @@ void Menus::click(Widget& w) {
                         });
                     continue;
                 }
+                if (hasAction(*list, "va_EW2_Mis_List")) {
+                    ew2Pick_ = std::size_t(std::max(0, w.listIndex));
+                    continue;
+                }
                 if (hasAction(*list, "cva_ProfList")) {
                     profilePick_ = std::max(0, w.listIndex);
                     continue;
@@ -782,6 +813,22 @@ void Menus::click(Widget& w) {
                 setupStart_ = true;
             } else
                 std::fprintf(stderr, "не выбрана карта (нет Missions/Missions.txt?)\n");
+            return;
+        }
+        if (a.type == "va_EW2_Mis_CheckTutorial") { // переключатель «Обучение» / «Миссии»
+            ew2Tutorial_ = !ew2Tutorial_;
+            ew2Pick_ = 0;
+            current().forEach([&](Widget& i) {
+                if (hasAction(i, "va_EW2_Mis_List")) i.currentElement = -1; // перечитать
+            });
+            continue;
+        }
+        if (a.type == "va_EW2_Mis_Start") {
+            const std::vector<std::size_t> shown = ew2Shown();
+            if (!shown.empty()) {
+                startRequest_ = gamePath(ew2_.missions[shown[std::min(ew2Pick_, shown.size() - 1)]].map);
+                setupStart_ = false;
+            }
             return;
         }
         if (a.type == "cva_MM_BackToMain") { // FUN_013d8540: конец игры, затем закрыть окно
@@ -876,6 +923,16 @@ void Menus::syncOptions(bool toWidgets) {
 }
 
 void Menus::dragSlider(Widget& w, float vx) { w.sliderPos = Dialog::sliderPosAt(w, vx); }
+
+// Миссии вкладки «Обучение»/«Миссии», у которых есть карта (остальных в данных нет).
+std::vector<std::size_t> Menus::ew2Shown() const {
+    std::vector<std::size_t> out;
+    for (std::size_t i = 0; i < ew2_.missions.size(); ++i)
+        if (ew2_.missions[i].tutorial == ew2Tutorial_ &&
+            assets::findCaseInsensitive(ctx_.dataRoot, gamePath(ew2_.missions[i].map)))
+            out.push_back(i);
+    return out;
+}
 
 const std::vector<std::size_t>* Menus::listFor(const Widget& list) const {
     if (!list.listElement) return nullptr;

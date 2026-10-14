@@ -186,6 +186,11 @@ private:
     // Кампании (Dialogs\campaign.xml): выбранная в списке и открытая, пройденные миссии по кампаниям,
     // запущенная из меню миссия. Прогресс — в памяти (сохранения профиля ещё нет).
     assets::CampaignList campaigns_;
+    // «Обучение» (M_Tutorial, Missions\ew2.xml): миссии, видимые на вкладке (есть карта), выбранная.
+    assets::Ew2List ew2_;
+    bool ew2Tutorial_ = true;
+    std::size_t ew2Pick_ = 0;
+    std::vector<std::size_t> ew2Shown() const;
     std::size_t campaignPick_ = 0;
     std::optional<std::size_t> campaign_;
     std::vector<int> campaignDone_;
