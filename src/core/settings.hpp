@@ -17,6 +17,7 @@ struct Settings {
     bool showHint = true;
     bool showVideo = true;
     bool arcade = false;   // аркадный режим
+    bool fullscreen = false; // полноэкранный режим (F11, Alt+Enter, окно «Настройки»)
     bool fogOfWar = true;  // туман войны (в settings.xml оригинала DisableFogOfWar=false)
     // Профили игрока (имя в UTF-8) и номер выбранного (−1 — профилей нет).
     struct Profile {

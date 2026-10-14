@@ -30,6 +30,9 @@ public:
     VkSurfaceKHR createSurface(VkInstance instance) const;
 
     void setTitle(const std::string& title);
+    // Полноэкранный режим на рабочем столе (без смены разрешения экрана).
+    void setFullscreen(bool on);
+    bool fullscreen() const;
 
     // Взводится при изменении размера; сбрасывается вызывающим кодом.
     bool resized = false;

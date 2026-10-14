@@ -1986,6 +1986,15 @@ int main(int argc, char** argv) {
             if (!opts->typeText.empty() && frame == 20) window.typed = opts->typeText;
             if (opts->esc && frame == 1) window.pressedKeys.push_back(SDLK_ESCAPE); // проверка меню игры
             if (opts->f1 && frame == 1) window.pressedKeys.push_back(SDLK_F1); // проверка помощи
+            if (screen) { // полный экран: F11, Alt+Enter или окно «Настройки»
+                oc2::core::Settings& st = screen->menus->settings;
+                const auto pressed = [&](std::uint32_t k) { return std::find(window.pressedKeys.begin(), window.pressedKeys.end(), k) != window.pressedKeys.end(); };
+                if (pressed(SDLK_F11) || (window.alt && pressed(SDLK_RETURN))) {
+                    st.fullscreen = !st.fullscreen;
+                    st.save(oc2::core::Settings::defaultPath());
+                }
+                if (window.fullscreen() != st.fullscreen) window.setFullscreen(st.fullscreen);
+            }
             if (mapView && screen && !mapView->ended &&
                 std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_F1) != window.pressedKeys.end()) {
                 // Помощь (F1): окно поверх игры, повторное нажатие закрывает.

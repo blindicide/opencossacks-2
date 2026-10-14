@@ -66,6 +66,7 @@ void Settings::load(const std::filesystem::path& path) {
         else if (key == "video") showVideo = value != 0;
         else if (key == "arcade") arcade = value != 0;
         else if (key == "fog") fogOfWar = value != 0;
+        else if (key == "fullscreen") fullscreen = value != 0;
     }
 }
 
@@ -75,7 +76,7 @@ void Settings::save(const std::filesystem::path& path) const {
     std::ofstream out(path);
     out << "sound=" << soundVolume << "\nmusic=" << musicVolume << "\nscroll=" << scrollSpeed
         << "\nmusic_on=" << musicOn << "\nhints=" << showHint << "\nvideo=" << showVideo
-        << "\narcade=" << arcade << "\nfog=" << fogOfWar << "\n";
+        << "\narcade=" << arcade << "\nfog=" << fogOfWar << "\nfullscreen=" << fullscreen << "\n";
     out << "profile=" << profile << "\n";
     for (std::size_t i = 0; i < profiles.size(); ++i)
         out << "profile_" << i << "=" << profiles[i].race << "|" << profiles[i].difficulty << "|" << profiles[i].name << "\n";

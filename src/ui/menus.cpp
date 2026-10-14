@@ -326,6 +326,12 @@ void Menus::syncPlayerTable(Dialog& dialog) {
                 sync(w, addRace_);
             }
             else if (a.type == "cva_Opt_AnimQuality") fill(w, {"Низкое", "Среднее", "Высокое"}, animQuality_);
+            else if (a.type == "cva_Opt_VMode") { // экран: окно или полный экран (F11)
+                if (w.selected == w.syncedSel) videoMode_ = settings.fullscreen ? 1 : 0;
+                fill(w, {"Окно", "Полный экран"}, videoMode_);
+                settings.fullscreen = videoMode_ != 0;
+            }
+            else if (a.type == "cva_Opt_WaterQuality") fill(w, {"Низкое", "Среднее", "Высокое"}, waterQuality_);
             else if (a.type == "cva_Opt_ArcadeMode") fill(w, {"Выключен", "Включён"}, arcadeMode_);
             else if (a.type == "cva_MP_Autosave") fill(w, {"Выключено", "Включено"}, autosave_);
         }

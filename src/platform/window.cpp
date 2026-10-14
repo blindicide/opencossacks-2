@@ -95,6 +95,10 @@ void Window::drawableSize(std::uint32_t& width, std::uint32_t& height) const {
 
 void Window::setTitle(const std::string& title) { SDL_SetWindowTitle(window_, title.c_str()); }
 
+void Window::setFullscreen(bool on) { SDL_SetWindowFullscreen(window_, on); }
+
+bool Window::fullscreen() const { return (SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN) != 0; }
+
 bool Window::minimized() const {
     return (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
 }
