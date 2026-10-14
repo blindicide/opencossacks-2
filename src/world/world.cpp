@@ -109,6 +109,14 @@ bool World::affordable(const assets::UnitDesc& desc, int player) const {
     return true;
 }
 
+bool World::canShoot(const Unit& u, int w) const {
+    const auto& have = resources[std::size_t(u.player & 7)];
+    const auto& cost = u.desc->shotCost[std::size_t(w)];
+    for (std::size_t r = 0; r < have.size() && r < cost.size(); ++r)
+        if (have[r] < cost[r]) return false;
+    return true;
+}
+
 std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, int player, int x, int y) {
     if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player)) return std::nullopt;
     auto& have = resources[std::size_t(player & 7)];
@@ -649,7 +657,7 @@ void World::updateCombat(std::size_t index) {
         if (d.damage[i] <= 0 || d.attackMax[i] <= 0 || !attackAnimation(d, w)) continue;
         if (dist < d.attackMin[i] || dist > d.attackMax[i]) continue;
         inRange = true;
-        if (u.reload[i] > 0) continue;
+        if (u.reload[i] > 0 || !canShoot(u, w)) continue;
         if (chosen < 0 || d.attackMax[i] > d.attackMax[std::size_t(chosen)]) chosen = w;
     }
     if (chosen >= 0) {
@@ -809,13 +817,19 @@ void World::step() {
                 u.damageDone = true;
                 const auto w = std::size_t(u.weapon);
                 u.reload[w] = u.desc->attackPause[w];
-                if (!u.desc->weaponName[w].empty())
-                    shotEvents.push_back({u.desc->weaponName[w], u.x(), u.y(), u.direction});
-                if (u.target && units_[*u.target].alive()) {
-                    Unit& t = units_[*u.target];
-                    const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
-                    // Цель успела уйти дальше полуторной дальности — промах.
-                    if (reach <= u.desc->attackMax[w] * 1.5) hit(t, u.desc->damage[w]);
+                // Ресурсы могли разобрать за время замаха — тогда выстрела нет.
+                if (canShoot(u, u.weapon)) {
+                    auto& have = resources[std::size_t(u.player & 7)];
+                    const auto& cost = u.desc->shotCost[w];
+                    for (std::size_t r = 0; r < cost.size(); ++r) have[r] -= cost[r];
+                    if (!u.desc->weaponName[w].empty())
+                        shotEvents.push_back({u.desc->weaponName[w], u.x(), u.y(), u.direction});
+                    if (u.target && units_[*u.target].alive()) {
+                        Unit& t = units_[*u.target];
+                        const double reach = std::hypot(double(t.x() - u.x()), double(t.y() - u.y()));
+                        // Цель успела уйти дальше полуторной дальности — промах.
+                        if (reach <= u.desc->attackMax[w] * 1.5) hit(t, u.desc->damage[w]);
+                    }
                 }
             }
             if (u.frame >= frames) {

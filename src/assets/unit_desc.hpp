@@ -67,6 +67,8 @@ struct UnitDesc {
     // RESOURCEBASE и первых чисел TAKERESSTAGES).
     static constexpr int kResources = 6;
     static int resourceId(std::string_view name); // −1 — неизвестный
+    // RASTRATA_NA_VISTREL w n РЕС кол … — расход ресурсов на выстрел оружием w.
+    std::array<std::array<int, kResources>, kWeapons> shotCost{};
     std::array<int, kResources> portion{};     // PORTION n РЕС кол-во … — сколько несёт за ходку
     std::array<int, kResources> workCycles{};  // TAKERESSTAGES РЕС id циклы x — циклов работы на ходку
     std::uint8_t resourceBase = 0;             // RESOURCEBASE n РЕС… — какие ресурсы принимает (биты)

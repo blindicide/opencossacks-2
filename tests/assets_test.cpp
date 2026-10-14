@@ -980,6 +980,28 @@ TEST_CASE("Список миссий Missions.txt и выборки") {
     CHECK_THROWS_AS(MissionList::parse("#A\nB\n-\nm\nd\nx\n"), FormatError);
 }
 
+TEST_CASE("Мир: расход угля и железа на выстрел") {
+    using namespace oc2::world;
+    const UnitDesc gun = UnitDesc::parse("NAME G\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                         "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\n"
+                                         "DAMAGE 1 10\nATTACK_RADIUS 1 0 300\nATTACK_PAUSE 1 5\n"
+                                         "RASTRATA_NA_VISTREL 1 2 IRON 4 COAL 8\n"
+                                         "SEARCH_ENEMY_RADIUS 400\n@DEATH 9 0 0 2\n#DEATHLIE1 9 1 0 9\n");
+    CHECK(gun.shotCost[1][UnitDesc::resourceId("IRON")] == 4 && gun.shotCost[1][UnitDesc::resourceId("COAL")] == 8);
+    CHECK(gun.shotCost[0][UnitDesc::resourceId("COAL")] == 0);
+    const int coal = UnitDesc::resourceId("COAL"), iron = UnitDesc::resourceId("IRON");
+    World w;
+    const std::size_t a = w.addUnit(gun, 0, 100, 100, 0);
+    const std::size_t b = w.addUnit(gun, 1, 200, 100, 0);
+    w.orderAttack(a, b);
+    for (int i = 0; i < 20; ++i) w.step(); // ресурсов нет — не стреляет
+    CHECK(!w.units()[a].attacking && w.units()[b].life == 100);
+    w.resources[0][coal] = 8;
+    w.resources[0][iron] = 4;
+    for (int i = 0; i < 20; ++i) w.step(); // хватает на один выстрел
+    CHECK(w.units()[b].life == 90 && w.resources[0][coal] == 0 && w.resources[0][iron] == 0);
+}
+
 TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
     using namespace oc2::world;
     const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"

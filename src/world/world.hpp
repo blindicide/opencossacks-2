@@ -151,6 +151,8 @@ public:
     // Заложить здание игрока: проверяет место и цену (PRICE), списывает её; здание
     // на нулевой стадии занимает BUILDLOCKPOINTS. nullopt — нельзя.
     std::optional<std::size_t> placeBuilding(const assets::UnitDesc& desc, int player, int x, int y);
+    // Хватает ли игроку ресурсов на выстрел оружием w юнита (RASTRATA_NA_VISTREL).
+    bool canShoot(const Unit& u, int w) const;
     bool affordable(const assets::UnitDesc& desc, int player) const;
     // Приказ строить (крестьянину своего игрока): идёт к точке BUILDPOINTS и каждым
     // законченным циклом @WORK продвигает стройку на стадию (своё упрощение:

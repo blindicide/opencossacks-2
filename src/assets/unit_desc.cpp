@@ -119,6 +119,14 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                     d.attackMax[i] = intAt(w, 3, "макс");
                 }
             }
+        } else if (key == "RASTRATA_NA_VISTREL") {
+            const int weapon = intAt(w, 1, "оружие");
+            const int n = intAt(w, 2, "число ресурсов");
+            if (weapon >= 0 && weapon < UnitDesc::kWeapons)
+                for (int i = 0; i < n && 4 + 2 * std::size_t(i) < w.size(); ++i) {
+                    const int r = resourceId(w[3 + 2 * std::size_t(i)]);
+                    if (r >= 0) d.shotCost[std::size_t(weapon)][std::size_t(r)] = intAt(w, 4 + 2 * std::size_t(i), "количество");
+                }
         } else if (key == "PORTION") {
             const int n = intAt(w, 1, "число ресурсов");
             for (int i = 0; i < n && 3 + 2 * std::size_t(i) < w.size(); ++i) {
