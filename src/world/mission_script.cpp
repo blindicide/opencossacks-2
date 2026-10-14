@@ -62,6 +62,10 @@ std::unique_ptr<MissionScript> MissionScript::fromXml(const std::string& xml, co
         for (const XmlNode& v : found.front()->children) {
             const std::string name = v.value("Name").value_or("");
             Value val;
+            if (v.name == "vvVector3D") {
+                s->vectors_[name] = {int(v.intValue("mX").value_or(0)), int(v.intValue("mY").value_or(0))};
+                continue;
+            }
             if (v.name == "vvTRIGER") {
                 val.num = boolText(v.value("Value").value_or("false")) ? 1 : 0;
             } else if (v.name == "vvINTEGER") {
@@ -390,11 +394,64 @@ void MissionScript::runOp(const XmlNode& op) {
                 w.blocked[std::size_t(p)].erase(str("UpgradeID"));
         }
     } else if (name == "TakeWood" || name == "TakeFood" || name == "TakeStone") {
-        // Поля не проверены по данным: игрок — Nat или Nation, количество — Value или Count.
-        const int p = op.child("Nat") ? num("Nat") : num("Nation");
-        const int amount = op.child("Value") ? num("Value") : num("Count");
+        // Группа идёт добывать: каждый берёт ближайший источник своего ресурса.
         const int r = name == "TakeWood" ? 0 : name == "TakeStone" ? 2 : 3;
-        if (player(p)) w.resources[std::size_t(p)][std::size_t(r)] = std::max(0, w.resources[std::size_t(p)][std::size_t(r)] - amount);
+        if (const Group* g = group(str("GrpID")))
+            for (std::size_t i : g->units) {
+                if (i >= w.units().size() || !w.units()[i].alive()) continue;
+                const Unit& u = w.units()[i];
+                std::optional<std::size_t> best;
+                long bestD = 0;
+                for (std::size_t k = 0; k < w.sources.size(); ++k) {
+                    if (w.sources[k].resource != r) continue;
+                    const long dx = w.sources[k].x - u.x16 / 16, dy = w.sources[k].y - u.y16 / 16;
+                    if (!best || dx * dx + dy * dy < bestD) best = k, bestD = dx * dx + dy * dy;
+                }
+                if (best) w.orderGather(i, *best);
+            }
+    } else if (name == "MoveCamera") {
+        // Плавного пролёта нет: камера сразу в конечной точке (клетка карты → мировые координаты).
+        const XmlNode* ref = op.child("POS1");
+        const auto it = ref ? vectors_.find(ref->value("RefName").value_or("")) : vectors_.end();
+        if (it != vectors_.end()) cameraPoint = {{it->second.first * 32, it->second.second * 32}}, cameraGroup_.clear();
+    } else if (name == "AttachCameraToGroup") {
+        cameraGroup_ = str("vGrpID");
+    } else if (name == "FreeCamera") {
+        cameraGroup_.clear();
+        cameraPoint.reset();
+    } else if (name == "PutNewFormation" || name == "PutNewSquad") {
+        // Новый отряд в зоне (или узле) в группе. Размер строя не разобран: SizeType ≥ 100 — 12 юнитов, иначе один.
+        const bool squad = name == "PutNewSquad";
+        const std::string type = str(squad ? "UnitType" : "UType");
+        const std::string gname = str(squad ? "GrpID" : "vGrpID");
+        const Zone* z = zone(str("ZoneID"));
+        const int p = num("Nat");
+        const assets::UnitDesc* desc = env_.catalog ? env_.catalog->find(type) : nullptr;
+        if (desc && z && player(p)) {
+            const int count = squad ? (num("SizeType") >= 100 ? 12 : 1) : (str("Form") == "#ALONE" || str("Form") == "#ODIN" ? 1 : 12);
+            const int side = count > 1 ? 4 : 1;
+            Group& grp = groups_[gname];
+            for (int k = 0; k < count; ++k) {
+                const int x = z->x + (k % side) * 48, y = z->y + (k / side) * 48;
+                grp.units.push_back(w.addUnit(*desc, p, x, y, num(squad ? "dir" : "dir")));
+            }
+        }
+    } else if (name == "Teleport") {
+        // Группа переносится в зону (смещение dX, dY не разобрано — игнорируется).
+        const Zone* z = zone(str("ZoneID"));
+        if (const Group* g = group(str("vGrpID")); g && z) {
+            int k = 0;
+            for (std::size_t i : g->units) {
+                if (i >= w.units().size() || !w.units()[i].alive()) continue;
+                Unit& u = w.units()[i];
+                u.x16 = (z->x + (k % 4) * 48) * 16;
+                u.y16 = (z->y + (k / 4) * 48) * 16;
+                u.moving = false;
+                u.path.clear();
+                u.direction = num("Direction") & 255;
+                ++k;
+            }
+        }
     } else if (name == "ChangeFriends") {
         const int a = num("fstNat"), b = num("secNat");
         if (player(a) && player(b)) w.team[std::size_t(b)] = w.team[std::size_t(a)];
@@ -439,7 +496,7 @@ void MissionScript::runOp(const XmlNode& op) {
         fg_[ref] = on;
         if (obj && obj->value("ClassName").value_or("") == "lvCBlackScreen") black_ = on;
         if (obj && obj->value("ClassName").value_or("") == "lvCDeffFilmMenu") dialog_.visible = on;
-    } else if (name == "StopOGMiss" || name == "FreeCamera" || name == "MoveCamera" || name == "AttachCameraToGroup" ||
+    } else if (name == "StopOGMiss" ||
                name == "SetGameMode" || name == "SetScrollLimit" || name == "SetSilence" || name == "PlayOGMiss" ||
                name == "SelectUnits" || name == "SetLightSpot" || name == "BlackScreen" || name == "SetFogMode" ||
                name == "ClearLightSpot" || name == "ClearOrders" || name == "ArtAttack" || name == "GroupHoldNode" ||
@@ -487,6 +544,13 @@ void MissionScript::step() {
     }
     if (skip_) voiceEnd_ = 0;
     runRules(scripts_);
+    if (!cameraGroup_.empty())
+        if (const Group* g = group(cameraGroup_))
+            for (std::size_t i : g->units)
+                if (i < env_.world->units().size() && env_.world->units()[i].alive()) {
+                    cameraPoint = {{env_.world->units()[i].x16 / 16, env_.world->units()[i].y16 / 16}};
+                    break;
+                }
     for (Film& f : films_) stepFilm(f);
     if (playPending_) {
         playPending_ = false;

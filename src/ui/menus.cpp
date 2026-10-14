@@ -207,7 +207,10 @@ void Menus::update() {
                     return r ? dialog.find(r->value("RefName").value_or("")) : nullptr;
                 };
                 if (Widget* t = ref("dTitle")) t->text = text(vic ? "VicTitle" : "DefTitle");
-                if (Widget* m = ref("dMessage")) m->text = text(vic ? "VicMessage" : "DefMessage");
+                if (Widget* m = ref("dMessage")) {
+                    m->text = text(vic ? "VicMessage" : "DefMessage");
+                    if (ctx_.texts.contains(resultMessage_)) m->text = assets::utf8ToCp1251(ctx_.texts.lookup(resultMessage_));
+                }
                 if (Widget* b = ref("dButton")) b->text = text(vic ? "VicButton" : "DefButton");
                 if (Widget* p = ref("dPicture"); p && p->kind == WidgetKind::GPPicture) {
                     p->gp = ctx_.images.id(a.node->value("gpFile").value_or(""));

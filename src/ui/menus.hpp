@@ -50,8 +50,10 @@ public:
     std::optional<std::size_t> selectedMission;
 
     // Итог игры для окна EndGameMessage (cva_VI_EndGame): true — победа.
-    void setGameResult(bool victory) {
+    // messageId — текст итога из сценария миссии (ShowVictory / LooseGame); пусто — стандартный.
+    void setGameResult(bool victory, std::string messageId = {}) {
         gameResult_ = victory;
+        resultMessage_ = std::move(messageId);
         if (victory) campaignWon();
         resultShown_ = false;
     }
@@ -72,6 +74,7 @@ public:
     }
 
 private:
+    std::string resultMessage_;
     UiContext& ctx_;
     std::map<std::string, std::string> files_; // имя меню → путь к XML
     std::map<std::string, std::unique_ptr<Dialog>> loaded_;

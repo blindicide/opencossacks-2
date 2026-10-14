@@ -72,6 +72,9 @@ public:
     std::vector<Message> messages; // ShowMessageII (забирает хозяин)
 
     std::optional<int> myNation; // SetMyNation
+    // Куда смотрит камера по сценарию (мировые координаты); нет — камера игрока. Ставят MoveCamera
+    // и AttachCameraToGroup (следит за первым живым юнитом группы), снимает FreeCamera.
+    std::optional<std::pair<int, int>> cameraPoint;
 
     // Задачи на панели: идентификаторы текстов по порядку добавления.
     std::vector<std::string> tasks() const;
@@ -147,6 +150,8 @@ private:
     std::unordered_map<std::string, Value> vars_;
     std::unordered_map<std::string, std::string> taskText_; // имя задачи → TextID
     std::unordered_map<std::string, Group> groups_;
+    std::unordered_map<std::string, std::pair<int, int>> vectors_; // vvVector3D: клетка карты (mX, mY)
+    std::string cameraGroup_; // AttachCameraToGroup
     std::unordered_map<std::string, Zone> zones_;
     std::unordered_map<std::string, Zone> nodes_;
     std::unordered_map<std::string, std::uint64_t> timers_; // конец таймера в шагах

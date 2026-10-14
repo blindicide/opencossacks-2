@@ -196,6 +196,11 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.esc = true;
         } else if (a == "--select-own") {
             o.selectOwn = true;
+        } else if (a == "--dump-script" && hasValue) {
+            // проверка: вывести сценарий карты (SXML) и выйти
+            const auto bytes = readFile(argv[++i]);
+            std::fputs(oc2::assets::Map3d::parse(bytes).scriptXml().c_str(), stdout);
+            return std::nullopt;
         } else if (a == "--skip-film") {
             o.skipFilm = true;
         } else if (a == "--win") {
@@ -730,6 +735,7 @@ struct MapView {
     }
 
     // Шаг сценария миссии и применение его событий.
+    VkExtent2D viewExtent{1280, 720}; // размер окна для камеры сценария; обновляется каждый кадр
     void runScript() {
         script->step();
         if (script->myNation) {
@@ -748,6 +754,7 @@ struct MapView {
         }
         script->messages.clear();
         if (bannerLeft > 0) --bannerLeft;
+        if (script->cameraPoint && script->filmRunning()) lookAt(float(script->cameraPoint->first), float(script->cameraPoint->second), viewExtent);
     }
 
     void centerOn(VkExtent2D e) {
@@ -1497,6 +1504,7 @@ int main(int argc, char** argv) {
                 }
                 if (window.wheel != 0.0f && !resultOpen)
                     mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
+                mapView->viewExtent = e;
                 if (!resultOpen) mapView->scroll(dt, window, e);
                 // Нажатия на панели не доходят до карты.
                 screen->fitHud(e);
@@ -1515,7 +1523,7 @@ int main(int argc, char** argv) {
                 if (!mapView->ended && mapView->script && mapView->script->ending) {
                     mapView->ended = true;
                     mapView->dragStart.reset();
-                    menus.setGameResult(mapView->script->ending->victory);
+                    menus.setGameResult(mapView->script->ending->victory, mapView->script->ending->textId);
                     menus.open("EndGameMessage");
                 } else if (!mapView->ended && !mapView->script && mapView->world.stepCount() % 25 == 0)
                     if (auto winner = mapView->world.winningTeam()) {
