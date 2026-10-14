@@ -10,7 +10,7 @@ namespace oc2::world {
 // Продажа amount ресурса sell за ресурс buy даёт ROUND(amount · SELL[sell] / BUY[buy]);
 // после сделки цены buy тянутся к максимуму, цены sell — к минимуму:
 // цена = ROUND((предел·k + цена) / (1 + k)), k = объём · rate.
-// Возврат цен со временем (TIMERETURN) не разобран и не делается.
+// Возврат цен со временем (TIMERETURN) не нужен: в economy.txt игры мин = нач = макс у всех цен, цены не двигаются.
 class Market {
 public:
     explicit Market(const assets::Economy& economy);

@@ -177,7 +177,7 @@ bool StrategicAi::holds(const assets::AiCondition& c) {
         return n >= c.minAmount && n <= c.maxAmount;
     }
     case K::Settlements:
-        return settlements_ && assets::aiCompare(settlements_->owned(player_, c.resource), c.op, c.value);
+        return settlements_ && assets::aiCompare(settlements_->owned(player_, c.resource, c.level), c.op, c.value);
     case K::Unsupported: return false;
     }
     return false;
@@ -203,8 +203,16 @@ void StrategicAi::act(const assets::AiAction& a) {
         onFood_ = std::max(0, a.onFood);
         break;
     case K::BuyResource: buyResource(a); break;
+    case K::UpgradeSettlements: upgradeSettlement(a); break;
     case K::Unsupported: break;
     }
+}
+
+void StrategicAi::upgradeSettlement(const assets::AiAction& a) {
+    if (!settlements_ || a.resource < 0 || a.level <= 0) return;
+    const auto [cx, cy] = baseCenter();
+    if (const auto i = settlements_->upgradeCandidate(player_, a.resource, a.level, cx, cy, a.maxDistance))
+        settlements_->startUpgrade(*i, a.level, a.costPercent);
 }
 
 // BuyResource (FUN_015d2c10): продаёт Amount ресурса ResTypeToSell (сколько есть) за ResTypeToBuy.

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <vector>
 
 #include "assets/settlement.hpp"
@@ -24,6 +25,8 @@ namespace oc2::world {
 //   обоз (ObozID) не ходит, ресурс зачисляется сразу;
 // - охрана: у не нейтрального владельца недостающая (до CopMaxAmount) родится у ядра
 //   за CopBuidTime/2 шагов; у нейтрального не родится (игрок 7 не воюет);
+// - улучшения (Upgrades в .dip.xml, у всех EffType PEASANT+): уровни по порядку; уровень платит владелец (цена·CostPercent/100),
+//   идёт Duration шагов (своё допущение — единица не разобрана), Effect прибавляется к числу крестьян поселения;
 // - погибли все постройки поселения — оно ничьё (7) и больше не действует.
 class Settlements {
 public:
@@ -41,6 +44,8 @@ public:
         int copIn = 0;                      // шагов до следующего охранника
         std::vector<std::size_t> cops;
         bool active = true;
+        int level = 0;                      // завершённые улучшения (Level1..)
+        int upgradeIn = 0;                  // шагов до конца идущего улучшения
     };
 
     // Ищет поселения среди юнитов мира; описания — из Dip/ в dataRoot.
@@ -51,7 +56,15 @@ public:
     // Вызывать после каждого шага мира.
     void step();
     // Сколько поселений у игрока; resource ≥ 0 — только с этим ресурсом.
-    int owned(int player, int resource = -1) const;
+    int owned(int player, int resource = -1, int minLevel = 0) const;
+    // Крестьян поселения с учётом завершённых улучшений (PEASANT+).
+    int peons(const Settlement& s) const;
+    // Начинает улучшение до уровня level у поселения index: нужны владелец, предыдущий уровень, отсутствие идущего
+    // улучшения и цена·costPercent/100 у владельца. Возвращает, началось ли.
+    bool startUpgrade(std::size_t index, int level, int costPercent);
+    // Номер поселения игрока с ресурсом, которому можно начать улучшение до level, ближайшего к (x, y)
+    // не дальше maxDistance; пусто — нет такого.
+    std::optional<std::size_t> upgradeCandidate(int player, int resource, int level, int x, int y, int maxDistance) const;
     const std::vector<Settlement>& list() const { return list_; }
 
 private:

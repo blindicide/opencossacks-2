@@ -34,10 +34,11 @@ struct AiCondition {
     int resource = -1;   // 0 WOOD … 5 COAL
     std::string unitType;
     int radius = 0, minAmount = 0, maxAmount = 0;
+    int level = 0; // Settlements: Level — с CheckUpgrades считаются поселения не ниже уровня
 };
 
 struct AiAction {
-    enum class Kind { Build, Produce, AddResources, BuyResource, PeonsDistribution, Unsupported };
+    enum class Kind { Build, Produce, AddResources, BuyResource, PeonsDistribution, UpgradeSettlements, Unsupported };
     Kind kind = Kind::Unsupported;
     std::string unitType;
     int maxAmount = 0, resourcePercent = 100, probability = 100, packSize = 1;
@@ -48,6 +49,8 @@ struct AiAction {
     int resource = -1, sellResource = -1, amount = 0;
     // PeonsDistribution: сколько крестьян на дереве, камне, еде.
     int onWood = 0, onStone = 0, onFood = 0;
+    // UpgradeSettlements: resource, уровень, процент цены, дальность от центра базы.
+    int level = 0, costPercent = 100, maxDistance = 0;
 };
 
 struct AiTrigger {

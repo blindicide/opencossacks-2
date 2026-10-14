@@ -1227,6 +1227,57 @@ TEST_CASE("ИИ: волна атаки идёт на ближайшего вра
     CHECK(w.units()[0].target == foe && w.units()[StrategicAi::kWaveMinArmy - 1].target == foe);
 }
 
+TEST_CASE("Поселения: улучшения и действие ИИ UpgradeSettlements") {
+    using namespace oc2::world;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "oc2_upgrade_test";
+    fs::create_directories(root);
+    UnitCatalog catalog(root);
+    const UnitDesc house = UnitDesc::parse("NAME H\nBUILDING\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
+    World w;
+    w.team = {0, 1, 2, 3, 4, 5, 6, 7};
+    const std::size_t core = w.addUnit(house, 1, 1000, 1000, 0);
+    Settlements::Settlement s;
+    s.desc.peonMaxAmount[1] = 5;
+    s.desc.peonTimeOnProduce[1] = 1;
+    s.desc.obozResAmount[1] = 10;
+    s.desc.maxResAmount[1] = 100000;
+    oc2::assets::SettlementDesc::Upgrade up;
+    up.duration = 3;
+    up.effect[1] = 5;
+    up.price[3] = 100;
+    s.desc.upgrades = {up, up};
+    s.core = core;
+    s.owner = 1;
+    s.buildings = {core};
+    Settlements st(w, catalog, std::vector<Settlements::Settlement>{s});
+    CHECK(st.peons(st.list()[0]) == 5);
+    CHECK(!st.startUpgrade(0, 1, 100)); // нет золота
+    w.resources[1][3] = 150;
+    CHECK(!st.startUpgrade(0, 2, 100)); // через уровень нельзя
+    CHECK(st.startUpgrade(0, 1, 50) && w.resources[1][3] == 100); // 50 % цены
+    CHECK(!st.startUpgrade(0, 1, 100)); // уже идёт
+    CHECK(st.owned(1, 1, 1) == 0);
+    for (int i = 0; i < 3; ++i) w.step(), st.step();
+    CHECK(st.list()[0].level == 1 && st.peons(st.list()[0]) == 10 && st.owned(1, 1, 1) == 1);
+
+    // Действие ИИ: улучшение до Level2 за 100 % цены (папка и правило без условий).
+    oc2::assets::AiAction act;
+    act.kind = oc2::assets::AiAction::Kind::UpgradeSettlements;
+    act.resource = 1;
+    act.level = 2;
+    act.costPercent = 100;
+    act.maxDistance = 100000;
+    oc2::assets::AiScript script;
+    script.folders.emplace_back();
+    script.folders[0].rules.emplace_back();
+    script.folders[0].rules[0].actions = {act};
+    StrategicAi ai(w, catalog, 1, std::move(script));
+    ai.setSettlements(&st);
+    for (int i = 0; i < StrategicAi::kThinkSteps; ++i) w.step(), ai.update();
+    CHECK(st.list()[0].upgradeIn > 0 && w.resources[1][3] == 0);
+}
+
 TEST_CASE("Поселения: захват, доход, разорение") {
     using namespace oc2::world;
     namespace fs = std::filesystem;

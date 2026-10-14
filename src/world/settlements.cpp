@@ -101,15 +101,59 @@ void Settlements::step() {
         }
         // Захват проверяется реже: в оригинале ProcessTribe идёт не каждый тик.
         if (world_.stepCount() % 8 == 0) capture(s);
+        if (s.upgradeIn > 0 && --s.upgradeIn == 0) ++s.level;
         produce(s);
         guard(s);
     }
 }
 
-int Settlements::owned(int player, int resource) const {
+int Settlements::owned(int player, int resource, int minLevel) const {
     return int(std::count_if(list_.begin(), list_.end(), [&](const Settlement& s) {
-        return s.active && s.owner == player && (resource < 0 || s.resource == resource);
+        return s.active && s.owner == player && (resource < 0 || s.resource == resource) && s.level >= minLevel;
     }));
+}
+
+int Settlements::peons(const Settlement& s) const {
+    int n = s.desc.peonMaxAmount[std::size_t(s.resource)];
+    for (int i = 0; i < s.level && i < int(s.desc.upgrades.size()); ++i)
+        n += s.desc.upgrades[std::size_t(i)].effect[std::size_t(s.resource)];
+    return n;
+}
+
+bool Settlements::startUpgrade(std::size_t index, int level, int costPercent) {
+    if (index >= list_.size()) return false;
+    Settlement& s = list_[index];
+    if (!s.active || s.owner == 7 || s.resource < 0 || s.upgradeIn > 0 || level != s.level + 1 ||
+        level > int(s.desc.upgrades.size()))
+        return false;
+    const auto& up = s.desc.upgrades[std::size_t(level - 1)];
+    auto& have = world_.resources[std::size_t(s.owner & 7)];
+    std::array<int, assets::UnitDesc::kResources> cost{};
+    for (std::size_t r = 0; r < cost.size(); ++r) {
+        cost[r] = up.price[r] * costPercent / 100;
+        if (have[r] < cost[r]) return false;
+    }
+    for (std::size_t r = 0; r < cost.size(); ++r) have[r] -= cost[r];
+    s.upgradeIn = std::max(1, up.duration);
+    return true;
+}
+
+std::optional<std::size_t> Settlements::upgradeCandidate(int player, int resource, int level, int x, int y,
+                                                          int maxDistance) const {
+    std::optional<std::size_t> best;
+    long long bestDist = 0;
+    for (std::size_t i = 0; i < list_.size(); ++i) {
+        const Settlement& s = list_[i];
+        if (!s.active || s.owner != player || s.resource != resource || s.upgradeIn > 0 || s.level + 1 != level ||
+            level > int(s.desc.upgrades.size()))
+            continue;
+        const Unit& core = world_.units()[s.core];
+        const long long dx = core.x() - x, dy = core.y() - y, d = dx * dx + dy * dy;
+        if (d > (long long)maxDistance * maxDistance || (best && d >= bestDist)) continue;
+        best = i;
+        bestDist = d;
+    }
+    return best;
 }
 
 void Settlements::capture(Settlement& s) {
@@ -152,7 +196,7 @@ void Settlements::produce(Settlement& s) {
     const auto r = std::size_t(s.resource);
     if (--s.produceIn > 0) return;
     s.produceIn = std::max(1, s.desc.peonTimeOnProduce[r]);
-    s.accum += s.desc.peonMaxAmount[r];
+    s.accum += peons(s);
     const int load = s.desc.obozResAmount[r];
     if (load <= 0 || s.accum < load) return;
     s.accum -= load;

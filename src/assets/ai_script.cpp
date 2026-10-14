@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 #include "assets/unit_desc.hpp"
 
@@ -34,6 +35,11 @@ int intOf(const XmlNode& n, std::string_view name, int fallback = 0) {
 int resourceOf(const XmlNode& n, std::string_view name) {
     const auto v = n.value(name);
     return v ? UnitDesc::resourceId(*v) : -1;
+}
+
+// «Level2» → 2; не уровень — 0.
+int levelOf(std::string_view v) {
+    return v.size() > 5 && equalsNoCase(v.substr(0, 5), "Level") ? std::atoi(std::string(v.substr(5)).c_str()) : 0;
 }
 
 AiCondition parseCondition(const XmlNode& e) {
@@ -72,6 +78,7 @@ AiCondition parseCondition(const XmlNode& e) {
     } else if (e.name == "AmountOfSettlements") {
         c.kind = K::Settlements;
         c.resource = resourceOf(e, "ResType");
+        if (e.boolValue("CheckUpgrades").value_or(false)) c.level = levelOf(e.value("Level").value_or(""));
     }
     return c;
 }
@@ -124,6 +131,12 @@ AiAction parseAction(const XmlNode& e) {
         a.sellResource = resourceOf(e, "ResTypeToSell");
         a.resource = resourceOf(e, "ResTypeToBuy");
         a.amount = intOf(e, "Amount");
+    } else if (e.name == "UpgradeSettlements") {
+        a.kind = K::UpgradeSettlements;
+        a.resource = resourceOf(e, "ResType");
+        a.level = levelOf(e.value("UpgLevel").value_or(""));
+        a.costPercent = intOf(e, "CostPercent", 100);
+        a.maxDistance = intOf(e, "MaxDistance", 1000000);
     } else if (e.name == "PeonsDistribution") {
         a.kind = K::PeonsDistribution;
         a.onWood = intOf(e, "OnWood");

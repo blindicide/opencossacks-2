@@ -38,7 +38,8 @@ std::string playerNation(const World& world, const UnitCatalog& catalog, int pla
 // - волна атаки (в сценариях её нет — бригадный ИИ оригинала бинарный): раз в kWaveSeconds игровых
 //   секунд все свободные боевые юниты, если их не меньше kWaveMinArmy, идут на ближайшего к ним врага;
 // - BuyResource — продажа Amount на общем рынке World::market (без проверки, есть ли рынок у игрока);
-//   AmountOfSettlements — по Settlements::owned (без уровней улучшений), UpgradeIsRun ложно.
+//   AmountOfSettlements — по Settlements::owned (с CheckUpgrades — не ниже уровня),
+//   UpgradeSettlements — улучшение ближайшего поселения с ресурсом до уровня, UpgradeIsRun ложно.
 class StrategicAi {
 public:
     static constexpr int kThinkSteps = 25;
@@ -59,7 +60,7 @@ public:
     std::array<int, 3> distribution() const { return {onWood_, onStone_, onFood_}; }
 
     // Поселения для AmountOfSettlements; без них условие ложно.
-    void setSettlements(const Settlements* s) { settlements_ = s; }
+    void setSettlements(Settlements* s) { settlements_ = s; }
 
     // Выполнено ли условие сейчас; сработавший OnceInPeriod отсчитывает новый период.
     bool holds(const assets::AiCondition& c);
@@ -71,6 +72,7 @@ private:
     bool build(const assets::AiAction& a);
     bool produce(const assets::AiAction& a);
     void buyResource(const assets::AiAction& a);
+    void upgradeSettlement(const assets::AiAction& a);
     void employIdle();
     void sendWave();
     bool sowNear(int x, int y);
@@ -87,7 +89,7 @@ private:
     int player_;
     assets::AiScript script_;
     int difficulty_;
-    const Settlements* settlements_ = nullptr;
+    Settlements* settlements_ = nullptr;
     std::mt19937 rng_;
     int onWood_ = 1, onStone_ = 1, onFood_ = 1;
     std::uint64_t lastWave_ = 0; // номер периода последней волны
