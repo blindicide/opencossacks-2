@@ -26,7 +26,8 @@ struct AiCondition {
         EnemyNearBase,   // EnemyNearBase: Radius, MinAmount, MaxAmount (и виды — пока все)
         UnitsLost,       // UnitsLost: UnitType, OpType, Value
         Settlements,     // AmountOfSettlements: ResType, OpType, Value (Level, CheckUpgrades — без улучшений)
-        Unsupported,     // UpgradeIsRun — механики ещё нет: ложно
+        UpgradeIsRun,    // UpgradeIsRun: UpgradeID (в unitType) — улучшение исследовано (своё прочтение)
+        Unsupported,
     };
     Kind kind = Kind::Unsupported;
     AiOp op = AiOp::More;
@@ -38,7 +39,7 @@ struct AiCondition {
 };
 
 struct AiAction {
-    enum class Kind { Build, Produce, AddResources, BuyResource, PeonsDistribution, UpgradeSettlements, Unsupported };
+    enum class Kind { Build, Produce, AddResources, BuyResource, PeonsDistribution, UpgradeSettlements, PerformUpgrade, Unsupported };
     Kind kind = Kind::Unsupported;
     std::string unitType;
     int maxAmount = 0, resourcePercent = 100, probability = 100, packSize = 1;

@@ -39,7 +39,8 @@ std::string playerNation(const World& world, const UnitCatalog& catalog, int pla
 //   секунд все свободные боевые юниты, если их не меньше kWaveMinArmy, идут на ближайшего к ним врага;
 // - BuyResource — продажа Amount на общем рынке World::market (без проверки, есть ли рынок у игрока);
 //   AmountOfSettlements — по Settlements::owned (с CheckUpgrades — не ниже уровня),
-//   UpgradeSettlements — улучшение ближайшего поселения с ресурсом до уровня, UpgradeIsRun ложно.
+//   UpgradeSettlements — улучшение ближайшего поселения с ресурсом до уровня, UpgradeIsRun — улучшение
+//   исследовано, PerformUpgrade — исследование в свободном здании, которое его даёт.
 class StrategicAi {
 public:
     static constexpr int kThinkSteps = 25;
@@ -73,6 +74,7 @@ private:
     bool produce(const assets::AiAction& a);
     void buyResource(const assets::AiAction& a);
     void upgradeSettlement(const assets::AiAction& a);
+    void performUpgrade(const assets::AiAction& a);
     void employIdle();
     void sendWave();
     bool sowNear(int x, int y);

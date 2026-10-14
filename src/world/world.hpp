@@ -6,10 +6,12 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "assets/map3d.hpp"
 #include "assets/sprite_list.hpp"
+#include "assets/nation_tech.hpp"
 #include "assets/unit_desc.hpp"
 #include "world/lock_map.hpp"
 #include "world/market.hpp"
@@ -68,6 +70,9 @@ struct Unit {
     // приказ производства прибавляет GameSpeed = 256 к счётчику до стадий·256, FUN_00e4fe60).
     std::vector<const assets::UnitDesc*> queue;
     int produced = 0;
+    // Исследование улучшения в здании: имя и шагов до конца (0 — не идёт).
+    std::string research;
+    int researchLeft = 0;
     // Шахта: крестьяне внутри (номера юнитов) и накопитель дохода в тысячных.
     std::vector<std::size_t> occupants;
     int mineAccum = 0;
@@ -183,6 +188,12 @@ public:
     bool leaveMine(std::size_t mine);
     // Заказать юнит в здании: списывает PRICE, ставит в очередь. false — нельзя.
     bool orderProduce(std::size_t building, const assets::UnitDesc& unit);
+    // Доступен ли игроку тип desc: есть все требуемые [ACCESSCONTROL] готовые здания или исследованные улучшения.
+    bool available(const assets::UnitDesc& desc, int player) const;
+    // Улучшения, исследованные игроком (по именам из [UPGRADE]).
+    std::array<std::unordered_set<std::string>, 8> researched;
+    // Исследовать улучшение в здании: списывает цену, ставит таймер. false — нельзя (занято, уже есть, нет денег).
+    bool orderResearch(std::size_t building, const assets::UpgradeDef& upgrade, int costPercent = 100);
     // Следующая стадия стройки (OneObject::NextStage).
     void nextStage(std::size_t building);
     // Источники из объектов карты вида kind («AG», «ST»): номер объекта → ID в списке

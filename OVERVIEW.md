@@ -233,3 +233,5 @@ analyzeHeadless re/project engine \
 - Сводка выбранных юнитов (`drawSelectionInfo` в main.cpp): правее мини-карты имена типов («UNITSMD\ИМЯ.MD» из mdlist) и число, для одного юнита — здоровье с полосой. Проверка: `--map … --select-own` выбирает своих юнитов и ставит камеру на первого.
 
 - Улучшения поселений (`Settlements::startUpgrade/peons`): Upgrades из .dip.xml (везде EffType PEASANT+) идут по порядку уровней, платит владелец, идёт Duration шагов (единица — своё допущение), Effect прибавляется к числу крестьян, а значит к доходу. Возврат цен рынка (TIMERETURN) не нужен: в economy.txt мин = нач = макс.
+
+- Дерево развития (`assets/nation_tech.*`, `UnitCatalog::upgrade/upgradesAt`): из .nds читаются [ACCESSCONTROL] (требования типа — готовые здания и исследованные улучшения, `UnitDesc::needs`), [UPGRADE] (цена, время, действия) и [UPGRADEPLACE]. `World::available` закрывает постройку и производство без требований, `World::orderResearch` исследует улучшение в здании (время — шаги, своё допущение), `World::researched` — по игрокам. ИИ: PerformUpgrade и условие UpgradeIsRun (исследовано). Действия улучшений (LIFE, ATTRANGE, …) пока не применяются.

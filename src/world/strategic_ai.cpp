@@ -178,6 +178,7 @@ bool StrategicAi::holds(const assets::AiCondition& c) {
     }
     case K::Settlements:
         return settlements_ && assets::aiCompare(settlements_->owned(player_, c.resource, c.level), c.op, c.value);
+    case K::UpgradeIsRun: return world_.researched[std::size_t(player_ & 7)].count(c.unitType) > 0;
     case K::Unsupported: return false;
     }
     return false;
@@ -204,7 +205,21 @@ void StrategicAi::act(const assets::AiAction& a) {
         break;
     case K::BuyResource: buyResource(a); break;
     case K::UpgradeSettlements: upgradeSettlement(a); break;
+    case K::PerformUpgrade: performUpgrade(a); break;
     case K::Unsupported: break;
+    }
+}
+
+void StrategicAi::performUpgrade(const assets::AiAction& a) {
+    const assets::UpgradeDef* up = catalog_.upgrade(a.unitType);
+    if (!up || world_.researched[std::size_t(player_ & 7)].count(a.unitType)) return;
+    const auto& units = world_.units();
+    for (std::size_t i = 0; i < units.size(); ++i) {
+        const Unit& b = units[i];
+        if (b.player != player_ || !b.building() || !b.alive() || b.underConstruction || b.researchLeft > 0) continue;
+        const auto& offered = catalog_.upgradesAt(catalog_.typeOf(b.desc));
+        if (std::find(offered.begin(), offered.end(), a.unitType) == offered.end()) continue;
+        if (world_.orderResearch(i, *up, a.costPercent)) return;
     }
 }
 

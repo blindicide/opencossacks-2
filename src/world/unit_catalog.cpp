@@ -54,6 +54,17 @@ UnitCatalog::UnitCatalog(std::filesystem::path dataRoot) : root_(std::move(dataR
         } catch (const std::exception& e) {
             std::fprintf(stderr, "%s: %s\n", file.string().c_str(), e.what());
         }
+        for (auto& [type, reqs] : assets::parseNationAccess(text)) {
+            auto& list = access_[type];
+            for (auto& r : reqs)
+                if (std::find(list.begin(), list.end(), r) == list.end()) list.push_back(std::move(r));
+        }
+        for (auto& up : assets::parseNationUpgrades(text)) upgrades_.emplace(up.name, std::move(up));
+        for (auto& [building, names] : assets::parseNationUpgradePlace(text)) {
+            auto& list = upgradePlace_[building];
+            for (auto& n : names)
+                if (std::find(list.begin(), list.end(), n) == list.end()) list.push_back(std::move(n));
+        }
     }
 }
 
@@ -78,6 +89,8 @@ const assets::UnitDesc* UnitCatalog::find(std::string_view type) {
     try {
         slot = std::make_unique<assets::UnitDesc>(assets::UnitDesc::parse(readText(*path)));
         types_.emplace(slot.get(), key);
+        slot->typeName = key;
+        if (const auto it = access_.find(key); it != access_.end()) slot->needs = it->second;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s: %s\n", path->string().c_str(), e.what());
     }
@@ -88,6 +101,17 @@ const std::vector<assets::ProduceItem>& UnitCatalog::produces(std::string_view t
     static const std::vector<assets::ProduceItem> none;
     const auto it = produce_.find(std::string(type));
     return it == produce_.end() ? none : it->second;
+}
+
+const assets::UpgradeDef* UnitCatalog::upgrade(std::string_view name) const {
+    const auto it = upgrades_.find(std::string(name));
+    return it == upgrades_.end() ? nullptr : &it->second;
+}
+
+const std::vector<std::string>& UnitCatalog::upgradesAt(std::string_view type) const {
+    static const std::vector<std::string> none;
+    const auto it = upgradePlace_.find(std::string(type));
+    return it == upgradePlace_.end() ? none : it->second;
 }
 
 std::string_view UnitCatalog::typeOf(const assets::UnitDesc* desc) const {

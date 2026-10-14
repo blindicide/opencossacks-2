@@ -75,6 +75,9 @@ AiCondition parseCondition(const XmlNode& e) {
         c.maxAmount = intOf(e, "MaxAmount", 1000000);
     } else if (e.name == "UnitsLost") {
         c.kind = K::UnitsLost;
+    } else if (e.name == "UpgradeIsRun") {
+        c.kind = K::UpgradeIsRun;
+        c.unitType = e.value("UpgradeID").value_or("");
     } else if (e.name == "AmountOfSettlements") {
         c.kind = K::Settlements;
         c.resource = resourceOf(e, "ResType");
@@ -131,6 +134,10 @@ AiAction parseAction(const XmlNode& e) {
         a.sellResource = resourceOf(e, "ResTypeToSell");
         a.resource = resourceOf(e, "ResTypeToBuy");
         a.amount = intOf(e, "Amount");
+    } else if (e.name == "PerformUpgrade") {
+        a.kind = K::PerformUpgrade;
+        a.unitType = e.value("UpgradeID").value_or("");
+        a.costPercent = intOf(e, "CostPercent", 100);
     } else if (e.name == "UpgradeSettlements") {
         a.kind = K::UpgradeSettlements;
         a.resource = resourceOf(e, "ResType");

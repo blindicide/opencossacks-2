@@ -118,7 +118,7 @@ bool World::canShoot(const Unit& u, int w) const {
 }
 
 std::optional<std::size_t> World::placeBuilding(const assets::UnitDesc& desc, int player, int x, int y) {
-    if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player)) return std::nullopt;
+    if (!desc.building || !canPlace(desc, x, y) || !affordable(desc, player) || !available(desc, player)) return std::nullopt;
     auto& have = resources[std::size_t(player & 7)];
     for (std::size_t r = 0; r < have.size() && r < desc.price.size(); ++r) have[r] -= desc.price[r];
     Unit u;
@@ -174,9 +174,35 @@ void World::nextStage(std::size_t index) {
         b.animation = a;
 }
 
+bool World::available(const assets::UnitDesc& desc, int player) const {
+    for (const std::string& need : desc.needs) {
+        if (researched[std::size_t(player & 7)].count(need)) continue;
+        const bool built = std::any_of(units_.begin(), units_.end(), [&](const Unit& u) {
+            return u.player == player && u.alive() && !u.underConstruction && u.desc->typeName == need;
+        });
+        if (!built) return false;
+    }
+    return true;
+}
+
+bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int costPercent) {
+    Unit& b = units_.at(index);
+    if (!b.building() || b.underConstruction || !b.alive() || b.researchLeft > 0 || researched[std::size_t(b.player & 7)].count(up.name))
+        return false;
+    auto& have = resources[std::size_t(b.player & 7)];
+    for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r)
+        if (have[r] < up.cost[r] * costPercent / 100) return false;
+    for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r) have[r] -= up.cost[r] * costPercent / 100;
+    b.research = up.name;
+    b.researchLeft = std::max(1, up.time);
+    return true;
+}
+
 bool World::orderProduce(std::size_t index, const assets::UnitDesc& unit) {
     Unit& b = units_.at(index);
-    if (!b.building() || b.underConstruction || !b.alive() || unit.building || !affordable(unit, b.player)) return false;
+    if (!b.building() || b.underConstruction || !b.alive() || unit.building || !affordable(unit, b.player) ||
+        !available(unit, b.player))
+        return false;
     auto& have = resources[std::size_t(b.player & 7)];
     for (std::size_t r = 0; r < have.size() && r < unit.price.size(); ++r) have[r] -= unit.price[r];
     b.queue.push_back(&unit);
@@ -231,6 +257,8 @@ void World::starve() {
 }
 
 void World::updateProduction(std::size_t index) {
+    if (Unit& r = units_[index]; r.researchLeft > 0 && r.alive() && --r.researchLeft == 0)
+        researched[std::size_t(r.player & 7)].insert(r.research);
     if (units_[index].queue.empty() || units_[index].underConstruction || !units_[index].alive()) return;
     Unit& b = units_[index];
     if (!b.queue.front()->noFarm && population(b.player) >= populationLimit(b.player)) return; // нет мест

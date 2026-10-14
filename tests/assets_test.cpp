@@ -1278,6 +1278,40 @@ TEST_CASE("Поселения: улучшения и действие ИИ Upgra
     CHECK(st.list()[0].upgradeIn > 0 && w.resources[1][3] == 0);
 }
 
+TEST_CASE("Дерево развития: доступ по зданиям и исследование улучшения") {
+    using namespace oc2::world;
+    using oc2::assets::parseNationAccess;
+    const std::string nds = "[ACCESSCONTROL]\nUnitGre(PO)     2 BldKuz(PO)\n                  KUZ02(PO)\nUnitVol(PO) 1 BldKuz(PO)\n"
+                            "[UPGRADE]\nKUZ02(PO) U4 #POSITION 1 0 #LEVEL 1 KUZ02(PO) #COST 2 IRON 150 GOLD 100 #TIME 5\n"
+                            "        ENABLE UNITS GRP 1 UnitGre(PO)\n[UPGRADEPLACE]\nBldKuz(PO) 1 \nKUZ02(PO)\n[END]\n";
+    const auto access = parseNationAccess(nds);
+    CHECK(access.size() == 2 && access[0].first == "UnitGre(PO)" && access[0].second.size() == 2 &&
+          access[0].second[1] == "KUZ02(PO)" && access[1].first == "UnitVol(PO)");
+    const auto ups = oc2::assets::parseNationUpgrades(nds);
+    CHECK(ups.size() == 1 && ups[0].name == "KUZ02(PO)" && ups[0].level == 1 && ups[0].time == 5 &&
+          ups[0].cost[4] == 150 && ups[0].cost[1] == 100 && ups[0].effects.size() == 1 && ups[0].effects[0][0] == "ENABLE");
+    const auto place = oc2::assets::parseNationUpgradePlace(nds);
+    CHECK(place.size() == 1 && place[0].first == "BldKuz(PO)" && place[0].second[0] == "KUZ02(PO)");
+
+    UnitDesc forge = UnitDesc::parse("NAME Kuz\nBUILDING\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
+    forge.typeName = "BldKuz(PO)";
+    UnitDesc gren = UnitDesc::parse("NAME Gre\nGEOMETRY 1 10 40\nUSERLC 0 G\n@REST 9 0 0 3\n@MOTION_L 9 0 0 3\n");
+    gren.needs = {"BldKuz(PO)", "KUZ02(PO)"};
+    World w;
+    CHECK(!w.available(gren, 0));
+    const std::size_t b = w.addUnit(forge, 0, 500, 500, 0);
+    CHECK(!w.available(gren, 0) && !w.available(gren, 1)); // здание есть, улучшения нет
+    CHECK(!w.orderResearch(b, ups[0])); // нет железа и золота
+    w.resources[0][4] = 150;
+    w.resources[0][1] = 100;
+    CHECK(w.orderResearch(b, ups[0]) && w.resources[0][4] == 0 && !w.orderResearch(b, ups[0]));
+    for (int i = 0; i < 5; ++i) w.step();
+    CHECK(w.available(gren, 0) && !w.available(gren, 1) && w.researched[0].count("KUZ02(PO)"));
+    CHECK(!w.orderResearch(b, ups[0])); // уже исследовано
+    w.units()[b].dead = true; // без кузницы снова нельзя
+    CHECK(!w.available(gren, 0));
+}
+
 TEST_CASE("Поселения: захват, доход, разорение") {
     using namespace oc2::world;
     namespace fs = std::filesystem;
