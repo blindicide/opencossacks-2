@@ -86,7 +86,7 @@ void Audio::mix(std::int16_t* out, std::size_t frames) {
         return true;
     };
     for (auto it = voices_.begin(); it != voices_.end();)
-        it = add(*it, masterVolume) ? it + 1 : voices_.erase(it);
+        it = add(*it, masterVolume * sfxVolume) ? it + 1 : voices_.erase(it);
     if (music_.data && !add(music_, masterVolume * musicVolume)) music_ = Voice{};
     for (std::size_t i = 0; i < frames * 2; ++i)
         out[i] = std::int16_t(std::clamp(acc[i], -32768.0f, 32767.0f));

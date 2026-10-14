@@ -29,6 +29,7 @@ std::string gamePath(std::string name) {
 } // namespace
 
 Menus::Menus(UiContext& ctx) : ctx_(ctx) {
+    settings.load(core::Settings::defaultPath());
     // Как FUN_014a5460: список из Dialogs\MainMenu.xml, без него — три меню по умолчанию.
     files_ = {{"Main", "dialogs/v/M_Main.DialogsSystem.xml"},
               {"Single", "dialogs/v/M_Single.DialogsSystem.xml"},
@@ -87,6 +88,7 @@ bool Menus::open(const std::string& name) {
 }
 
 void Menus::close() {
+    if (!stack_.empty() && stack_.back().name == "Options") optionsShown_ = false;
     if (!stack_.empty()) stack_.pop_back();
 }
 
@@ -104,10 +106,17 @@ void Menus::update() {
         dialog.forEach([&](Widget& w) {
             if (w.type == "TabButton" && w.state == 1 && tab.empty()) tab = w.group;
         });
+    bool hasTabs = false;
+    dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {
-        if (w.type == "TabDesk") w.visible = w.group == tab;
+        if (w.type == "TabDesk") w.visible = !hasTabs || w.group == tab; // без кнопок вкладка одна
         if (w.type == "TabButton") w.state = w.group == tab ? 1 : 0;
     });
+    // Окно настроек: ползунки и флажки берут значения из settings при открытии.
+    if (currentName() == "Options" && !optionsShown_) {
+        syncOptions(true);
+        optionsShown_ = true;
+    }
     dialog.forEach([&](Widget& w) {
         // Список кампаний окна выбора (у окна загрузки CampList — список сохранений).
         if (w.name == "CampList" && w.listElement && !hasAction(w, "cva_LS_FileList") &&
@@ -220,6 +229,7 @@ void Menus::campaignWon() {
 }
 
 void Menus::click(Widget& w) {
+    if (w.kind == WidgetKind::CheckBox) w.checked = !w.checked;
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
         if (a.type == "cva_MM_Start" || a.type == "cva_MM_SinStart" || a.type == "cva_MM_MultiEnter") {
@@ -258,6 +268,14 @@ void Menus::click(Widget& w) {
             close();
             return;
         }
+        if (a.type == "cva_MM_Accept" || a.type == "cva_MM_Cancel") { // «Принять» и «Отмена» окна настроек
+            if (a.type == "cva_MM_Accept" && currentName() == "Options") {
+                syncOptions(false);
+                settings.save(core::Settings::defaultPath());
+            }
+            close();
+            return;
+        }
         if (a.type == "cva_MM_Close") { // FUN_013d8510
             close();
             return;
@@ -288,11 +306,36 @@ void Menus::click(Widget& w) {
         }
         if (a.type == "cva_M_CrossFade" || a.type == "cva_InGameMenu_MainDesk_Set" || a.type == "cva_vGameMode_Set" ||
             a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" ||
-            a.type == "cva_ClearClick")
+            a.type == "cva_ClearClick" || a.type.rfind("cva_Opt_", 0) == 0)
             continue; // оформление и профиль — без последствий
         std::printf("действие %s (%s) пока не реализовано\n", a.type.c_str(), a.name.c_str());
     }
 }
+
+// Окно «Настройки»: ползунки и флажки опознаются по их действиям cva_Opt_*.
+void Menus::syncOptions(bool toWidgets) {
+    auto pct = [&](Widget& w, int& v) {
+        if (toWidgets) w.sliderPos = v * w.sliderMax / 100;
+        else v = w.sliderPos * 100 / w.sliderMax;
+    };
+    auto flag = [&](Widget& w, bool& v) {
+        if (toWidgets) w.checked = v;
+        else v = w.checked;
+    };
+    current().forEach([&](Widget& w) {
+        for (const Widget::Action& a : w.actions) {
+            if (a.type == "cva_Opt_SoundVolume") pct(w, settings.soundVolume);
+            else if (a.type == "cva_Opt_MusicVolume") pct(w, settings.musicVolume);
+            else if (a.type == "cva_Opt_ScrollSpeed") pct(w, settings.scrollSpeed);
+            else if (a.type == "cva_Opt_MusicPlayMode") flag(w, settings.musicOn);
+            else if (a.type == "cva_Opt_ArcadeMode") flag(w, settings.arcade);
+        }
+        if (w.name == "ShowHint") flag(w, settings.showHint);
+        if (w.name == "ShowVideo") flag(w, settings.showVideo);
+    });
+}
+
+void Menus::dragSlider(Widget& w, float vx) { w.sliderPos = Dialog::sliderPosAt(w, vx); }
 
 const std::vector<std::size_t>* Menus::listFor(const Widget& list) const {
     if (!list.listElement) return nullptr;

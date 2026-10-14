@@ -37,6 +37,7 @@ enum class WidgetKind {
     CheckBox,
     ColoredBar,
     ComboBox,
+    Slider,
     Other
 };
 
@@ -94,6 +95,9 @@ struct Widget {
     bool disableCycling = false;
     bool unlimitedLx = false;
 
+    // Slider (VScrollBar): положение 0..sliderMax, длина и высота линии, сдвиг бегунка.
+    int sliderPos = 0, sliderMax = 100, lineLx = 0, lineLy = 0, scrDx = 0, scrDy = 0;
+
     // BitPicture
     render::TextureId bitmap = 0;
     bool hasBitmap = false;
@@ -142,6 +146,9 @@ public:
     static void selectListItem(Widget& list, int index);
     // Список, которому принадлежит строка (nullptr — не строка списка).
     Widget* listOf(const Widget& row);
+    // Левый край бегунка в виртуальных координатах и положение по x курсора.
+    static int sliderKnobX(const Widget& w);
+    static int sliderPosAt(const Widget& w, float vx);
     // Прокрутка списка под точкой (виртуальные координаты) на rows строк.
     void scrollListAt(float vx, float vy, int rows);
 
@@ -159,6 +166,7 @@ private:
     void drawTextButton(Widget& w, const View& view);
     void drawGpTextButton(Widget& w, const View& view);
     void drawCheckBox(Widget& w, const View& view);
+    void drawSlider(Widget& w, const View& view);
     int gpHeight(const Widget& w, int sprite);
 
     UiContext& ctx_;

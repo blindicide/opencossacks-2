@@ -36,7 +36,7 @@ public:
     void stopMusic();
     bool musicPlaying() const;
 
-    float masterVolume = 1.0f, musicVolume = 0.6f;
+    float masterVolume = 1.0f, musicVolume = 0.6f, sfxVolume = 0.85f;
 
 private:
     struct Voice {

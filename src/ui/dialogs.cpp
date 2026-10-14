@@ -34,6 +34,7 @@ WidgetKind kindOf(std::string_view type) {
     if (type == "CheckBox") return WidgetKind::CheckBox;
     if (type == "ColoredBar") return WidgetKind::ColoredBar;
     if (type == "ComboBox") return WidgetKind::ComboBox;
+    if (type == "VScrollBar") return WidgetKind::Slider;
     // Canvas рисует код игры (мини-карта и т. п.) — здесь это картинка во всю рамку.
     if (type == "BitPicture" || type == "Canvas") return WidgetKind::BitPicture;
     if (type == "GPPicture") return WidgetKind::GPPicture;
@@ -192,6 +193,20 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
     case WidgetKind::ColoredBar:
         w.barStyle = int(node.intValue("Style").value_or(0));
         break;
+    case WidgetKind::Slider: {
+        const std::string file = node.value("GP_File").value_or("");
+        if (!file.empty()) {
+            w.gp = ctx_.images.id(file);
+            w.hasGp = true;
+        }
+        w.sliderPos = int(node.intValue("SPos").value_or(0));
+        w.sliderMax = std::max(1, int(node.intValue("SMaxPos").value_or(100)));
+        w.lineLx = int(node.intValue("LineLx").value_or(w.width));
+        w.lineLy = int(node.intValue("LineLy").value_or(20));
+        w.scrDx = int(node.intValue("ScrDx").value_or(0));
+        w.scrDy = int(node.intValue("ScrDy").value_or(0));
+        break;
+    }
     case WidgetKind::ComboBox:
         // Строки списка заполняет код игры (действия вроде cva_CampDiff); пустой
         // ComboBox оригинал не рисует (FUN_0104fef0).
@@ -324,6 +339,7 @@ void Dialog::drawWidget(Widget& w, int parentX, int parentY, const View& view) {
     case WidgetKind::VitButton: drawVitButton(w, view); break;
     case WidgetKind::GPTextButton: drawGpTextButton(w, view); break;
     case WidgetKind::CheckBox: drawCheckBox(w, view); break;
+    case WidgetKind::Slider: drawSlider(w, view); break;
     case WidgetKind::ColoredBar: {
         // FUN_0104c950 (color = 255): заливка или рамка цветом элемента.
         const float x = view.x(float(w.absX)), y = view.y(float(w.absY));
@@ -425,6 +441,35 @@ void Dialog::drawCheckBox(Widget& w, const View& view) {
     }
     w.drawnW = boxW + textW;
     w.drawnH = boxH;
+}
+
+// Ползунок VScrollBar: кадры slider.g17 — 0 бегунок, 1 и 2 — полоска (пройденная и остаток),
+// 3 и 4 — концы. Раскладка кадров угадана по размерам.
+void Dialog::drawSlider(Widget& w, const View& view) {
+    w.drawnW = w.lineLx;
+    w.drawnH = w.lineLy;
+    if (!w.hasGp) return;
+    const float s = view.scale;
+    const int knobW = int(ctx_.images.frameWidth(w.gp, 0));
+    const int knobX = Dialog::sliderKnobX(w);
+    const int lineY = w.absY + (w.lineLy - int(ctx_.images.frameHeight(w.gp, 1))) / 2;
+    for (int x = 0; x < w.lineLx; ++x)
+        ctx_.images.draw(w.gp, x < knobX - w.absX + knobW / 2 ? 1 : 2, view.x(float(w.absX + x)), view.y(float(lineY)),
+                         0xFFFFFFFF, s);
+    ctx_.images.draw(w.gp, 3, view.x(float(w.absX)), view.y(float(lineY)), 0xFFFFFFFF, s);
+    ctx_.images.draw(w.gp, 4, view.x(float(w.absX + w.lineLx - 10)), view.y(float(lineY)), 0xFFFFFFFF, s);
+    ctx_.images.draw(w.gp, 0, view.x(float(knobX + w.scrDx)), view.y(float(w.absY + w.scrDy)), 0xFFFFFFFF, s);
+}
+
+int Dialog::sliderKnobX(const Widget& w) {
+    const int knobW = 15;
+    return w.absX + (w.lineLx - knobW) * std::clamp(w.sliderPos, 0, w.sliderMax) / w.sliderMax;
+}
+
+int Dialog::sliderPosAt(const Widget& w, float vx) {
+    const int knobW = 15;
+    const float t = (vx - float(w.absX) - float(knobW) / 2.0f) / float(std::max(1, w.lineLx - knobW));
+    return std::clamp(int(std::lround(t * float(w.sliderMax))), 0, w.sliderMax);
 }
 
 // VitButton::_Draw (0xcdbc28).

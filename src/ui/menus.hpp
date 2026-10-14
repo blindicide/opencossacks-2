@@ -8,6 +8,7 @@
 
 #include "assets/campaign_list.hpp"
 #include "assets/mission_list.hpp"
+#include "core/settings.hpp"
 #include "ui/dialogs.hpp"
 
 namespace oc2::ui {
@@ -32,6 +33,11 @@ public:
     void update();
     // Нажатие левой кнопкой мыши на элемент текущего меню (LeftClick действий).
     void click(Widget& w);
+
+    // Настройки игрока (окно Options); применяет main.cpp каждый кадр.
+    core::Settings settings;
+    // Ползунок под курсором: нажатие и перетаскивание (vx — виртуальная x курсора).
+    void dragSlider(Widget& w, float vx);
 
     // Имя открытой «модальной панели» (cva_M_ModalDeskSet / cva_M_ModalDesk).
     // Своя у каждого открытого меню: при открытии — «Main», при возврате — прежняя.
@@ -75,6 +81,7 @@ private:
     std::vector<Open> stack_;
     const std::vector<std::size_t>* listFor(const Widget& list) const;
     void campaignWon();
+    void syncOptions(bool toWidgets);
     static bool hasAction(const Widget& w, const char* type);
 
     assets::MissionList missions_;
@@ -93,6 +100,7 @@ private:
     std::optional<bool> gameResult_;
     bool resultShown_ = false;
     bool backToMain_ = false;
+    bool optionsShown_ = false;
 };
 
 } // namespace oc2::ui

@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "core/settings.hpp"
 #include "assets/audio_decode.hpp"
 #include "assets/ai_script.hpp"
 #include "assets/settlement.hpp"
@@ -1382,4 +1383,18 @@ TEST_CASE("Поселения: захват, доход, разорение") {
     w.units()[core].dead = w.units()[dom].dead = true;
     st.step();
     CHECK(st.owned(1) == 0 && !st.list()[0].active);
+}
+
+TEST_CASE("Настройки: запись и чтение") {
+    const auto path = std::filesystem::temp_directory_path() / "oc2_settings_test.ini";
+    oc2::core::Settings a;
+    a.soundVolume = 10;
+    a.musicVolume = 120; // за пределами при чтении ужмётся до 100
+    a.musicOn = false;
+    a.arcade = true;
+    a.save(path);
+    oc2::core::Settings b;
+    b.load(path);
+    CHECK(b.soundVolume == 10 && b.musicVolume == 100 && !b.musicOn && b.arcade && b.showHint);
+    std::filesystem::remove(path);
 }

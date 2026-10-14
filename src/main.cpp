@@ -22,6 +22,7 @@
 #include "assets/game_paths.hpp"
 #include "assets/image.hpp"
 #include "core/version.hpp"
+#include "core/settings.hpp"
 #include "platform/audio.hpp"
 #include "platform/sound_bank.hpp"
 #include "platform/window.hpp"
@@ -938,6 +939,7 @@ struct MapView {
     }
 
     // Прокрутка: стрелки (состояние клавиш) и курсор у края окна.
+    float scrollFactor = 1.0f; // из настроек: 0.5 … 1.5
     void scroll(double dt, const oc2::platform::Window& window, VkExtent2D e) {
         const bool* keys = SDL_GetKeyboardState(nullptr);
         float dx = 0.0f, dy = 0.0f;
@@ -952,7 +954,7 @@ struct MapView {
             if (window.mouseY < edge) dy -= 1.0f;
             if (window.mouseY > float(e.height) - edge) dy += 1.0f;
         }
-        const float speed = 1200.0f / camera.zoom; // пикселей проекции в секунду
+        const float speed = 1200.0f * scrollFactor / camera.zoom; // пикселей проекции в секунду
         camera.x += dx * speed * float(dt);
         camera.y += dy * speed * float(dt);
     }
@@ -1137,6 +1139,7 @@ int main(int argc, char** argv) {
         std::unique_ptr<oc2::platform::SoundBank> sounds;
         if (!opts->dataDir.empty()) sounds = std::make_unique<oc2::platform::SoundBank>(audio, opts->dataDir);
         const oc2::ui::Widget* lastHovered = nullptr;
+        oc2::ui::Widget* draggedSlider = nullptr;
 
         std::optional<Viewer> viewer;
         std::unique_ptr<Screen> screen;
@@ -1324,6 +1327,12 @@ int main(int argc, char** argv) {
                 }
             }
 
+            if (screen && screen->menus) { // настройки игрока: громкость и скорость прокрутки
+                const oc2::core::Settings& set = screen->menus->settings;
+                audio.sfxVolume = float(set.soundVolume) / 100.0f;
+                audio.musicVolume = set.musicOn ? float(set.musicVolume) / 100.0f : 0.0f;
+                if (mapView) mapView->scrollFactor = 0.5f + float(set.scrollSpeed) / 100.0f;
+            }
             if (sounds) sounds->updateMusic();
             VkCommandBuffer cmd = vulkan.beginFrame(screen || mapView ? kMenuClearColor : kClearColor);
             if (!cmd) continue;
@@ -1360,8 +1369,14 @@ int main(int argc, char** argv) {
                 for (const auto& click : window.clicks) {
                     if (click.button != 1 || !hovered) continue;
                     if (sounds) sounds->play(hovered->clickSound);
+                    if (hovered->kind == oc2::ui::WidgetKind::Slider) draggedSlider = hovered;
                     menus.click(*hovered);
                     break; // меню могло смениться
+                }
+                if (draggedSlider) { // ползунок следует за курсором, пока кнопка зажата
+                    menus.dragSlider(*draggedSlider, mx);
+                    for (const auto& r : window.releases)
+                        if (r.button == 1) draggedSlider = nullptr;
                 }
                 if (auto start = menus.takeStartRequest()) pendingStart = std::move(start);
                 if (menus.empty()) return false;
