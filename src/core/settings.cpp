@@ -32,6 +32,17 @@ void Settings::load(const std::filesystem::path& path) {
         } catch (const std::exception&) {
             continue;
         }
+        if (key.rfind("campaign_", 0) == 0) {
+            try {
+                const auto n = std::size_t(std::stoul(key.substr(9)));
+                if (n < 64) {
+                    if (campaignDone.size() <= n) campaignDone.resize(n + 1, 0);
+                    campaignDone[n] = std::max(0, value);
+                }
+            } catch (const std::exception&) {
+            }
+            continue;
+        }
         const int pct = std::clamp(value, 0, 100);
         if (key == "sound") soundVolume = pct;
         else if (key == "music") musicVolume = pct;
@@ -50,6 +61,7 @@ void Settings::save(const std::filesystem::path& path) const {
     out << "sound=" << soundVolume << "\nmusic=" << musicVolume << "\nscroll=" << scrollSpeed
         << "\nmusic_on=" << musicOn << "\nhints=" << showHint << "\nvideo=" << showVideo
         << "\narcade=" << arcade << "\n";
+    for (std::size_t i = 0; i < campaignDone.size(); ++i) out << "campaign_" << i << "=" << campaignDone[i] << "\n";
 }
 
 } // namespace oc2::core

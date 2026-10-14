@@ -276,6 +276,10 @@ double MissionScript::eval(const XmlNode& n) {
         const bool visible = it != fg_.end() && it->second;
         return name == "FG_InVisible" ? !visible : visible;
     }
+    // Бригады ИИ-отрядов и усталость пока не ведутся: условия по ним ложны.
+    if (name == "IsBrigade" || name == "BrigadesAmount" || name == "GetNofBrigInNode" || name == "IsTired" ||
+        name == "GetReadyAmount")
+        return 0;
     note("выражение " + name);
     return 0;
 }
@@ -376,6 +380,24 @@ void MissionScript::runOp(const XmlNode& op) {
             else
                 w.blocked[std::size_t(p)].erase(str("TypeID"));
         }
+    } else if (name == "SetUpgradeEnableStatus") {
+        // Запрет и разрешение исследования: тот же набор blocked, что и у типов юнитов (имена не пересекаются).
+        const int p = num("Nat");
+        if (player(p)) {
+            if (num("State") < 0)
+                w.blocked[std::size_t(p)].insert(str("UpgradeID"));
+            else
+                w.blocked[std::size_t(p)].erase(str("UpgradeID"));
+        }
+    } else if (name == "TakeWood" || name == "TakeFood" || name == "TakeStone") {
+        // Поля не проверены по данным: игрок — Nat или Nation, количество — Value или Count.
+        const int p = op.child("Nat") ? num("Nat") : num("Nation");
+        const int amount = op.child("Value") ? num("Value") : num("Count");
+        const int r = name == "TakeWood" ? 0 : name == "TakeStone" ? 2 : 3;
+        if (player(p)) w.resources[std::size_t(p)][std::size_t(r)] = std::max(0, w.resources[std::size_t(p)][std::size_t(r)] - amount);
+    } else if (name == "ChangeFriends") {
+        const int a = num("fstNat"), b = num("secNat");
+        if (player(a) && player(b)) w.team[std::size_t(b)] = w.team[std::size_t(a)];
     } else if (name == "SetUpgradeDone") {
         const int p = num("Nat");
         if (player(p)) w.researched[std::size_t(p)].insert(str("UpgradeID"));
@@ -419,7 +441,10 @@ void MissionScript::runOp(const XmlNode& op) {
         if (obj && obj->value("ClassName").value_or("") == "lvCDeffFilmMenu") dialog_.visible = on;
     } else if (name == "StopOGMiss" || name == "FreeCamera" || name == "MoveCamera" || name == "AttachCameraToGroup" ||
                name == "SetGameMode" || name == "SetScrollLimit" || name == "SetSilence" || name == "PlayOGMiss" ||
-               name == "SelectUnits" || name == "SetLightSpot" || name == "BlackScreen") {
+               name == "SelectUnits" || name == "SetLightSpot" || name == "BlackScreen" || name == "SetFogMode" ||
+               name == "ClearLightSpot" || name == "ClearOrders" || name == "ArtAttack" || name == "GroupHoldNode" ||
+               name == "SetUnitStateCII" || name == "BrigPanelSet" || name == "SetStartPoint" || name == "ClearSG" ||
+               name == "SpotGrpByUType") {
         // Камера, звук и режимы — на стороне окна; пока не нужны для хода миссии.
     } else {
         note(name);

@@ -70,6 +70,8 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
         }
     }
     campaignDone_.assign(campaigns_.campaigns.size(), 0);
+    for (std::size_t i = 0; i < campaignDone_.size() && i < settings.campaignDone.size(); ++i)
+        campaignDone_[i] = settings.campaignDone[i];
 }
 
 bool Menus::open(const std::string& name) {
@@ -236,6 +238,8 @@ void Menus::campaignWon() {
     int& done = campaignDone_[activeMission_->first];
     done = std::max(done, activeMission_->second + 1);
     activeMission_.reset();
+    settings.campaignDone = campaignDone_;
+    settings.save(core::Settings::defaultPath());
 }
 
 void Menus::click(Widget& w) {

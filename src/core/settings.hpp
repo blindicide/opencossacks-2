@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <vector>
 
 namespace oc2::core {
 
@@ -15,6 +16,8 @@ struct Settings {
     bool showHint = true;
     bool showVideo = true;
     bool arcade = false;   // аркадный режим
+    // Пройдено миссий в каждой кампании (по порядку campaign.xml).
+    std::vector<int> campaignDone;
 
     static std::filesystem::path defaultPath();
     // Читает ключ=значение; нет файла или строка не разобрана — остаётся прежнее значение.

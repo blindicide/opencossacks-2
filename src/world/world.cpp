@@ -188,7 +188,8 @@ bool World::available(const assets::UnitDesc& desc, int player) const {
 
 bool World::orderResearch(std::size_t index, const assets::UpgradeDef& up, int costPercent) {
     Unit& b = units_.at(index);
-    if (!b.building() || b.underConstruction || !b.alive() || b.researchLeft > 0 || researched[std::size_t(b.player & 7)].count(up.name))
+    if (!b.building() || b.underConstruction || !b.alive() || b.researchLeft > 0 || researched[std::size_t(b.player & 7)].count(up.name) ||
+        blocked[std::size_t(b.player & 7)].count(up.name))
         return false;
     auto& have = resources[std::size_t(b.player & 7)];
     for (std::size_t r = 0; r < have.size() && r < up.cost.size(); ++r)
