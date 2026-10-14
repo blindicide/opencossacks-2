@@ -137,11 +137,15 @@ void Menus::syncNetRoom(Dialog& dialog) {
                 w.text.clear();
             }
         }
-        // Кнопка «Начать» — только хозяину.
-        if (hasAction(w, "cva_MM_MultiStart")) {
-            w.visible = host;
-            w.enabled = host && selectedMission.has_value();
+        // Сетевая комната — «LAN»: кнопки интернета скрыты, наборы кнопок хозяина и гостя — по роли.
+        for (const Widget::Action& a : w.actions) {
+            if (a.type == "cva_BR_SetVisibleIfLAN") w.visible = true;
+            else if (a.type == "cva_BR_SetVisibleIfInet") w.visible = false;
+            else if (a.type == "cva_MR_isServer")
+                w.visible = (a.node && a.node->value("Server").value_or("") == "true") == host;
         }
+        // Кнопка «Начать» — только хозяину.
+        if (hasAction(w, "cva_MM_MultiStart")) w.enabled = host && selectedMission.has_value();
         // Чат: последние строки, строка ввода с ограничением.
         if (hasAction(w, "cva_BR_ChatDesk") && w.listElement && chatDirty_) {
             std::vector<std::string> rows;
@@ -179,7 +183,10 @@ bool Menus::netClick(const Widget& w, const Widget::Action& a, bool& stop) {
     auto field = [&](const char* action) {
         std::string text;
         current().forEach([&](Widget& i) {
-            if (i.kind == WidgetKind::InputBox && hasAction(i, action)) text = assets::cp1251ToUtf8(i.text);
+            if (!hasAction(i, action)) return;
+            if (i.kind == WidgetKind::InputBox) text = assets::cp1251ToUtf8(i.text);
+            for (const Widget& c : i.children) // действие может висеть на оболочке поля ввода
+                if (c.kind == WidgetKind::InputBox) text = assets::cp1251ToUtf8(c.text);
         });
         return text;
     };
