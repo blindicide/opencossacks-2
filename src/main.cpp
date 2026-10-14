@@ -76,6 +76,7 @@ const char* kHelp =
     "  --mine                с --map: крестьяне игрока 0 идут в ближайшую шахту (для проверок)\n"
     "  --gather <и>          с --map: крестьяне игрока <и> добывают у ближайших источников (для проверок)\n"
     "  --mouse <x>,<y>       считать, что курсор стоит в этой точке экрана 1024×768 (в игре — пикселей окна; для проверок)\n"
+    "  --type <текст>        ввод текста на 20-м кадре (для проверок меню)\n"
     "  --clicks <x,y;x,y>    нажатия мыши по очереди, раз в 3 кадра (меню 1024×768, для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
@@ -123,6 +124,7 @@ struct Options {
     fs::path screenshot;
     fs::path dataDir;
     std::optional<std::array<float, 2>> mouse;
+    std::string typeText; // --type: текст, «введённый» на 20-м кадре (для проверок меню)
     std::vector<std::array<float, 2>> clickSeq; // --clicks: нажатия по очереди, раз в 3 кадра с 2-го (для проверок меню)
     std::optional<std::array<float, 2>> at; // точка карты в центре экрана
     std::optional<std::array<int, 3>> move;
@@ -176,6 +178,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             if (std::sscanf(argv[++i], "%f,%f", &mx, &my) != 2)
                 throw std::runtime_error("--mouse ждёт координаты вида 500,470");
             o.mouse = std::array<float, 2>{mx, my};
+        } else if (a == "--type" && hasValue) {
+            o.typeText = argv[++i];
         } else if (a == "--clicks" && hasValue) {
             std::string list = argv[++i];
             for (char& ch : list)
@@ -1406,6 +1410,7 @@ int main(int argc, char** argv) {
             const std::uint64_t now = SDL_GetTicksNS();
             const double dt = double(now - last) / 1e9;
             last = now;
+            if (!opts->typeText.empty() && frame == 20) window.typed = opts->typeText;
             if (opts->esc && frame == 1) window.pressedKeys.push_back(SDLK_ESCAPE); // проверка меню игры
             if (std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_ESCAPE) !=
                 window.pressedKeys.end()) {
@@ -1493,8 +1498,15 @@ int main(int argc, char** argv) {
                     window.clicks.push_back({1, mx, my});
 
                 if (window.wheel != 0.0f) menus.current().scrollListAt(mx, my, window.wheel > 0 ? -1 : 1);
+                if (!window.typed.empty() || std::find(window.pressedKeys.begin(), window.pressedKeys.end(), SDLK_BACKSPACE) !=
+                                                 window.pressedKeys.end())
+                    menus.typeText(window.typed, std::find(window.pressedKeys.begin(), window.pressedKeys.end(),
+                                                           SDLK_BACKSPACE) != window.pressedKeys.end());
                 for (const auto& click : window.clicks) {
-                    if (click.button == 1 && !hovered) menus.current().closeCombos();
+                    if (click.button == 1 && !hovered) {
+                        menus.current().closeCombos();
+                        menus.current().blurInputs();
+                    }
                     if (click.button != 1 || !hovered) continue;
                     if (sounds) sounds->play(hovered->clickSound);
                     if (hovered->kind == oc2::ui::WidgetKind::Slider) draggedSlider = hovered;

@@ -35,6 +35,8 @@ public:
     bool resized = false;
     // Клавиши (SDL_Keycode), нажатые с прошлого вызова pumpEvents().
     std::vector<std::uint32_t> pressedKeys;
+    // Введённый текст (UTF-8) с прошлого вызова pumpEvents().
+    std::string typed;
 
     // Положение мыши в пикселях области рисования; false, пока мышь не входила в окно.
     bool mouseInside = false;

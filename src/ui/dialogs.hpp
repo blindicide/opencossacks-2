@@ -37,6 +37,7 @@ enum class WidgetKind {
     CheckBox,
     ColoredBar,
     ComboBox,
+    InputBox,
     Slider,
     Other
 };
@@ -120,6 +121,9 @@ struct Widget {
     // ComboBox: строки (Windows-1251) заполняет код игры; выбранная, раскрыт ли список, строка под курсором.
     std::vector<std::string> items;
     int selected = -1;
+    // InputBox: текст — в text (Windows-1251); в фокусе ли и предельная длина.
+    bool focused = false;
+    int maxLen = 100;
     int syncedSel = -1; // значение, с которым ComboBox синхронизирован (изменение пользователем — selected != syncedSel)
     bool open = false;
     int hoverRow = -1;
@@ -158,6 +162,8 @@ public:
     static int sliderKnobX(const Widget& w);
     static int sliderPosAt(const Widget& w, float vx);
     // Закрывает раскрытые ComboBox (кроме except).
+    // Снимает фокус ввода со всех InputBox (кроме except).
+    void blurInputs(const Widget* except = nullptr);
     void closeCombos(const Widget* except = nullptr);
     // Прокрутка списка под точкой (виртуальные координаты) на rows строк.
     void scrollListAt(float vx, float vy, int rows);

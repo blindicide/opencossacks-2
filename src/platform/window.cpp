@@ -12,6 +12,7 @@ Window::Window(const std::string& title, int width, int height) {
         throw std::runtime_error(std::string("не удалось инициализировать SDL: ") + SDL_GetError());
     window_ = SDL_CreateWindow(title.c_str(), width, height,
                                SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (window_) SDL_StartTextInput(window_);
     if (!window_) {
         std::string err = SDL_GetError();
         SDL_Quit();
@@ -26,6 +27,7 @@ Window::~Window() {
 
 bool Window::pumpEvents() {
     pressedKeys.clear();
+    typed.clear();
     clicks.clear();
     releases.clear();
     wheel = 0.0f;
@@ -55,6 +57,9 @@ bool Window::pumpEvents() {
             break;
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
             mouseInside = false;
+            break;
+        case SDL_EVENT_TEXT_INPUT:
+            typed += e.text.text;
             break;
         case SDL_EVENT_KEY_DOWN:
             pressedKeys.push_back(e.key.key);

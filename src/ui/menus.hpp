@@ -85,6 +85,12 @@ public:
     static constexpr int kNationCount = 9;
     // Коды наций (Nations.lst) в порядке пунктов списка «Нация» после «По карте».
     static const char* nationCode(int index);
+    // Название нации по номеру 0..kNationCount-1 (UTF-8).
+    static const char* nationName(int index);
+    // Ввод с клавиатуры в InputBox в фокусе: текст UTF-8, возврат на шаг назад.
+    void typeText(const std::string& utf8, bool backspace);
+    // Номер игрока в таблице → имя профиля (UTF-8) или пусто.
+    std::string profileName() const { return settings.currentProfile() ? settings.currentProfile()->name : std::string(); }
     std::array<Slot, kSlots> slots;
     // Сложность миссий 0..2 (cva_CampDiff, cva_ProfAdd_Diff); игра берёт её при запуске.
     int difficulty = 1;
@@ -93,6 +99,8 @@ public:
 
 private:
     void syncPlayerTable(Dialog& dialog);
+    void syncProfiles(Dialog& dialog);
+    bool profileClick(const Widget& w, const Widget::Action& a);
     std::string resultMessage_;
     UiContext& ctx_;
     std::map<std::string, std::string> files_; // имя меню → путь к XML
@@ -124,6 +132,10 @@ private:
     bool resultShown_ = false;
     bool backToMain_ = false;
     bool setupStart_ = false;
+    int profilePick_ = 0;                    // выбранная строка списка профилей
+    bool deleteAsk_ = false;                 // открыто подтверждение удаления профиля
+    bool profileApplied_ = false;            // сложность взята из профиля
+    int addRace_ = 0, addDiff_ = 1;          // поля окна «Новый профиль»
     int animQuality_ = 2, arcadeMode_ = 0, autosave_ = 0; // прочие выпадающие списки окон
     bool optionsShown_ = false;
     std::string mainDesk_ = "SinBattles"; // вариант панели «Main» меню игры

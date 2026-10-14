@@ -109,6 +109,7 @@ void Menus::update() {
             if (w.type == "TabButton" && w.state == 1 && tab.empty()) tab = w.group;
         });
     syncPlayerTable(dialog);
+    syncProfiles(dialog);
     bool hasTabs = false;
     dialog.forEach([&](Widget& w) { hasTabs = hasTabs || w.type == "TabButton"; });
     dialog.forEach([&](Widget& w) {
@@ -230,6 +231,12 @@ void Menus::update() {
     });
 }
 
+const char* Menus::nationName(int index) {
+    static const char* const names[kNationCount] = {"Франция", "Россия", "Англия", "Пруссия", "Австрия",
+                                                    "Египет", "Польша", "Испания", "Рейнск. союз"};
+    return index >= 0 && index < kNationCount ? names[index] : "";
+}
+
 const char* Menus::nationCode(int index) {
     static const char* const codes[kNationCount] = {"FR", "RU", "EN", "PR", "AU", "EG", "PO", "SP", "RE"};
     return index >= 0 && index < kNationCount ? codes[index] : "";
@@ -237,8 +244,6 @@ const char* Menus::nationCode(int index) {
 
 // Таблица игроков стычки (cva_BR_*): строка — ID элемента, одни и те же элементы есть во всех вкладках.
 void Menus::syncPlayerTable(Dialog& dialog) {
-    static const char* const names[kNationCount] = {"Франция", "Россия", "Англия", "Пруссия", "Австрия",
-                                                    "Египет", "Польша", "Испания", "Рейнск. союз"};
     auto cp = [](const std::string& utf8) { return assets::utf8ToCp1251(utf8); };
     // Значение слота ↔ выбранная строка: изменённое пользователем попадает в слот, иначе слот — в элемент.
     auto sync = [](Widget& w, int& value) {
@@ -263,7 +268,7 @@ void Menus::syncPlayerTable(Dialog& dialog) {
                 // Строки: «По карте», нации, у компьютера ещё «Нет игрока» (последняя).
                 if (w.items.empty()) {
                     w.items.push_back(cp("По карте"));
-                    for (const char* n : names) w.items.push_back(cp(n));
+                    for (int n = 0; n < kNationCount; ++n) w.items.push_back(cp(nationName(n)));
                     if (w.id > 0) w.items.push_back(cp("Нет игрока"));
                 }
                 int value = slot.active ? slot.nation : kNationCount + 1;
@@ -291,11 +296,115 @@ void Menus::syncPlayerTable(Dialog& dialog) {
     dialog.forEach([&](Widget& w) {
         if (w.kind != WidgetKind::ComboBox) return;
         for (const Widget::Action& a : w.actions) {
-            if (a.type == "cva_CampDiff" || a.type == "cva_ProfAdd_Diff") fill(w, {"Лёгкая", "Нормальная", "Трудная"}, difficulty);
+            if (a.type == "cva_CampDiff") fill(w, {"Лёгкая", "Нормальная", "Трудная"}, difficulty);
+            else if (a.type == "cva_ProfAdd_Diff") fill(w, {"Лёгкая", "Нормальная", "Трудная"}, addDiff_);
+            else if (a.type == "cva_ProfAdd_Race") {
+                if (w.items.empty())
+                    for (int n = 0; n < kNationCount; ++n) w.items.push_back(cp(nationName(n)));
+                sync(w, addRace_);
+            }
             else if (a.type == "cva_Opt_AnimQuality") fill(w, {"Низкое", "Среднее", "Высокое"}, animQuality_);
             else if (a.type == "cva_Opt_ArcadeMode") fill(w, {"Выключен", "Включён"}, arcadeMode_);
             else if (a.type == "cva_MP_Autosave") fill(w, {"Выключено", "Включено"}, autosave_);
         }
+    });
+}
+
+// Профили: тексты текущего, список выбора, подтверждение удаления.
+void Menus::syncProfiles(Dialog& dialog) {
+    auto cp = [](const std::string& utf8) { return assets::utf8ToCp1251(utf8); };
+    static const char* const diffNames[3] = {"Лёгкая", "Нормальная", "Трудная"};
+    core::Settings::Profile* cur = settings.profile >= 0 && std::size_t(settings.profile) < settings.profiles.size()
+                                       ? &settings.profiles[std::size_t(settings.profile)]
+                                       : nullptr;
+    if (cur && !profileApplied_) {
+        difficulty = cur->difficulty;
+        profileApplied_ = true;
+    } else if (cur && difficulty != cur->difficulty) { // сложность сменили в окне кампании
+        cur->difficulty = difficulty;
+        settings.save(core::Settings::defaultPath());
+    }
+    const std::string none = cp("—");
+    dialog.forEach([&](Widget& w) {
+        for (const Widget::Action& a : w.actions) {
+            if (a.type == "cva_Sin_ProfName" || a.type == "cva_ProfCur_Name") w.text = cur ? cp(cur->name) : none;
+            else if (a.type == "cva_ProfCur_Race") w.text = cur ? cp(nationName(cur->race)) : none;
+            else if (a.type == "cva_ProfCur_Diff") w.text = cur ? cp(diffNames[std::clamp(cur->difficulty, 0, 2)]) : none;
+            else if (a.type == "cva_ProfCur_Ocup" || a.type == "cva_ProfAdd_Desc") w.text.clear();
+            else if (a.type == "cva_ProfList" && w.listElement &&
+                     w.children.size() != settings.profiles.size()) {
+                std::vector<std::string> names;
+                for (const auto& p : settings.profiles) names.push_back(cp(p.name));
+                profilePick_ = std::clamp(profilePick_, 0, std::max(0, int(names.size()) - 1));
+                dialog.setListItems(w, names);
+                Dialog::selectListItem(w, profilePick_);
+            } else if (a.type == "cva_ProfAdd_PortScr") {
+                w.visible = false; // выбор портрета пока не сделан
+            } else if (a.type == "cva_ProfDel_Desk")
+                w.visible = deleteAsk_;
+        }
+    });
+}
+
+// Действия окон профилей; true — действие обработано.
+bool Menus::profileClick(const Widget& w, const Widget::Action& a) {
+    auto save = [&] { settings.save(core::Settings::defaultPath()); };
+    if (a.type == "cva_ProfSel_Accept") {
+        if (profilePick_ >= 0 && std::size_t(profilePick_) < settings.profiles.size()) {
+            settings.profile = profilePick_;
+            profileApplied_ = false;
+            save();
+        }
+        close();
+    } else if (a.type == "cva_ProfSel_Add" || a.type == "cva_ProfAdd_Open") {
+        if (open("AddProfile")) {
+            current().forEach([](Widget& i) {
+                if (i.kind == WidgetKind::InputBox) i.text.clear();
+            });
+            addRace_ = 0;
+            addDiff_ = 1;
+        }
+    } else if (a.type == "cva_ProfSel_Cancel" || a.type == "cva_ProfAdd_Cancel") {
+        close();
+    } else if (a.type == "cva_ProfDelete") {
+        deleteAsk_ = !settings.profiles.empty();
+    } else if (a.type == "cva_ProfDel_Cancel") {
+        deleteAsk_ = false;
+    } else if (a.type == "cva_ProfDel_Accept") {
+        if (std::size_t(profilePick_) < settings.profiles.size()) {
+            settings.profiles.erase(settings.profiles.begin() + profilePick_);
+            if (settings.profile >= int(settings.profiles.size())) settings.profile = int(settings.profiles.size()) - 1;
+            else if (settings.profile > profilePick_) --settings.profile;
+            profileApplied_ = false;
+            save();
+        }
+        deleteAsk_ = false;
+    } else if (a.type == "cva_ProfAdd_Accept") {
+        std::string name;
+        current().forEach([&](Widget& i) {
+            if (i.kind == WidgetKind::InputBox) name = assets::cp1251ToUtf8(i.text);
+        });
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+        if (name.empty() || settings.profiles.size() >= 32) return true;
+        settings.profiles.push_back({name, addRace_, addDiff_});
+        settings.profile = profilePick_ = int(settings.profiles.size()) - 1;
+        profileApplied_ = false;
+        save();
+        close();
+    } else {
+        return false;
+    }
+    (void)w;
+    return true;
+}
+
+void Menus::typeText(const std::string& utf8, bool backspace) {
+    if (stack_.empty()) return;
+    current().forEach([&](Widget& w) {
+        if (w.kind != WidgetKind::InputBox || !w.focused) return;
+        if (backspace && !w.text.empty()) w.text.pop_back(); // cp1251 — один байт на знак
+        for (char c : assets::utf8ToCp1251(utf8))
+            if (static_cast<unsigned char>(c) >= 32 && int(w.text.size()) < std::min(w.maxLen, 24)) w.text.push_back(c);
     });
 }
 
@@ -323,9 +432,16 @@ void Menus::click(Widget& w) {
         return;
     }
     current().closeCombos();
+    if (w.kind == WidgetKind::InputBox) { // фокус ввода
+        current().blurInputs(&w);
+        w.focused = true;
+        return;
+    }
+    current().blurInputs();
     if (w.kind == WidgetKind::CheckBox) w.checked = !w.checked;
     if (w.type == "TabButton") activeTab_[currentName()] = w.group; // дальше — её действия
     for (const Widget::Action& a : w.actions) {
+        if (profileClick(w, a)) return;
         if (a.type == "cva_BR_PlColor" && w.id >= 0 && w.id < kSlots) {
             Slot& slot = slots[std::size_t(w.id)];
             slot.color = (slot.color + 1) % 8;
@@ -338,11 +454,21 @@ void Menus::click(Widget& w) {
             // FUN_013d83e0. Проверка профиля игрока у cva_MM_SinStart (меню AddProfile)
             // пока пропущена: профилей ещё нет.
             if (!open(a.name)) std::fprintf(stderr, "меню «%s» не найдено\n", a.name.c_str());
+            // Первый запуск: сначала создаётся профиль.
+            else if (a.type == "cva_MM_SinStart" && settings.profiles.empty()) {
+                Widget::Action add;
+                add.type = "cva_ProfAdd_Open";
+                profileClick(w, add);
+            }
             return;
         }
         if (a.type == "va_ListItem") { // FUN_013d4bb0
             if (Widget* list = current().listOf(w)) {
                 Dialog::selectListItem(*list, w.listIndex);
+                if (hasAction(*list, "cva_ProfList")) {
+                    profilePick_ = std::max(0, w.listIndex);
+                    continue;
+                }
                 if (list->name == "CampList" && !hasAction(*list, "cva_LS_FileList")) {
                     campaignPick_ = std::size_t(std::max(0, w.listIndex));
                     continue;
@@ -423,7 +549,7 @@ void Menus::click(Widget& w) {
             return;
         }
         if (a.type == "cva_M_CrossFade" || a.type == "cva_vGameMode_Set" ||
-            a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" ||
+            a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" || a.type == "cva_ProfAdd_Name" ||
             a.type == "cva_ClearClick" || a.type.rfind("cva_Opt_", 0) == 0)
             continue; // оформление и профиль — без последствий
         std::printf("действие %s (%s) пока не реализовано\n", a.type.c_str(), a.name.c_str());

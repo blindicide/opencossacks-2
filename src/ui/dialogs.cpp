@@ -34,6 +34,7 @@ WidgetKind kindOf(std::string_view type) {
     if (type == "CheckBox") return WidgetKind::CheckBox;
     if (type == "ColoredBar") return WidgetKind::ColoredBar;
     if (type == "ComboBox") return WidgetKind::ComboBox;
+    if (type == "InputBox") return WidgetKind::InputBox;
     if (type == "VScrollBar") return WidgetKind::Slider;
     // Canvas рисует код игры (мини-карта и т. п.) — здесь это картинка во всю рамку.
     if (type == "BitPicture" || type == "Canvas") return WidgetKind::BitPicture;
@@ -214,6 +215,11 @@ Widget Dialog::parse(const assets::XmlNode& node, std::string_view type) {
         w.fontDx = int(node.intValue("FontDx").value_or(0));
         w.fontDy = int(node.intValue("FontDy").value_or(0));
         break;
+    case WidgetKind::InputBox:
+        w.fontPassive = font("Font");
+        w.fontActive = font("AFont");
+        w.maxLen = int(node.intValue("StrMaxLen").value_or(100));
+        break;
     case WidgetKind::Other:
         if (std::find(unsupported_.begin(), unsupported_.end(), w.type) == unsupported_.end()) {
             unsupported_.push_back(w.type);
@@ -282,6 +288,12 @@ void Dialog::scrollListAt(float vx, float vy, int rows) {
     });
 }
 
+void Dialog::blurInputs(const Widget* except) {
+    forEach([&](Widget& w) {
+        if (w.kind == WidgetKind::InputBox && &w != except) w.focused = false;
+    });
+}
+
 void Dialog::closeCombos(const Widget* except) {
     forEach([&](Widget& w) {
         if (w.kind == WidgetKind::ComboBox && &w != except) w.open = false;
@@ -313,7 +325,7 @@ Widget* Dialog::updateHover(float vx, float vy) {
         if (!w.visible) return;
         // Панели с действиями (cva_M_ModalDesk) — не кнопки: их действия покадровые.
         const bool clickable = w.kind == WidgetKind::VitButton || w.kind == WidgetKind::TextButton ||
-                               w.kind == WidgetKind::GPTextButton || w.kind == WidgetKind::CheckBox ||
+                               w.kind == WidgetKind::GPTextButton || w.kind == WidgetKind::CheckBox || w.kind == WidgetKind::InputBox ||
                                (w.kind != WidgetKind::Desk && w.kind != WidgetKind::ColoredBar && !w.actions.empty());
         if (clickable && w.enabled && vx >= float(w.absX) && vx < float(w.absX + w.drawnW) && vy >= float(w.absY) &&
             vy < float(w.absY + w.drawnH))
@@ -358,7 +370,7 @@ void Dialog::drawCombo(Widget& w, const View& view, bool dropdown) {
         if (font && w.selected >= 0 && w.selected < int(w.items.size())) {
             const std::string& item = w.items[std::size_t(w.selected)];
             const TextSize size = ctx_.text.measure(*font, item, limit, Align::Left);
-            ctx_.text.draw(*font, item, w.absX + 6, w.absY + (w.height - size.height) / 2, limit, Align::Left, view);
+            ctx_.text.draw(*font, item, w.absX + 6, w.absY + (w.height - size.height) / 2 - 4, limit, Align::Left, view);
         }
         return;
     }
@@ -373,7 +385,7 @@ void Dialog::drawCombo(Widget& w, const View& view, bool dropdown) {
         const Font* f = (i == w.hoverRow && w.fontActive) ? w.fontActive : font;
         if (f) {
             const TextSize size = ctx_.text.measure(*f, w.items[std::size_t(i)], limit, Align::Left);
-            ctx_.text.draw(*f, w.items[std::size_t(i)], w.absX + 6, ry + (Widget::kComboRow - size.height) / 2, limit,
+            ctx_.text.draw(*f, w.items[std::size_t(i)], w.absX + 6, ry + (Widget::kComboRow - size.height) / 2 - 4, limit,
                            Align::Left, view);
         }
     }
@@ -430,6 +442,20 @@ void Dialog::drawWidget(Widget& w, int parentX, int parentY, const View& view) {
         break;
     }
     case WidgetKind::ComboBox: drawCombo(w, view, false); break;
+    case WidgetKind::InputBox: {
+        const Font* font = w.focused && w.fontActive ? w.fontActive : w.fontPassive;
+        if (!font) break;
+        const int limit = std::max(20, w.width - 4);
+        const TextSize size = ctx_.text.measure(*font, w.text.empty() ? "I" : w.text, 100000, Align::Left);
+        const int ty = w.absY + (w.height - size.height) / 2 - 3;
+        if (!w.text.empty()) ctx_.text.draw(*font, w.text, w.absX + 2, ty, limit, Align::Left, view);
+        if (w.focused) { // курсор после текста
+            const int cx = w.absX + 2 + (w.text.empty() ? 0 : std::min(size.width, limit));
+            ctx_.renderer.fillRect(view.x(float(cx + 1)), view.y(float(ty)), std::max(1.0f, view.scale),
+                                   float(size.height) * view.scale, 0xFF3A2410);
+        }
+        break;
+    }
     case WidgetKind::Desk:
     case WidgetKind::Other: break;
     }

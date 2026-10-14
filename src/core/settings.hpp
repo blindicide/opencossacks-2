@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace oc2::core {
@@ -16,6 +17,17 @@ struct Settings {
     bool showHint = true;
     bool showVideo = true;
     bool arcade = false;   // аркадный режим
+    // Профили игрока (имя в UTF-8) и номер выбранного (−1 — профилей нет).
+    struct Profile {
+        std::string name;
+        int race = 0;       // номер нации в списке меню
+        int difficulty = 1; // 0..2
+    };
+    std::vector<Profile> profiles;
+    int profile = -1;
+    const Profile* currentProfile() const {
+        return profile >= 0 && std::size_t(profile) < profiles.size() ? &profiles[std::size_t(profile)] : nullptr;
+    }
     // Пройдено миссий в каждой кампании (по порядку campaign.xml).
     std::vector<int> campaignDone;
 
