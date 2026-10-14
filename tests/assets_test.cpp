@@ -1715,7 +1715,7 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
     // Рынок: обмен с комиссией, нельзя больше имеющегося и на тот же ресурс.
     {
         const int wood = g.nation(0).res[0], gold0 = g.nation(0).res[1];
-        CHECK(oc2::world::BigGame::exchangeGet(0, 1, 1000) == 320); // дерево 2, золото 5, комиссия 20%
+        CHECK(g.exchangeGet(0, 1, 1000) == 320); // дерево 2, золото 5, комиссия 20%
         CHECK(g.exchange(0, 1, 1000) && g.nation(0).res[0] == wood - 1000 && g.nation(0).res[1] == gold0 + 320);
         CHECK(!g.exchange(0, 0, 10) && !g.exchange(0, 1, wood * 2));
     }
@@ -1793,7 +1793,8 @@ TEST_CASE("Завоевание Европы: события и задания Q
     for (int i = 0; i < 40 && !(gold && offered); ++i) {
         g.endTurn();
         for (const auto& m : g.messages) gold = gold || m.key.find("AddGold") != std::string::npos;
-        if (!g.offers.empty()) {
+        while (!g.offers.empty() && g.offers.front().kind == oc2::world::BigGame::Offer::Kind::Treaty) g.answer(false); // просьбы о мире
+        if (!g.offers.empty() && !offered) {
             offered = true;
             CHECK(g.offers.front().quest == "CaptureSector" && g.offers.front().text.key == "CQM_CaptureSector0");
             CHECK(g.offers.front().giver != 0 && g.answer(true) && g.quests().size() == 1);

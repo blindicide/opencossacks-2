@@ -151,13 +151,14 @@ bool BigGame::diversion(int type, int sector) {
     return true;
 }
 
-int BigGame::marketValue(int res) {
-    static const int v[kRes] = {2, 5, 3, 1, 4, 4}; // дерево, золото, камень, еда, железо, уголь
-    return v[std::clamp(res, 0, kRes - 1)];
+int BigGame::marketValue(int res) const {
+    static const int v[kRes] = {200, 500, 300, 100, 400, 400}; // сотые доли условной цены: дерево, золото, камень, еда, железо, уголь
+    const int r = std::clamp(res, 0, kRes - 1);
+    return v[r] * priceMod_[std::size_t(r)] / 100;
 }
 
-int BigGame::exchangeGet(int from, int to, int give) {
-    return give * marketValue(from) * 4 / (marketValue(to) * 5); // комиссия рынка 20%
+int BigGame::exchangeGet(int from, int to, int give) const {
+    return int(std::int64_t(give) * marketValue(from) * 4 / (std::int64_t(std::max(1, marketValue(to))) * 5)); // комиссия рынка 20%
 }
 
 bool BigGame::exchange(int from, int to, int give) {
@@ -280,7 +281,7 @@ std::optional<int> BigGame::attackBase(int nation, int target) const {
 bool BigGame::canAttack(int target) const {
     if (target < 0 || target >= sectorCount()) return false;
     if (sectors_[std::size_t(target)].owner == player_ || !atWar(player_, sectors_[std::size_t(target)].owner)) return false;
-    return attackBase(player_, target) && !nations_[std::size_t(player_)].army.empty();
+    return attackBase(player_, target) && !nations_[std::size_t(player_)].army.empty() && nations_[std::size_t(player_)].weatherSkip == 0;
 }
 
 int BigGame::defencePower(int target) const {
@@ -365,6 +366,7 @@ void BigGame::apply(const Attack& a, const Outcome& o) {
         else ++lostAttackers;
     }
     const std::string& sname = data_->map.sectors[std::size_t(a.target)].name;
+    if ((o.attackerWon ? a.nation : defender) == player_ && rnd() % 100 < 40) heroAward(player_);
     if (o.attackerWon) {
         s.owner = a.nation;
         s.garrison = std::max(1, k.integer("SectGarrisonSquads" + std::to_string(s.level), 4) / 2);
@@ -462,10 +464,47 @@ void BigGame::startTurn() {
         if (done) quests_.erase(quests_.begin() + std::ptrdiff_t(i));
         else ++i;
     }
+    for (NationState& n : nations_)
+        if (n.weatherSkip > 0) --n.weatherSkip;
     if (nations_[std::size_t(player_)].alive) {
+        worldEvents();
         diplomacyTurn();
         rollEvents();
     }
+}
+
+// Рынок и погода: цены сами уходят к 100%, раз в несколько ходов случается скачок цены на один ресурс,
+// а в дождь нация не нападает ход (шансы — догадка).
+void BigGame::worldEvents() {
+    for (int& p : priceMod_) p += p < 100 ? std::min(5, 100 - p) : -std::min(5, p - 100);
+    if (rnd() % 100 < 12) {
+        static const int res[5] = {0, 2, 3, 4, 5};
+        const int r = res[rnd() % 5];
+        const bool rise = rnd() % 2 == 0;
+        const int pct = 10 + int(rnd() % 4) * 5;
+        priceMod_[std::size_t(r)] = std::clamp(priceMod_[std::size_t(r)] + (rise ? pct : -pct), 50, 200);
+        messages.push_back({std::string(rise ? "CQM_RisePrices" : "CQM_FallPrices") + std::to_string(r) + std::to_string(rnd() % 2), {std::to_string(pct)}});
+    }
+    if (rnd() % 100 < 5) {
+        const int n = int(rnd() % kBigNations);
+        NationState& ns = nations_[std::size_t(n)];
+        if (ns.alive && ns.weatherSkip == 0) {
+            ns.weatherSkip = 1;
+            messages.push_back({rnd() % 2 ? "CWM_Bad_Weather" : "CWM_Bad_Weather2", {assets::bigNationName(n)}});
+        }
+    }
+}
+
+// Награда герою за победу: прибавка опыта и счётчик наград; героев по именам только у наций с HERO_xx.
+void BigGame::heroAward(int nation) {
+    static const char* const code[kBigNations] = {"EG", "FR", "AS", "PR", "RS", "EP", nullptr, nullptr, nullptr};
+    if (!code[nation]) return;
+    NationState& n = nations_[std::size_t(nation)];
+    ++n.awards;
+    const int exp = data_->k.integer("QuestCompliteExp", 100);
+    messages.push_back({"CWM_HeroGetAward" + std::to_string(rnd() % 5),
+                        {std::string("$HERO_") + code[nation] + "_" + std::to_string(std::min(n.rank, 7)), std::to_string(n.awards), std::to_string(exp)}});
+    giveExp(nation, exp);
 }
 
 std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
@@ -477,6 +516,7 @@ std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
         const std::string& t = pool[rnd() % 4 == 0 ? rnd() % pool.size() : 0];
         if (!recruit(nation, t) && !recruit(nation, pool[0])) break;
     }
+    if (n.weatherSkip > 0) return std::nullopt;
     if (n.army.empty() || rnd() % 100 >= 65) return std::nullopt;
     // Цель: самый слабый чужой сектор рядом со своим, который армия берёт с запасом.
     int best = -1;
@@ -801,6 +841,12 @@ std::string BigGame::serialize() const {
         for (const std::string& t : n.army) o << ' ' << t;
         o << '\n';
     }
+    o << "P";
+    for (int p : priceMod_) o << ' ' << p;
+    o << '\n';
+    for (int i = 0; i < kBigNations; ++i)
+        if (nations_[std::size_t(i)].awards || nations_[std::size_t(i)].weatherSkip)
+            o << "A " << i << ' ' << nations_[std::size_t(i)].awards << ' ' << nations_[std::size_t(i)].weatherSkip << '\n';
     for (const ActiveQuest& q : quests_)
         o << "Q " << q.name << ' ' << q.giver << ' ' << q.target << ' ' << q.sector << ' ' << q.gold << ' ' << q.deadline << '\n';
     for (int a = 0; a < kBigNations; ++a)
@@ -855,6 +901,13 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
                 return std::nullopt;
             if (q.sector < 0 && q.name == "DefendSector") return std::nullopt;
             g.quests_.push_back(q);
+        } else if (tag == "P") {
+            for (int& p : g.priceMod_) in >> p;
+        } else if (tag == "A") {
+            int i, aw, ws;
+            if (!(in >> i >> aw >> ws) || i < 0 || i >= kBigNations) return std::nullopt;
+            g.nations_[std::size_t(i)].awards = aw;
+            g.nations_[std::size_t(i)].weatherSkip = ws;
         } else if (tag == "D") {
             int a, b, war;
             Relation r;

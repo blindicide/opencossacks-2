@@ -268,6 +268,7 @@ void BigMapScreen::drawSidePanel() {
     y += say("{C FF2A1C10}" + std::string(kRankNames[std::clamp(ns.rank, 0, 5)]), r.x + 8, y, int(r.w) - 12);
     y += say("{C FF402010}" + t("Experience") + " " + std::to_string(ns.exp) + (next ? "/" + std::to_string(next) : ""), r.x + 8, y,
              int(r.w) - 12);
+    if (ns.awards > 0) y += say("{C FF402010}" + t("AwardsNum") + " " + std::to_string(ns.awards), r.x + 8, y, int(r.w) - 12);
     y += 8;
     const auto inc = g.income(me);
     for (int i = 0; i < world::BigGame::kRes; ++i) {
@@ -614,7 +615,7 @@ void BigMapScreen::drawModal() {
         const int give = 1000;
         const bool ok = marketFrom_ != marketTo_ && g.nation(g.player()).res[std::size_t(marketFrom_)] >= give;
         std::string line = t("CWM_MarketResTurnInto");
-        const std::string a = std::to_string(give), b = std::to_string(world::BigGame::exchangeGet(marketFrom_, marketTo_, give));
+        const std::string a = std::to_string(give), b = std::to_string(g.exchangeGet(marketFrom_, marketTo_, give));
         for (const std::string& v : {a, resName(marketFrom_), b, resName(marketTo_)}) {
             const std::size_t at = line.find('%');
             if (at != std::string::npos) line.replace(at, 2, v);
@@ -672,6 +673,7 @@ std::string BigMapScreen::format(const world::BigGame::Message& m) const {
         }
         std::string v = arg < m.args.size() ? m.args[arg++] : std::string();
         if (!v.empty() && v[0] == '@') v = squadLabel(v.substr(1));
+        else if (!v.empty() && v[0] == '$') v = t(v.substr(1));
         text.replace(at, 2, v);
         at += v.size();
     }

@@ -41,6 +41,8 @@ public:
         int rank = 0;                    // 0 лейтенант … 5 маршал
         std::vector<std::string> army;   // отряды армии героя (типы юнитов)
         bool alive = true;
+        int awards = 0;                  // награды героя (CWM_HeroGetAward)
+        int weatherSkip = 0;             // ходов без нападений из-за непогоды (CWM_Bad_Weather)
     };
 
     // Нападение: нация с отрядами на сектор.
@@ -98,8 +100,10 @@ public:
 
     // Международный рынок: цена ресурса в условных единицах (догадка — таблица обмена не разобрана),
     // обмен берёт комиссию. exchangeGet — сколько получит игрок за give единиц from.
-    static int marketValue(int res);
-    static int exchangeGet(int from, int to, int give);
+    // Цена плавает от событий (CQM_RisePrices/FallPrices) и со временем возвращается к 100%.
+    int marketValue(int res) const;
+    int exchangeGet(int from, int to, int give) const;
+    int pricePercent(int res) const { return priceMod_[std::size_t(res)]; }
     // Обмен give единиц from на to у игрока; false — не хватает или одинаковые ресурсы.
     bool exchange(int from, int to, int give);
     // Ресурсы нации, которых ей не хватает (торговцы рассказывают об этом на рынке).
@@ -210,6 +214,8 @@ private:
         relations_[std::size_t(b * assets::kBigNations + a)] = r;
     }
     void diplomacyTurn();
+    void worldEvents();
+    void heroAward(int nation);
     int randomOwned(int nation);
     bool isPort(int sector) const;
     std::string sectorKey(int id) const { return data_->map.sectors[std::size_t(id)].name; }
@@ -224,6 +230,7 @@ private:
     std::vector<int> lastFired_; // по определениям Quests.dat: ход последнего срабатывания
     std::array<NationState, assets::kBigNations> nations_;
     std::array<Relation, assets::kBigNations * assets::kBigNations> relations_{};
+    std::array<int, kRes> priceMod_{100, 100, 100, 100, 100, 100}; // цена ресурса на рынке, %
 };
 
 } // namespace oc2::world
