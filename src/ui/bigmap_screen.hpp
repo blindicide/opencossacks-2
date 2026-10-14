@@ -54,6 +54,8 @@ public:
     // Гарнизон сектора для боя.
     std::vector<std::string> defendersOf(int target) const { return game_ ? game_->defenders(target) : std::vector<std::string>{}; }
     bool inBattle() const { return battleWait_; }
+    // Сторона карты сектора, откуда идёт нападение (BigDirections), -1 — неизвестна.
+    int attackSide(const world::BigGame::Attack& a) const { return game_ ? game_->data().directions.sideOf(a.from, a.target) : -1; }
 
     // Для проверок: выбрать сектор.
     void select(int sector) { selected_ = sector; }

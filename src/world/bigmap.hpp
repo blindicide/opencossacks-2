@@ -23,6 +23,7 @@ public:
         assets::BigMapConst k;
         assets::HeroArmy hero;
         assets::BigQuests quests; // Quests.dat; пусто — без событий и заданий
+        assets::BigDirections directions; // DirectionDataBase: с какой стороны идёт нападение
     };
 
     struct SectorState {
@@ -46,6 +47,7 @@ public:
         int nation = 0;
         int target = 0;
         std::vector<std::string> squads;
+        int from = -1; // сектор, откуда идёт нападение (-1 — неизвестно)
     };
 
     // Итог боя за сектор: уцелевшие отряды нападавшего и уничтоженные отряды обороны.

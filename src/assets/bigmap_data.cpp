@@ -152,6 +152,36 @@ HeroArmy HeroArmy::parse(std::string_view text) {
     return h;
 }
 
+BigDirections BigDirections::parse(std::string_view xml) {
+    BigDirections d;
+    auto field = [&](std::size_t from, std::string_view tag) -> std::pair<std::string_view, std::size_t> {
+        const std::string open = "<" + std::string(tag) + ">", close = "</" + std::string(tag) + ">";
+        const std::size_t a = xml.find(open, from);
+        if (a == std::string_view::npos) return {{}, std::string_view::npos};
+        const std::size_t b = xml.find(close, a);
+        if (b == std::string_view::npos) return {{}, std::string_view::npos};
+        return {xml.substr(a + open.size(), b - a - open.size()), b + close.size()};
+    };
+    std::size_t at = 0;
+    while (true) {
+        const std::size_t e = xml.find("<CDirElement>", at);
+        if (e == std::string_view::npos) break;
+        const auto [from, p1] = field(e, "FromSecID");
+        const auto [to, p2] = field(e, "ToSecID");
+        const auto [dir, p3] = field(e, "Direction");
+        at = e + 13;
+        if (p1 == std::string_view::npos || p2 == std::string_view::npos || p3 == std::string_view::npos) continue;
+        const int s = dir == "North" ? North : dir == "East" ? East : dir == "South" ? South : dir == "West" ? West : -1;
+        if (s >= 0) d.side[{toInt(std::string(from)), toInt(std::string(to))}] = s;
+    }
+    return d;
+}
+
+int BigDirections::sideOf(int from, int to) const {
+    const auto it = side.find({from, to});
+    return it == side.end() ? -1 : it->second;
+}
+
 BigQuests BigQuests::parse(std::string_view text) {
     BigQuests q;
     BigQuest* cur = nullptr;

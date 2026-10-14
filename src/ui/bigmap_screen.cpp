@@ -56,6 +56,7 @@ std::shared_ptr<const world::BigGame::Data> BigMapScreen::loadData(const std::fi
     if (!sectors || !consts || !hero) return nullptr;
     auto d = std::make_shared<world::BigGame::Data>();
     if (const auto quests = read("Missions/StatData/Quests.dat")) d->quests = assets::BigQuests::parse(*quests);
+    if (const auto dirs = read("Missions/MissionEngin/DirectionDataBase.script.xml")) d->directions = assets::BigDirections::parse(*dirs);
     try {
         d->map = assets::BigMap::parse(*sectors);
         d->k = assets::BigMapConst::parse(*consts);

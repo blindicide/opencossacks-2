@@ -145,6 +145,7 @@ BigGame::Attack BigGame::beginPlayerAttack(int target) const {
     a.nation = player_;
     a.target = target;
     a.squads = nations_[std::size_t(player_)].army;
+    a.from = attackBase(player_, target).value_or(-1);
     return a;
 }
 
@@ -322,7 +323,7 @@ std::optional<BigGame::Attack> BigGame::aiTurn(int nation) {
         if (ratio > bestRatio) bestRatio = ratio, best = s.id;
     }
     if (best < 0) return std::nullopt;
-    Attack a{nation, best, n.army};
+    Attack a{nation, best, n.army, attackBase(nation, best).value_or(-1)};
     if (sectors_[std::size_t(best)].owner == player_) return a; // защиту разыгрывает игрок
     apply(a, autoResolve(a));
     return std::nullopt;

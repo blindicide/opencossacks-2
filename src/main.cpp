@@ -110,6 +110,21 @@ std::vector<std::uint8_t> readFile(const fs::path& path) {
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
+// Условия боя за сектор: SecObjNN.txt (нападающему) или SecObjDefNN.txt (обороняющемуся) из каталога сектора.
+// Текст остаётся в Windows-1251 с разметкой; пусто, если файла нет.
+std::string sectorObjectives(const fs::path& data, const oc2::assets::BigSector* sector, bool attacker) {
+    if (!sector) return {};
+    std::string digits;
+    for (char c : sector->name)
+        if (c >= '0' && c <= '9') digits += c;
+    if (digits.empty()) return {};
+    const std::string rel = "Missions/StatData/" + sector->name + "/" + (attacker ? "SecObj" : "SecObjDef") + digits + ".txt";
+    const auto path = oc2::assets::findCaseInsensitive(data, rel);
+    if (!path) return {};
+    const auto bytes = readFile(*path);
+    return std::string(bytes.begin(), bytes.end());
+}
+
 // Проверочная картинка без данных игры: шахматная доска 8×8 и полупрозрачная
 // рамка поверх неё. Нужна, чтобы проверять вывод текстур и смешивание в CI.
 oc2::assets::Image testPattern() {
@@ -228,6 +243,11 @@ std::optional<Options> parseArgs(int argc, char** argv) {
         } else if (a == "--dump-zones" && hasValue) {
             const auto bytes = readFile(argv[++i]);
             std::fputs(oc2::assets::Map3d::parse(bytes).zonesXml().c_str(), stdout);
+            return std::nullopt;
+        } else if (a == "--dump-sections" && hasValue) {
+            const auto bytes = readFile(argv[++i]);
+            for (const auto& sec : oc2::assets::Map3d::parse(bytes).sections())
+                std::printf("%s %zu\n", sec.tag.c_str(), sec.size);
             return std::nullopt;
         } else if (a == "--bigmap") {
             o.bigMap = true;
@@ -584,6 +604,8 @@ struct MapView {
     // Плашка ShowMessageII: текст и оставшиеся шаги.
     std::string bannerText;
     int bannerLeft = 0;
+    std::string battleNotice; // условия боя за сектор (SecObj*.txt), Windows-1251 с разметкой
+    int noticeLeft = 0;       // кадров, сколько ещё показывать
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
@@ -777,8 +799,12 @@ struct MapView {
     };
     std::optional<BigBattle> big;
 
+    // side — с какой стороны карты идёт нападение (0 север, 1 восток, 2 юг, 3 запад; -1 — по форме поля);
+    // notice — текст условий боя (с разметкой, Windows-1251), он показывается в начале боя.
     void setupBigBattle(const oc2::world::BigGame::Attack& attack, const std::vector<std::string>& defenders,
-                        bool playerAttacks) {
+                        bool playerAttacks, int side = -1, std::string notice = {}) {
+        battleNotice = std::move(notice);
+        noticeLeft = battleNotice.empty() ? 0 : 25 * 20;
         BigBattle b;
         b.attack = attack;
         b.playerAttacks = playerAttacks;
@@ -807,7 +833,7 @@ struct MapView {
                     minY = std::min(minY, cy), maxY = std::max(maxY, cy);
                 }
         if (open.empty()) open.emplace_back(W / 2, H / 2), minX = maxX = W / 2, minY = maxY = H / 2;
-        const bool alongX = maxX - minX >= maxY - minY;
+        const bool alongX = side >= 0 ? (side == 1 || side == 3) : maxX - minX >= maxY - minY;
         auto nearestTo = [&](double fx, double fy) {
             const int tx = int(minX + fx * (maxX - minX)), ty = int(minY + fy * (maxY - minY));
             long long best = -1;
@@ -819,8 +845,12 @@ struct MapView {
             return at;
         };
         // Нападающие — слева (или сверху), обороняющиеся — справа; игрок и враг по ролям.
-        const auto from = alongX ? nearestTo(0.30, 0.5) : nearestTo(0.5, 0.30);
-        const auto to = alongX ? nearestTo(0.70, 0.5) : nearestTo(0.5, 0.70);
+        // Известная сторона нападения: нападающие у этого края карты, обороняющиеся у противоположного.
+        const double near = 0.30, far = 0.70;
+        const auto from = side == 0 ? nearestTo(0.5, near) : side == 1 ? nearestTo(far, 0.5) : side == 2 ? nearestTo(0.5, far)
+                          : side == 3 ? nearestTo(near, 0.5) : alongX ? nearestTo(near, 0.5) : nearestTo(0.5, near);
+        const auto to = side == 0 ? nearestTo(0.5, far) : side == 1 ? nearestTo(near, 0.5) : side == 2 ? nearestTo(0.5, near)
+                        : side == 3 ? nearestTo(far, 0.5) : alongX ? nearestTo(far, 0.5) : nearestTo(0.5, far);
         const std::array<std::pair<int, int>, 2> anchor = {playerAttacks ? from : to, playerAttacks ? to : from};
         for (int side = 0; side < 2; ++side) {
             // Шеренги отрядов поперёк линии боя, дальше по глубине — следующие ряды.
@@ -857,6 +887,7 @@ struct MapView {
     // Простой ИИ боя за сектор: раз в две секунды замершие отряды врага идут на ближайшего живого
     // юнита игрока; встретив его, они вступают в бой сами (обычная реакция юнитов).
     void bigBattleAi() {
+        if (noticeLeft > 0) --noticeLeft;
         if (!big || ++big->aiTimer < 50) return;
         big->aiTimer = 0;
         // Оборона стоит на месте, пока к ней не подошли; нападающий ИИ идёт вперёд.
@@ -1601,8 +1632,23 @@ void drawPauseBanner(Screen& screen, const MapView& view, VkExtent2D e, oc2::ren
     screen.text->draw(*font, cp, int(x / v.scale) + 20, int(y / v.scale) + 8, size.width + 4, oc2::ui::Align::Center, v);
 }
 
+// Условия боя за сектор (SecObj*.txt) по центру сверху в начале боя.
+void drawBattleNotice(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    if (view.noticeLeft <= 0 || view.battleNotice.empty()) return;
+    const oc2::ui::Font* font = screen.fonts->findTagged("S");
+    if (!font) return;
+    const oc2::ui::View& v = screen.hudView;
+    const auto size = screen.text->measure(*font, view.battleNotice, 420, oc2::ui::Align::Left);
+    const float w = float(size.width + 28) * v.scale, h = float(size.height + 20) * v.scale;
+    const float x = (float(e.width) - w) / 2.0f, y = 84.0f * v.scale;
+    sprites.fillRect(x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, 0xFF5A4630);
+    sprites.fillRect(x, y, w, h, 0xEEE8DCB8);
+    screen.text->draw(*font, view.battleNotice, int(x / v.scale) + 14, int(y / v.scale) + 10, size.width + 4, oc2::ui::Align::Left, v);
+}
+
 void drawMissionHud(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
     drawPauseBanner(screen, view, e, sprites);
+    drawBattleNotice(screen, view, e, sprites);
     if (!view.script) return;
     const oc2::ui::Font* font = screen.fonts->findTagged("S");
     if (!font) return;
@@ -1951,7 +1997,8 @@ int main(int argc, char** argv) {
                     mapView->sounds = sounds.get();
                     if (pendingBig && bigScreen) {
                         const auto& att = pendingBig->attack;
-                        mapView->setupBigBattle(att, bigScreen->defendersOf(att.target), pendingBig->playerAttacks);
+                        mapView->setupBigBattle(att, bigScreen->defendersOf(att.target), pendingBig->playerAttacks,
+                                                bigScreen->attackSide(att), sectorObjectives(opts->dataDir, bigScreen->battleSector(), pendingBig->playerAttacks));
                         if (opts->win) mapView->world.killAllExcept(mapView->world.team[0]); // проверка: победа сразу
                         mapView->centerOnPlayer(0, vulkan.extent());
                     }

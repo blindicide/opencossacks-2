@@ -1643,6 +1643,16 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
     CHECK(!oc2::world::BigGame::deserialize(data, "мусор"));
 }
 
+TEST_CASE("Завоевание Европы: сторона нападения DirectionDataBase") {
+    using namespace oc2::assets;
+    const BigDirections d = BigDirections::parse(
+        "<ELEM><CDirElement><FromSecID>5</FromSecID><ToSecID>1</ToSecID><Direction>East</Direction></CDirElement>"
+        "<CDirElement><FromSecID>1</FromSecID><ToSecID>0</ToSecID><Direction>South</Direction></CDirElement>"
+        "<CDirElement><FromSecID>2</FromSecID><ToSecID>1</ToSecID><Direction>Up</Direction></CDirElement></ELEM>");
+    CHECK(d.sideOf(5, 1) == BigDirections::East && d.sideOf(1, 0) == BigDirections::South);
+    CHECK(d.sideOf(2, 1) == -1 && d.sideOf(0, 1) == -1);
+}
+
 TEST_CASE("Завоевание Европы: события и задания Quests.dat") {
     using namespace oc2::assets;
     const BigQuests q = BigQuests::parse(

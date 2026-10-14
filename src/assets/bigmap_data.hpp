@@ -79,4 +79,14 @@ struct BigQuests {
     static BigQuests parse(std::string_view text);
 };
 
+// Missions\MissionEngin\DirectionDataBase.script.xml: с какой стороны карты сектора «куда» входит
+// нападение из соседнего сектора «откуда».
+struct BigDirections {
+    enum Side { North = 0, East = 1, South = 2, West = 3 };
+    std::map<std::pair<int, int>, int> side; // (откуда, куда) → сторона
+    static BigDirections parse(std::string_view xml);
+    // -1, если для пары сторона не задана.
+    int sideOf(int from, int to) const;
+};
+
 } // namespace oc2::assets
