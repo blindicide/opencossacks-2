@@ -358,9 +358,9 @@ void World::updateEnter(std::size_t index) {
     // Входит, дойдя до конца пути у шахты (центр закрыт клетками здания) или оказавшись
     // совсем рядом с центром (идущих к одной точке расталкивает — им не остановиться).
     if (u.moving && d2 > 48 * 48) return;
-    const bool near = d2 <= 600 * 600;
-    if (m.player == 7 && near) m.player = u.player; // ничья шахта — захват
-    if (!near || !m.alive() || m.player != u.player || int(m.occupants.size()) >= m.desc->peasantAbsorber) {
+    const bool inReach = d2 <= 600 * 600;
+    if (m.player == 7 && inReach) m.player = u.player; // ничья шахта — захват
+    if (!inReach || !m.alive() || m.player != u.player || int(m.occupants.size()) >= m.desc->peasantAbsorber) {
         u.mine.reset();
         return;
     }

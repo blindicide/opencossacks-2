@@ -1677,11 +1677,11 @@ TEST_CASE("Туман войны: обзор юнитов и скрытые вр
     World w;
     w.setLockMap(LockMap(1000, 1000)); // 16000×16000
     const std::size_t mine = w.addUnit(soldier, 0, 2000, 2000, 0);
-    const std::size_t near = w.addUnit(soldier, 1, 2600, 2000, 0);
-    const std::size_t far = w.addUnit(soldier, 1, 9000, 2000, 0);
-    CHECK(!w.hiddenByFog(w.units()[far])); // тумана нет — ничего не скрыто
+    const std::size_t closeU = w.addUnit(soldier, 1, 2600, 2000, 0);
+    const std::size_t farU = w.addUnit(soldier, 1, 9000, 2000, 0);
+    CHECK(!w.hiddenByFog(w.units()[farU])); // тумана нет — ничего не скрыто
     w.enableFog(0);
-    CHECK(!w.hiddenByFog(w.units()[mine]) && !w.hiddenByFog(w.units()[near]) && w.hiddenByFog(w.units()[far]));
+    CHECK(!w.hiddenByFog(w.units()[mine]) && !w.hiddenByFog(w.units()[closeU]) && w.hiddenByFog(w.units()[farU]));
     CHECK(w.fog.at(2000, 2000) == 2 && w.fog.at(9000, 2000) == 0);
     // юнит ушёл — прежняя область осталась исследованной, но не видна
     w.orderMove(mine, 6000, 2000);

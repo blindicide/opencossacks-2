@@ -916,11 +916,11 @@ struct MapView {
         };
         // Нападающие — слева (или сверху), обороняющиеся — справа; игрок и враг по ролям.
         // Известная сторона нападения: нападающие у этого края карты, обороняющиеся у противоположного.
-        const double near = 0.30, far = 0.70;
-        const auto from = side == 0 ? nearestTo(0.5, near) : side == 1 ? nearestTo(far, 0.5) : side == 2 ? nearestTo(0.5, far)
-                          : side == 3 ? nearestTo(near, 0.5) : alongX ? nearestTo(near, 0.5) : nearestTo(0.5, near);
-        const auto to = side == 0 ? nearestTo(0.5, far) : side == 1 ? nearestTo(near, 0.5) : side == 2 ? nearestTo(0.5, near)
-                        : side == 3 ? nearestTo(far, 0.5) : alongX ? nearestTo(far, 0.5) : nearestTo(0.5, far);
+        const double nearK = 0.30, farK = 0.70;
+        const auto from = side == 0 ? nearestTo(0.5, nearK) : side == 1 ? nearestTo(farK, 0.5) : side == 2 ? nearestTo(0.5, farK)
+                          : side == 3 ? nearestTo(nearK, 0.5) : alongX ? nearestTo(nearK, 0.5) : nearestTo(0.5, nearK);
+        const auto to = side == 0 ? nearestTo(0.5, farK) : side == 1 ? nearestTo(nearK, 0.5) : side == 2 ? nearestTo(0.5, nearK)
+                        : side == 3 ? nearestTo(farK, 0.5) : alongX ? nearestTo(farK, 0.5) : nearestTo(0.5, farK);
         const std::array<std::pair<int, int>, 2> anchor = {playerAttacks ? from : to, playerAttacks ? to : from};
         for (int side = 0; side < 2; ++side) {
             // Шеренги отрядов поперёк линии боя, дальше по глубине — следующие ряды.
