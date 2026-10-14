@@ -96,6 +96,15 @@ public:
     // Платит золото и разыгрывает шанс; итог — в messages (CWM_DiversionDone/Fail). false — нельзя.
     bool diversion(int type, int sector);
 
+    // Международный рынок: цена ресурса в условных единицах (догадка — таблица обмена не разобрана),
+    // обмен берёт комиссию. exchangeGet — сколько получит игрок за give единиц from.
+    static int marketValue(int res);
+    static int exchangeGet(int from, int to, int give);
+    // Обмен give единиц from на to у игрока; false — не хватает или одинаковые ресурсы.
+    bool exchange(int from, int to, int give);
+    // Ресурсы нации, которых ей не хватает (торговцы рассказывают об этом на рынке).
+    std::vector<int> shortages(int nation) const;
+
     bool adjacent(int a, int b) const;
     // Можно ли игроку напасть на сектор: чужой, рядом со своим, в армии есть отряды.
     bool canAttack(int target) const;

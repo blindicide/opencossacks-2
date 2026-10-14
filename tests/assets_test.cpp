@@ -1712,6 +1712,13 @@ TEST_CASE("Завоевание Европы: данные секторов, з�
     CHECK(!g.canDiversion(0, 0) && g.canDiversion(0, 1)); // свой сектор нельзя
     CHECK(g.diversion(0, 1) && g.sector(1).dry == 1 && g.recruitIncome(1) < recruitsBefore);
     CHECK(g.diversion(2, 1) && g.sector(1).level == 2 && g.messages.size() == 2 && g.messages[0].key == "CWM_DiversionDone0");
+    // Рынок: обмен с комиссией, нельзя больше имеющегося и на тот же ресурс.
+    {
+        const int wood = g.nation(0).res[0], gold0 = g.nation(0).res[1];
+        CHECK(oc2::world::BigGame::exchangeGet(0, 1, 1000) == 320); // дерево 2, золото 5, комиссия 20%
+        CHECK(g.exchange(0, 1, 1000) && g.nation(0).res[0] == wood - 1000 && g.nation(0).res[1] == gold0 + 320);
+        CHECK(!g.exchange(0, 0, 10) && !g.exchange(0, 1, wood * 2));
+    }
     // Победа нападавшего меняет владельца, расходует и возвращает отряды, даёт опыт и добавку ресурсов.
     oc2::world::BigGame::Attack a;
     a.nation = 1;

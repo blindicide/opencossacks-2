@@ -151,6 +151,36 @@ bool BigGame::diversion(int type, int sector) {
     return true;
 }
 
+int BigGame::marketValue(int res) {
+    static const int v[kRes] = {2, 5, 3, 1, 4, 4}; // дерево, золото, камень, еда, железо, уголь
+    return v[std::clamp(res, 0, kRes - 1)];
+}
+
+int BigGame::exchangeGet(int from, int to, int give) {
+    return give * marketValue(from) * 4 / (marketValue(to) * 5); // комиссия рынка 20%
+}
+
+bool BigGame::exchange(int from, int to, int give) {
+    if (from == to || give <= 0 || from < 0 || to < 0 || from >= kRes || to >= kRes) return false;
+    NationState& n = nations_[std::size_t(player_)];
+    if (n.res[std::size_t(from)] < give) return false;
+    n.res[std::size_t(from)] -= give;
+    n.res[std::size_t(to)] += exchangeGet(from, to, give);
+    return true;
+}
+
+std::vector<int> BigGame::shortages(int nation) const {
+    std::vector<int> out;
+    const NationState& n = nations_[std::size_t(nation)];
+    static const char* const key[kRes] = {"SECT_INCOME_WOOD", "SECT_INCOME_GOLD", "SECT_INCOME_STONE",
+                                          "SECT_INCOME_FOOD", "SECT_INCOME_IRON", "SECT_INCOME_COAL"};
+    for (int i = 0; i < kRes; ++i) {
+        const int base = data_->k.integer(key[i], 0);
+        if (base > 0 && n.res[std::size_t(i)] < base) out.push_back(i);
+    }
+    return out;
+}
+
 bool BigGame::adjacent(int a, int b) const {
     const auto& nb = data_->map.sectors[std::size_t(a)].neighbors;
     return std::find(nb.begin(), nb.end(), b) != nb.end();

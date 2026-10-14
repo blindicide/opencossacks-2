@@ -296,6 +296,7 @@ void BigMapScreen::drawSidePanel() {
         }
     }
     if (button({r.x + 8, r.y + r.h - 34, r.w - 16, 26}, "Герои")) modal_ = Modal::Hero;
+    if (button({r.x + 8, r.y + r.h - 64, r.w - 16, 26}, t("CWV_Market"))) modal_ = Modal::Market;
 }
 
 void BigMapScreen::drawSectorStrip() {
@@ -527,6 +528,54 @@ void BigMapScreen::drawModal() {
         if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, "Отмена")) modal_ = Modal::None;
         break;
     }
+    case Modal::Market: {
+        say("{C FF2A1C10}" + t("CWT_MarketTitle"), r.x, y, int(r.w), Align::Center);
+        y += 34;
+        // Две колонки: что отдать и что получить; обмен идёт пачками по 1000.
+        for (int i = 0; i < world::BigGame::kRes; ++i) {
+            const int have = g.nation(g.player()).res[std::size_t(i)];
+            if (button({r.x + 14, y, 190, 28}, resName(i) + " " + std::to_string(have), i != marketTo_)) marketFrom_ = i;
+            if (button({r.x + r.w - 204, y, 190, 28}, resName(i), i != marketFrom_)) marketTo_ = i;
+            if (i == marketFrom_) fill({r.x + 6, y + 6, 6, 16}, 0xFF206020);
+            if (i == marketTo_) fill({r.x + r.w - 12, y + 6, 6, 16}, 0xFF206020);
+            y += 34;
+        }
+        const int give = 1000;
+        const bool ok = marketFrom_ != marketTo_ && g.nation(g.player()).res[std::size_t(marketFrom_)] >= give;
+        std::string line = t("CWM_MarketResTurnInto");
+        const std::string a = std::to_string(give), b = std::to_string(world::BigGame::exchangeGet(marketFrom_, marketTo_, give));
+        for (const std::string& v : {a, resName(marketFrom_), b, resName(marketTo_)}) {
+            const std::size_t at = line.find('%');
+            if (at != std::string::npos) line.replace(at, 2, v);
+        }
+        say("{C FF2A1C10}" + line, r.x + 14, y + 4, int(r.w) - 28, Align::Center);
+        if (!ok && marketFrom_ != marketTo_) say(t("CWM_MarketNoEnoughRes"), r.x + 14, y + 26, int(r.w) - 28, Align::Center);
+        y += 52;
+        if (button({r.x + r.w / 2 - 80, y, 160, 30}, "Обменять", ok) && ok) {
+            game_->exchange(marketFrom_, marketTo_, give);
+            autosave();
+        }
+        y += 40;
+        std::string info = t("CWM_MarketInfo0") + "\n";
+        bool any = false;
+        for (int n = 0; n < assets::kBigNations; ++n) {
+            if (n == g.player() || !g.nation(n).alive) continue;
+            const auto lack = g.shortages(n);
+            if (lack.empty()) continue;
+            std::string list;
+            for (int res : lack) list += (list.empty() ? "" : ", ") + resName(res);
+            std::string row = t("CWM_MarketInfo1");
+            for (const std::string& v : {std::string(assets::bigNationName(n)), list}) {
+                const std::size_t at = row.find("%s");
+                if (at != std::string::npos) row.replace(at, 2, v);
+            }
+            info += row + "\n";
+            any = true;
+        }
+        if (any) y += say(info, r.x + 14, y, int(r.w) - 28);
+        if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, "Закрыть")) modal_ = Modal::None;
+        break;
+    }
     case Modal::None: break;
     }
 }
@@ -655,7 +704,7 @@ void BigMapScreen::frame(const View& v, const Input& in) {
     }
     if (in.esc) {
         if (modal_ == Modal::None) modal_ = Modal::Quit;
-        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion) modal_ = Modal::None;
+        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion || modal_ == Modal::Market) modal_ = Modal::None;
     }
     if (in.enter && modal_ == Modal::None) endTurn();
 
