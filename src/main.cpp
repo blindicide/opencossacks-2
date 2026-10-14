@@ -84,6 +84,7 @@ const char* kHelp =
     "  --clicks <x,y;x,y>    нажатия мыши по очереди, раз в 3 кадра (меню 1024×768, для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
+    "  --wound N             с --map: здания — N % жизни (проверка огня и дыма)\n"
     "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
     "  --simulate <с>        с --map: до первого кадра прожить <с> секунд игры и вывести итоги ИИ (для проверок)\n"
     "  --mute                без звука и музыки\n"
@@ -138,6 +139,7 @@ struct Options {
     std::string produce;
     bool mine = false;
     bool aiSelf = false;
+    int wound = -1; // --wound N: здания на карте — N % жизни (проверка огня и дыма)
     bool saveCheck = false; // с --map: сохранить, загрузить и сравнить состояние
     int simulate = 0; // секунд
     bool click = false;
@@ -243,6 +245,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.move = std::array<int, 3>{p, x, y};
         } else if (a == "--save-check") {
             o.saveCheck = true;
+        } else if (a == "--wound" && hasValue) {
+            o.wound = std::atoi(argv[++i]);
         } else if (a == "--ai-self") {
             o.aiSelf = true;
         } else if (a == "--simulate" && hasValue) {
@@ -1750,6 +1754,9 @@ int main(int argc, char** argv) {
                 }
             }
             if (opts->aiSelf) mapView->startAi(opts->dataDir, true);
+            if (opts->wound >= 0)
+                for (oc2::world::Unit& b : mapView->world.units())
+                    if (b.building() && !b.underConstruction) b.life = std::max(1, mapView->world.maxLife(b) * opts->wound / 100);
             if (opts->simulate > 0) {
                 const auto steps = std::uint64_t(opts->simulate) * 25;
                 for (std::uint64_t k = 0; k < steps; ++k) {

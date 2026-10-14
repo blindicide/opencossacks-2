@@ -67,6 +67,11 @@ struct UnitDesc {
     int searchEnemyRadius = 0;                 // SEARCH_ENEMY_RADIUS
     std::array<std::string, kWeapons> weaponName; // WEAPON w ИМЯ — снаряд/эффект из weapon.nds
 
+    // Повреждённое здание дымит и горит: LOCATION x y w h — прямоугольник спрайта от точки
+    // привязки (экранные пикселы); FIRES n x y … и SMOKE n x y … — точки огня и дыма в нём.
+    int locationX = 0, locationY = 0;
+    std::vector<std::pair<int, int>> fires, smokes;
+
     // Добыча. Ресурсы: 0 WOOD, 1 GOLD, 2 STONE, 3 FOOD, 4 IRON, 5 COAL (порядок
     // RESOURCEBASE и первых чисел TAKERESSTAGES).
     static constexpr int kResources = 6;

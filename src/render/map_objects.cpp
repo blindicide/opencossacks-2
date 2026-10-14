@@ -237,6 +237,27 @@ void MapObjects::draw(const MapCamera& camera, float screenWidth, float screenHe
             const int lift = 28 + int(4.0 * double(arc) * t * (1.0 - t));
             appendFrame(effects->ads(), *a, std::size_t(p.age) % a->frames.size(), 0, x, y, lift, y + 48, dynamic_);
         }
+    // Горящие и дымящие здания: чем меньше жизни, тем больше точек FIRES/SMOKE занято.
+    if (effects) {
+        const assets::UnitAnimation* fireAnim = effects->animationOf("@DFIRE1");
+        const assets::UnitAnimation* smokeAnim = effects->animationOf("@SMOKE1");
+        const auto stepNow = std::size_t(world.stepCount());
+        for (const world::Unit& u : world.units()) {
+            if (!u.building() || !u.alive() || u.underConstruction || !u.desc || u.desc->life <= 0) continue;
+            const double ratio = double(u.life) / double(world.maxLife(u));
+            if (ratio >= 0.75) continue;
+            const auto burn = [&](const std::vector<std::pair<int, int>>& points, const assets::UnitAnimation* a, double from) {
+                if (!a || a->frames.empty() || ratio >= from) return;
+                const std::size_t n = std::min(points.size(), std::size_t(std::ceil(double(points.size()) * (from - ratio) / from)));
+                for (std::size_t k = 0; k < n; ++k) {
+                    const int px = u.desc->locationX + points[k].first, py = u.desc->locationY + points[k].second;
+                    appendFrame(effects->ads(), *a, (stepNow / 2 + k * 5) % a->frames.size(), 0, u.x() + px, u.y(), -py, u.y() + 60, dynamic_);
+                }
+            };
+            burn(u.desc->smokes, smokeAnim, 0.75);
+            burn(u.desc->fires, fireAnim, 0.5);
+        }
+    }
     std::stable_sort(dynamic_.begin(), dynamic_.end(), [](const Item& a, const Item& b) { return a.sortY < b.sortY; });
 
     // Слияние двух отсортированных списков; при равном Y юнит — поверх объекта.

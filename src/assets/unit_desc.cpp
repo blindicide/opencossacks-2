@@ -127,6 +127,15 @@ UnitDesc UnitDesc::parse(std::string_view text) {
                     const int r = resourceId(w[3 + 2 * std::size_t(i)]);
                     if (r >= 0) d.shotCost[std::size_t(weapon)][std::size_t(r)] = intAt(w, 4 + 2 * std::size_t(i), "количество");
                 }
+        } else if (key == "LOCATION") {
+            d.locationX = intAt(w, 1, "x");
+            d.locationY = intAt(w, 2, "y");
+        } else if (key == "FIRES" || key == "SMOKE") {
+            auto& points = key == "FIRES" ? d.fires : d.smokes;
+            points.clear();
+            const int n = intAt(w, 1, "число точек");
+            for (int i = 0; i < n && 3 + 2 * std::size_t(i) < w.size(); ++i)
+                points.emplace_back(intAt(w, 2 + 2 * std::size_t(i), "x"), intAt(w, 3 + 2 * std::size_t(i), "y"));
         } else if (key == "PORTION") {
             const int n = intAt(w, 1, "число ресурсов");
             for (int i = 0; i < n && 3 + 2 * std::size_t(i) < w.size(); ++i) {
