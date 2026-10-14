@@ -299,6 +299,7 @@ void BigMapScreen::drawSidePanel() {
     if (button({r.x + 8, r.y + r.h - 34, r.w - 16, 26}, "Герои")) modal_ = Modal::Hero;
     if (button({r.x + 8, r.y + r.h - 64, r.w - 16, 26}, t("CWV_Market"))) modal_ = Modal::Market;
     if (button({r.x + 8, r.y + r.h - 94, r.w - 16, 26}, t("CWV_Diplomacy"))) modal_ = Modal::Diplomacy, dipPending_ = -1;
+    if (button({r.x + 8, r.y + r.h - 124, r.w - 16, 26}, t("CDB_Statistics"))) modal_ = Modal::Stats;
 }
 
 void BigMapScreen::drawSectorStrip() {
@@ -376,7 +377,7 @@ void BigMapScreen::drawModal() {
     fill({0, 0, 1024, 768}, 0x90000000);
     const world::BigGame& g = *game_;
     const float h = modal_ == Modal::Attack || modal_ == Modal::Defend || modal_ == Modal::Offer ? 260.0f : modal_ == Modal::Quit || modal_ == Modal::GameOver ? 200.0f : 420.0f;
-    const Rect r = modal_ == Modal::Diplomacy ? Rect{112, 110, 800, 460} : modal_ == Modal::Hero ? Rect{112, 130, 800, 400} : Rect{262, (768 - h) / 2 - 40, 500, h};
+    const Rect r = modal_ == Modal::Diplomacy || modal_ == Modal::Stats ? Rect{112, 110, 800, 460} : modal_ == Modal::Hero ? Rect{112, 130, 800, 400} : Rect{262, (768 - h) / 2 - 40, 500, h};
     panel(r);
     float y = r.y + 14;
     switch (modal_) {
@@ -528,6 +529,45 @@ void BigMapScreen::drawModal() {
             y += 38;
         }
         if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, "Отмена")) modal_ = Modal::None;
+        break;
+    }
+    case Modal::Stats: {
+        say("{C FF2A1C10}" + t("CDB_Statistics"), r.x, y, int(r.w), Align::Center);
+        y += 34;
+        static const std::uint32_t colour[assets::kBigNations] = {0xFFC03030, 0xFF3050C0, 0xFFD0B030, 0xFF404040, 0xFF30A040,
+                                                                  0xFFD07020, 0xFF9040B0, 0xFFE08060, 0xFF30A0A0};
+        // Слева — таблица наций (секторы, звание, награды), справа — график секторов по ходам.
+        float ly = y;
+        for (int n = 0; n < assets::kBigNations; ++n) {
+            fill({r.x + 14, ly + 4, 14, 14}, colour[n]);
+            std::string line = std::string(assets::bigNationName(n)) + "  " + std::to_string(g.ownedBy(n));
+            if (!g.nation(n).alive) line = "{C FF808080}" + line;
+            else line = "{C FF2A1C10}" + line;
+            ly += say(line, r.x + 36, ly, 210) + 6;
+        }
+        const auto& hist = g.history();
+        const float cx = r.x + 270, cy = y, cw = r.w - 290, ch = r.h - 130;
+        fill({cx, cy, cw, ch}, 0x30000000);
+        int top = 8;
+        for (const auto& row : hist)
+            for (int v : row) top = std::max(top, v);
+        const int shown = int(std::min<std::size_t>(hist.size(), 40));
+        const std::size_t first = hist.size() - std::size_t(shown);
+        const float step = shown > 1 ? (cw - 20) / float(shown - 1) : 0.0f;
+        for (int n = 0; n < assets::kBigNations; ++n) {
+            float px = 0, py = 0;
+            for (int i = 0; i < shown; ++i) {
+                const float x = cx + 10 + step * float(i), yy = cy + ch - 8 - (ch - 20) * float(hist[first + std::size_t(i)][std::size_t(n)]) / float(top);
+                if (i > 0) { // ступенька: горизонталь до нового хода и вертикаль на новое значение
+                    fill({px, py - 1, x - px, 2}, colour[n]);
+                    fill({x - 1, std::min(py, yy), 2, std::abs(yy - py) + 2}, colour[n]);
+                }
+                if (shown == 1) fill({x - 2, yy - 2, 5, 5}, colour[n]);
+                px = x, py = yy;
+            }
+        }
+        say("{C FF402010}" + t("CWT_NumOfSectors") + " / " + t("CWT_CurrentTurn"), cx, cy + ch + 4, int(cw));
+        if (button({r.x + r.w / 2 - 70, r.y + r.h - 44, 140, 30}, t("CDB_Close"))) modal_ = Modal::None;
         break;
     }
     case Modal::Diplomacy: {
@@ -777,7 +817,7 @@ void BigMapScreen::frame(const View& v, const Input& in) {
     }
     if (in.esc) {
         if (modal_ == Modal::None) modal_ = Modal::Quit;
-        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion || modal_ == Modal::Market || modal_ == Modal::Diplomacy) modal_ = Modal::None;
+        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero || modal_ == Modal::Diversion || modal_ == Modal::Market || modal_ == Modal::Diplomacy || modal_ == Modal::Stats) modal_ = Modal::None;
     }
     if (in.enter && modal_ == Modal::None) endTurn();
 

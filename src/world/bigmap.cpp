@@ -46,6 +46,7 @@ BigGame::BigGame(std::shared_ptr<const Data> data, int playerNation, std::uint32
             for (int i = 0; i < count && left > 0; ++i) ns.army.push_back(type), --left;
         while (left-- > 0) ns.army.push_back(basicSquad(n));
     }
+    recordHistory();
 }
 
 int BigGame::ownedBy(int nation) const {
@@ -466,6 +467,7 @@ void BigGame::startTurn() {
     }
     for (NationState& n : nations_)
         if (n.weatherSkip > 0) --n.weatherSkip;
+    recordHistory();
     if (nations_[std::size_t(player_)].alive) {
         worldEvents();
         diplomacyTurn();
@@ -475,6 +477,12 @@ void BigGame::startTurn() {
 
 // Рынок и погода: цены сами уходят к 100%, раз в несколько ходов случается скачок цены на один ресурс,
 // а в дождь нация не нападает ход (шансы — догадка).
+void BigGame::recordHistory() {
+    std::array<int, kBigNations> row{};
+    for (int n = 0; n < kBigNations; ++n) row[std::size_t(n)] = ownedBy(n);
+    history_.push_back(row);
+}
+
 void BigGame::worldEvents() {
     for (int& p : priceMod_) p += p < 100 ? std::min(5, 100 - p) : -std::min(5, p - 100);
     if (rnd() % 100 < 12) {
@@ -841,6 +849,11 @@ std::string BigGame::serialize() const {
         for (const std::string& t : n.army) o << ' ' << t;
         o << '\n';
     }
+    for (const auto& row : history_) {
+        o << "H";
+        for (int v : row) o << ' ' << v;
+        o << '\n';
+    }
     o << "P";
     for (int p : priceMod_) o << ' ' << p;
     o << '\n';
@@ -869,6 +882,7 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
     const bool v2 = tag != "BIG1", v3 = tag == "BIG3" || tag == "BIG4";
     BigGame g(std::move(data), player, seed);
     g.turn_ = turn;
+    g.history_.clear();
     std::size_t sectorsSeen = 0;
     while (in >> tag) {
         if (tag == "S") {
@@ -901,6 +915,10 @@ std::optional<BigGame> BigGame::deserialize(std::shared_ptr<const Data> data, co
                 return std::nullopt;
             if (q.sector < 0 && q.name == "DefendSector") return std::nullopt;
             g.quests_.push_back(q);
+        } else if (tag == "H") {
+            std::array<int, kBigNations> row{};
+            for (int& v : row) in >> v;
+            if (g.history_.size() < 2000) g.history_.push_back(row);
         } else if (tag == "P") {
             for (int& p : g.priceMod_) in >> p;
         } else if (tag == "A") {

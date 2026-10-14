@@ -118,6 +118,8 @@ public:
         int nonAggressionUntil = 0; // ход, до которого (включительно) действует пакт
         int passageUntil = 0;
     };
+    // История для окна статистики: число секторов у наций в начале каждого хода.
+    const std::vector<std::array<int, assets::kBigNations>>& history() const { return history_; }
     const Relation& relation(int a, int b) const { return relations_[std::size_t(a * assets::kBigNations + b)]; }
     bool atWar(int a, int b) const { return a != b && relation(a, b).war; }
     bool hasPassage(int a, int b) const { return a == b || (!atWar(a, b) && relation(a, b).passageUntil >= turn_); }
@@ -215,6 +217,7 @@ private:
     }
     void diplomacyTurn();
     void worldEvents();
+    void recordHistory();
     void heroAward(int nation);
     int randomOwned(int nation);
     bool isPort(int sector) const;
@@ -230,6 +233,7 @@ private:
     std::vector<int> lastFired_; // по определениям Quests.dat: ход последнего срабатывания
     std::array<NationState, assets::kBigNations> nations_;
     std::array<Relation, assets::kBigNations * assets::kBigNations> relations_{};
+    std::vector<std::array<int, assets::kBigNations>> history_;
     std::array<int, kRes> priceMod_{100, 100, 100, 100, 100, 100}; // цена ресурса на рынке, %
 };
 

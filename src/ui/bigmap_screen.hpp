@@ -61,7 +61,7 @@ public:
     void select(int sector) { selected_ = sector; }
 
 private:
-    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit, Hero, Diversion, Market, Diplomacy };
+    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit, Hero, Diversion, Market, Diplomacy, Stats };
 
     struct Rect {
         float x, y, w, h;
