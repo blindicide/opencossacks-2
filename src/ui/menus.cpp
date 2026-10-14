@@ -358,7 +358,7 @@ void Menus::syncSaves(Dialog& dialog) {
         savesDirty_ = false;
     }
     dialog.forEach([&](Widget& w) {
-        if (hasAction(w, "cva_LS_FileList") && w.listElement && w.name != "CampList" &&
+        if (hasAction(w, "cva_LS_FileList") && w.listElement &&
             (w.children.size() != saves_.size() || dirty)) {
             std::vector<std::string> names;
             for (const auto& g : saves_) names.push_back(assets::utf8ToCp1251(g.name));
@@ -548,7 +548,7 @@ void Menus::click(Widget& w) {
         if (a.type == "va_ListItem") { // FUN_013d4bb0
             if (Widget* list = current().listOf(w)) {
                 Dialog::selectListItem(*list, w.listIndex);
-                if (hasAction(*list, "cva_LS_FileList") && list->name != "CampList") { // список сохранений
+                if (hasAction(*list, "cva_LS_FileList")) { // список сохранений
                     savePick_ = w.listIndex;
                     if (savePick_ >= 0 && std::size_t(savePick_) < saves_.size())
                         current().forEach([&](Widget& i) {
@@ -642,7 +642,7 @@ void Menus::click(Widget& w) {
             return;
         }
         if (a.type == "cva_M_CrossFade" || a.type == "cva_vGameMode_Set" ||
-            a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" || a.type == "cva_ProfAdd_Name" ||
+            a.type == "cva_SPD_CampMessageCheck" || a.type == "cva_Exit2MainMenu" || a.type == "cva_ogg_Stop" || a.type == "cva_DemoDisable" || a.type == "cva_ProfLoad" || a.type == "cva_ProfAdd_Name" ||
             a.type == "cva_ClearClick" || a.type.rfind("cva_Opt_", 0) == 0)
             continue; // оформление и профиль — без последствий
         std::printf("действие %s (%s) пока не реализовано\n", a.type.c_str(), a.name.c_str());
