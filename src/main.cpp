@@ -84,6 +84,7 @@ const char* kHelp =
     "  --clicks <x,y;x,y>    нажатия мыши по очереди, раз в 3 кадра (меню 1024×768, для проверок)\n"
     "  --click               с --mouse: нажать левую кнопку в этой точке на втором кадре\n"
     "  --locks               с --map: показать закрытые клетки (то же — клавиша L)\n"
+    "  --pause               с --map: игра стартует на паузе\n"
     "  --wound N             с --map: здания — N % жизни (проверка огня и дыма)\n"
     "  --ai-self             с --map: игроком 0 тоже управляет стратегический ИИ (для проверок)\n"
     "  --simulate <с>        с --map: до первого кадра прожить <с> секунд игры и вывести итоги ИИ (для проверок)\n"
@@ -139,6 +140,7 @@ struct Options {
     std::string produce;
     bool mine = false;
     bool aiSelf = false;
+    bool startPaused = false; // --pause: с --map игра стартует на паузе
     int wound = -1; // --wound N: здания на карте — N % жизни (проверка огня и дыма)
     bool saveCheck = false; // с --map: сохранить, загрузить и сравнить состояние
     int simulate = 0; // секунд
@@ -245,6 +247,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.move = std::array<int, 3>{p, x, y};
         } else if (a == "--save-check") {
             o.saveCheck = true;
+        } else if (a == "--pause") {
+            o.startPaused = true;
         } else if (a == "--wound" && hasValue) {
             o.wound = std::atoi(argv[++i]);
         } else if (a == "--ai-self") {
@@ -1577,7 +1581,24 @@ oc2::ui::Menus::GameStats buildGameStats(Screen& screen, const MapView& view, bo
 }
 
 // Сценарий миссии на экране: список задач слева сверху, плашка сообщения, диалог внизу (портреты не рисуем).
+// Надпись «ПАУЗА» (PAUSETEXT) по центру сверху, пока симуляция стоит по клавише Pause.
+void drawPauseBanner(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    if (!view.paused) return;
+    const oc2::ui::Font* font = screen.fonts->findTagged("G18");
+    if (!font) font = screen.fonts->findTagged("S");
+    if (!font) return;
+    const oc2::ui::View& v = screen.hudView;
+    const std::string cp = oc2::assets::utf8ToCp1251(screen.texts.contains("PAUSETEXT") ? screen.texts.lookup("PAUSETEXT") : "ПАУЗА");
+    const auto size = screen.text->measure(*font, cp, 400, oc2::ui::Align::Center);
+    const float w = float(size.width + 40) * v.scale, h = float(size.height + 16) * v.scale;
+    const float x = (float(e.width) - w) / 2.0f, y = 48.0f * v.scale;
+    sprites.fillRect(x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, 0xFF5A4630);
+    sprites.fillRect(x, y, w, h, 0xEEE8DCB8);
+    screen.text->draw(*font, cp, int(x / v.scale) + 20, int(y / v.scale) + 8, size.width + 4, oc2::ui::Align::Center, v);
+}
+
 void drawMissionHud(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    drawPauseBanner(screen, view, e, sprites);
     if (!view.script) return;
     const oc2::ui::Font* font = screen.fonts->findTagged("S");
     if (!font) return;
@@ -1754,6 +1775,7 @@ int main(int argc, char** argv) {
                 }
             }
             if (opts->aiSelf) mapView->startAi(opts->dataDir, true);
+            mapView->paused = opts->startPaused;
             if (opts->wound >= 0)
                 for (oc2::world::Unit& b : mapView->world.units())
                     if (b.building() && !b.underConstruction) b.life = std::max(1, mapView->world.maxLife(b) * opts->wound / 100);
