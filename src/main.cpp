@@ -2346,6 +2346,7 @@ int main(int argc, char** argv) {
                 if (auto load = menus.takeLoadRequest()) pendingLoad = std::move(load);
                 if (menus.takeGlobalMapRequest()) bigRequested = true;
                 if (menus.empty()) return false;
+                if (oc2::ui::Dialog* below = menus.backdrop()) below->draw(screen->view);
                 menus.current().draw(screen->view);
                 return true;
             };

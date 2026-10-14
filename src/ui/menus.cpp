@@ -113,6 +113,13 @@ Dialog& Menus::current() {
     return *loaded_.at(stack_.back().name);
 }
 
+// Титры занимают лишь левую полосу — справа виден фон меню, из которого они открыты.
+Dialog* Menus::backdrop() {
+    if (stack_.size() < 2 || stack_.back().name != "Credits") return nullptr;
+    const auto it = loaded_.find(stack_[stack_.size() - 2].name);
+    return it == loaded_.end() ? nullptr : it->second.get();
+}
+
 void Menus::update() {
     if (stack_.empty()) return;
     Dialog& dialog = current();

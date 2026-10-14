@@ -32,6 +32,7 @@ public:
     void close();
     bool empty() const { return stack_.empty(); }
     Dialog& current();
+    Dialog* backdrop(); // окно под текущим, которое надо нарисовать позади (титры), иначе nullptr
     const std::string& currentName() const { return stack_.back().name; }
 
     // Покадровые действия (SetFrameState) текущего меню.
