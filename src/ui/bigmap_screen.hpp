@@ -61,7 +61,7 @@ public:
     void select(int sector) { selected_ = sector; }
 
 private:
-    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit };
+    enum class Modal { None, Attack, Defend, Events, Offer, Recruit, GameOver, Quit, Hero };
 
     struct Rect {
         float x, y, w, h;
@@ -132,6 +132,7 @@ private:
     int overResult_ = 0;
     bool done_ = false;
     bool saveExists_ = false;
+    int hero_ = 0; // какой из десяти героев нации показан в окне «Герои»
 };
 
 } // namespace oc2::ui

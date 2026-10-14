@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <sstream>
 
@@ -330,6 +331,7 @@ void BigMapScreen::drawSectorStrip() {
     if (button({bx, r.y + 64, bw, bh}, "Нанять отряд")) modal_ = Modal::Recruit;
     if (button({bx + bw + 8, r.y + 8, 150, bh}, t("CWB_EndOfTurn"))) endTurn();
     if (button({bx + bw + 8, r.y + 36, 150, bh}, t("CWB_Quit"))) modal_ = Modal::Quit;
+    if (button({bx + bw + 8, r.y + 64, 150, bh}, "Герои")) modal_ = Modal::Hero;
 }
 
 void BigMapScreen::drawPick() {
@@ -369,7 +371,7 @@ void BigMapScreen::drawModal() {
     fill({0, 0, 1024, 768}, 0x90000000);
     const world::BigGame& g = *game_;
     const float h = modal_ == Modal::Attack || modal_ == Modal::Defend || modal_ == Modal::Offer ? 260.0f : modal_ == Modal::Quit || modal_ == Modal::GameOver ? 200.0f : 420.0f;
-    const Rect r{262, (768 - h) / 2 - 40, 500, h};
+    const Rect r = modal_ == Modal::Hero ? Rect{112, 130, 800, 400} : Rect{262, (768 - h) / 2 - 40, 500, h};
     panel(r);
     float y = r.y + 14;
     switch (modal_) {
@@ -477,6 +479,23 @@ void BigMapScreen::drawModal() {
             done_ = true;
         }
         if (button({r.x + r.w - 220, r.y + r.h - 50, 180, 30}, "Остаться")) modal_ = Modal::None;
+        break;
+    }
+    case Modal::Hero: { // биографии героев нации: Missions\\Heroes\\heroinf<нация><номер>.txt
+        // номер нации в heroinf.dat (EN FR RU AU PR EG PO SP RE) отличается от порядка кампании (EN FR AU PR RU …)
+        static const int datNation[9] = {0, 1, 3, 4, 2, 5, 6, 7, 8};
+        const int me = std::clamp(g.player(), 0, 8);
+        char file[64];
+        std::snprintf(file, sizeof file, "Missions/Heroes/heroinf%d%d.txt", datNation[me], hero_);
+        std::string bio;
+        if (std::ifstream in{ctx_.dataRoot / file, std::ios::binary}) bio.assign(std::istreambuf_iterator<char>(in), {});
+        if (bio.empty()) bio = "{C FF402010}Нет сведений.";
+        if (const Font* font = ctx_.fonts.findTagged("M"))
+            ctx_.text.draw(*font, bio, int(r.x + 24), int(r.y + 20), int(r.w) - 48, Align::Left, *v_);
+        say("{C FF402010}" + std::to_string(hero_ + 1) + " / 10", r.x + r.w / 2 + 120, r.y + r.h - 44, 80);
+        if (button({r.x + 24, r.y + r.h - 50, 140, 30}, "Назад")) hero_ = (hero_ + 9) % 10;
+        if (button({r.x + r.w - 164, r.y + r.h - 50, 140, 30}, "Дальше")) hero_ = (hero_ + 1) % 10;
+        if (button({r.x + r.w / 2 - 70, r.y + r.h - 50, 140, 30}, "Закрыть")) modal_ = Modal::None;
         break;
     }
     case Modal::None: break;
@@ -607,7 +626,7 @@ void BigMapScreen::frame(const View& v, const Input& in) {
     }
     if (in.esc) {
         if (modal_ == Modal::None) modal_ = Modal::Quit;
-        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack) modal_ = Modal::None;
+        else if (modal_ == Modal::Quit || modal_ == Modal::Recruit || modal_ == Modal::Attack || modal_ == Modal::Hero) modal_ = Modal::None;
     }
     if (in.enter && modal_ == Modal::None) endTurn();
 
