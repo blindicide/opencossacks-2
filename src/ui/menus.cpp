@@ -125,6 +125,14 @@ void Menus::update() {
             dialog.setListItems(w, names);
             Dialog::selectListItem(w, int(campaignPick_));
         }
+        // «Camp Miss Description» — в данных статичный «#MissDesc1»; настоящий ключ у миссии кампании.
+        if (w.name == "Camp Miss Description" && campaign_) {
+            const auto& ms = campaigns_.campaigns[*campaign_].missions;
+            if (!ms.empty()) {
+                const auto next = std::size_t(std::min<int>(campaignDone_[*campaign_], int(ms.size()) - 1));
+                w.text = assets::utf8ToCp1251(ctx_.texts.lookup(ms[next].descriptionKey));
+            }
+        }
         for (const Widget::Action& a : w.actions) {
             if (a.type == "cva_CCamp_Sectors") // окно карты своей кампании
                 w.visible = campaign_ && campaigns_.campaigns[*campaign_].desk == w.name;
