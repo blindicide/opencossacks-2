@@ -3,6 +3,7 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -139,6 +140,7 @@ private:
     void syncProfiles(Dialog& dialog);
     void syncSaves(Dialog& dialog);
     void syncStats(Dialog& dialog);
+    void syncCredits(Dialog& dialog);
     bool saveClick(const Widget& w, const Widget::Action& a);
     bool profileClick(const Widget& w, const Widget::Action& a);
     std::string resultMessage_;
@@ -168,6 +170,7 @@ private:
     std::vector<int> campaignDone_;
     std::optional<std::pair<std::size_t, int>> activeMission_;
     std::optional<std::string> startRequest_;
+    std::chrono::steady_clock::time_point creditsStart_{}; // начало прокрутки титров
     std::string loadingTip_; // совет на экране загрузки (cp1251)
     // Сохранения (окно «Загрузить», меню игры F10): список файлов, выбранная строка, запросы для main.cpp.
     std::vector<world::SaveGame> saves_;

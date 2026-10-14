@@ -1,5 +1,6 @@
 #include "ui/menus.hpp"
 
+#include <chrono>
 #include <random>
 #include <cstdio>
 #include <fstream>
@@ -71,6 +72,7 @@ Menus::Menus(UiContext& ctx) : ctx_(ctx) {
             std::fprintf(stderr, "campaign.xml: %s\n", e.what());
         }
     }
+    files_.emplace("Credits", "dialogs/mm/Credits.DialogsSystem.xml");
     files_.emplace("Loading", "dialogs/mm/M_Loading.DialogsSystem.xml");
     campaignDone_.assign(campaigns_.campaigns.size(), 0);
     for (std::size_t i = 0; i < campaignDone_.size() && i < settings.campaignDone.size(); ++i)
@@ -117,6 +119,7 @@ void Menus::update() {
     syncProfiles(dialog);
     syncSaves(dialog);
     syncStats(dialog);
+    if (currentName() == "Credits") syncCredits(dialog);
     if (currentName() == "Loading")
         dialog.forEach([&](Widget& w) {
             if (!hasAction(w, "cva_LoadingTips")) return;
@@ -610,7 +613,55 @@ void Menus::campaignWon() {
     settings.save(core::Settings::defaultPath());
 }
 
+// Титры: строки ABLINE0… из Text/credits.txt ползут снизу вверх по окну Credits.
+void Menus::syncCredits(Dialog& dialog) {
+    using Clock = std::chrono::steady_clock;
+    if (creditsStart_ == Clock::time_point{}) creditsStart_ = Clock::now();
+    Widget* desk = nullptr;
+    dialog.forEach([&](Widget& w) {
+        if (!desk && hasAction(w, "cva_ShowAboutText")) desk = &w;
+    });
+    if (!desk) return;
+    if (desk->children.empty()) {
+        const Font* plain = ctx_.fonts.find("fonBlow_S");
+        const Font* head = ctx_.fonts.find("fonBlow_A");
+        for (int n = 0; ctx_.texts.contains("ABLINE" + std::to_string(n)); ++n) {
+            std::string line = assets::utf8ToCp1251(ctx_.texts.lookup("ABLINE" + std::to_string(n)));
+            const bool heading = !line.empty() && line[0] != ' ';
+            Widget t;
+            t.kind = WidgetKind::TextButton;
+            t.type = "TextButton";
+            t.text = std::move(line);
+            t.fontActive = t.fontPassive = (heading && head) ? head : plain;
+            t.align = Align::Center;
+            t.x = 80;
+            t.width = 343;
+            t.height = 20;
+            t.maxWidth = 343;
+            desk->children.push_back(std::move(t));
+        }
+    }
+    const double secs = std::chrono::duration<double>(Clock::now() - creditsStart_).count();
+    const int spacing = 24, top = 203, bottom = 662;
+    const int total = int(desk->children.size()) * spacing + (bottom - top);
+    const int shift = int(secs * 35.0) % std::max(total, 1);
+    int row = 0;
+    for (Widget& t : desk->children) {
+        t.y = bottom - shift + row++ * spacing;
+        t.visible = t.y >= top && t.y + t.height <= bottom;
+    }
+}
+
 void Menus::click(Widget& w) {
+    if (currentName() == "Credits") { // любое нажатие закрывает титры
+        close();
+        return;
+    }
+    if (w.actions.empty() && w.hint == "ABLINE2" && currentName() == "Main") { // кнопка «Авторы»
+        creditsStart_ = {};
+        open("Credits");
+        return;
+    }
     if (w.kind == WidgetKind::ComboBox) {
         if (w.open && w.hoverRow >= 0) w.selected = w.hoverRow;
         w.open = !w.open && w.hoverRow < 0 && !w.items.empty();
