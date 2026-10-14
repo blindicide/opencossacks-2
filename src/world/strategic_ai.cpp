@@ -111,6 +111,7 @@ void StrategicAi::think() {
         }
     }
     employIdle();
+    sendWave();
 }
 
 bool StrategicAi::chainHolds(const std::vector<assets::AiCondition>& chain) {
@@ -377,6 +378,41 @@ bool StrategicAi::sowNear(int x, int y) {
         }
     }
     return false;
+}
+
+void StrategicAi::sendWave() {
+    const std::uint64_t period = std::uint64_t(kWaveSeconds) * 24;
+    if (world_.stepCount() < period || world_.stepCount() / period == lastWave_) return;
+    auto& units = world_.units();
+    std::vector<std::size_t> army;
+    long long sx = 0, sy = 0;
+    for (std::size_t i = 0; i < units.size(); ++i) {
+        const Unit& u = units[i];
+        if (u.player != player_ || !u.alive() || u.inside || u.building() || u.desc->peasant || u.attacking ||
+            u.target)
+            continue;
+        if (std::none_of(u.desc->damage.begin(), u.desc->damage.end(), [](int d) { return d > 0; })) continue;
+        army.push_back(i);
+        sx += u.x();
+        sy += u.y();
+    }
+    if (int(army.size()) < kWaveMinArmy) return;
+    lastWave_ = world_.stepCount() / period;
+    const long long n = (long long)army.size();
+    const int cx = int(sx / n), cy = int(sy / n);
+    std::optional<std::size_t> goal;
+    long long best = 0;
+    for (std::size_t j = 0; j < units.size(); ++j) {
+        const Unit& e = units[j];
+        if (!e.alive() || e.inside || !world_.enemies(player_, e.player)) continue;
+        const long long d = dist2(e.x(), e.y(), cx, cy);
+        if (!goal || d < best) {
+            goal = j;
+            best = d;
+        }
+    }
+    if (!goal) return;
+    for (const std::size_t i : army) world_.orderAttack(i, *goal);
 }
 
 void StrategicAi::employIdle() {

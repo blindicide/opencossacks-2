@@ -35,6 +35,8 @@ std::string playerNation(const World& world, const UnitCatalog& catalog, int pla
 //   MinDistFromCenter, с запасом клеток вокруг, NearTrees/NearStones — дерево или камень
 //   в 400; строят до MaxPeasants ближайших свободных крестьян;
 // - за раз начинается не больше одной стройки;
+// - волна атаки (в сценариях её нет — бригадный ИИ оригинала бинарный): раз в kWaveSeconds игровых
+//   секунд все свободные боевые юниты, если их не меньше kWaveMinArmy, идут на ближайшего к ним врага;
 // - BuyResource — продажа Amount на общем рынке World::market (без проверки, есть ли рынок у игрока);
 //   AmountOfSettlements — по Settlements::owned (без уровней улучшений), UpgradeIsRun ложно.
 class StrategicAi {
@@ -44,6 +46,8 @@ public:
     static constexpr int kMineCrew = 5;         // сколько крестьян ИИ держит в шахте
     static constexpr int kMineShare = 3;        // в шахтах — не больше 1/kMineShare крестьян
     static constexpr int kGatherersPerSource = 3;
+    static constexpr int kWaveSeconds = 180;    // как часто собирается волна атаки
+    static constexpr int kWaveMinArmy = 8;      // меньше войск — волну не шлют
 
     StrategicAi(World& world, UnitCatalog& catalog, int player, assets::AiScript script, int difficulty = 1,
                 std::uint32_t seed = 1);
@@ -68,6 +72,7 @@ private:
     bool produce(const assets::AiAction& a);
     void buyResource(const assets::AiAction& a);
     void employIdle();
+    void sendWave();
     bool sowNear(int x, int y);
     std::optional<std::pair<int, int>> findSite(const assets::UnitDesc& desc, const assets::AiAction& a);
     std::pair<int, int> baseCenter() const;
@@ -85,6 +90,7 @@ private:
     const Settlements* settlements_ = nullptr;
     std::mt19937 rng_;
     int onWood_ = 1, onStone_ = 1, onFood_ = 1;
+    std::uint64_t lastWave_ = 0; // номер периода последней волны
     bool buildStarted_ = false; // в этом раздумье уже начата стройка
     // OnceInPeriod: шаг, с которого отсчитывается период (по адресу условия).
     std::unordered_map<const assets::AiCondition*, std::uint64_t> periodStart_;

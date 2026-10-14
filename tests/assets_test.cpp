@@ -1190,6 +1190,24 @@ TEST_CASE("Поселение: описание .dip.xml") {
     CHECK(d.upgrades.size() == 1 && d.upgrades[0].effect[3] == 10 && d.upgrades[0].price[0] == 3000);
 }
 
+TEST_CASE("ИИ: волна атаки идёт на ближайшего врага") {
+    using namespace oc2::world;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "oc2_wave_test";
+    fs::create_directories(root);
+    UnitCatalog catalog(root);
+    const UnitDesc soldier = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 G\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\nDAMAGE 1 10\nATTACK_RADIUS 1 0 100\n");
+    World w;
+    for (int i = 0; i < StrategicAi::kWaveMinArmy; ++i) w.addUnit(soldier, 1, 5000 + i * 30, 5000, 0);
+    const std::size_t foe = w.addUnit(soldier, 0, 9000, 5000, 0);
+    StrategicAi ai(w, catalog, 1, oc2::assets::AiScript{});
+    for (int i = 0; i < 24 * StrategicAi::kWaveSeconds - 1; ++i) w.step(), ai.update();
+    CHECK(!w.units()[0].target); // до срока волны нет
+    for (int i = 0; i < 2 * StrategicAi::kThinkSteps; ++i) w.step(), ai.update();
+    CHECK(w.units()[0].target == foe && w.units()[StrategicAi::kWaveMinArmy - 1].target == foe);
+}
+
 TEST_CASE("Поселения: захват, доход, разорение") {
     using namespace oc2::world;
     namespace fs = std::filesystem;
