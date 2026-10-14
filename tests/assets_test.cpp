@@ -1454,7 +1454,7 @@ TEST_CASE("Сохранение игры: запись и чтение журн�
     g.journal.push_back({10, "move", {7, 100, 200, 0}, ""});
     g.journal.push_back({20, "produce", {3, 0, 0, 0}, "ДЕРЕВНЯ (FR)"});
     const auto file = oc2::world::SaveGame::pathFor(g.name);
-    CHECK(file.filename().string().find('/') == std::string::npos);
+     CHECK(file.filename().u8string().find(u8'/') == std::u8string::npos);
     CHECK(g.write());
     const auto back = oc2::world::SaveGame::read(file);
     oc2::world::SaveGame::remove(g.name);
