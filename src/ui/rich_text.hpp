@@ -35,6 +35,7 @@ class RichText {
 public:
     explicit RichText(const Fonts& fonts) : fonts_(fonts) {}
 
+    const Fonts& fonts() const { return fonts_; }
     TextSize measure(const Font& font, std::string_view text, int maxWidth, Align align) const;
     // (x, y) — левый верхний угол блока текста в виртуальных координатах.
     // alphaOverride != 0 заменяет альфу всех цветов (недоступные кнопки).
