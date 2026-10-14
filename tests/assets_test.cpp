@@ -1636,7 +1636,7 @@ TEST_CASE("Улучшения: жизнь, дальность, пауза, щи�
     const std::string nds = "[UPGRADE]\nUP1(PO) U1 #POSITION 0 0 #LEVEL 1 UP1(PO) #COST 1 GOLD 1 #TIME 1\n"
                             "  LIFE GRP 1 BldTow(PO) +1000\n  LIFE GRP 1 BldTow(PO) +50%\n  SHIELD GRP 1 BldTow(PO) +80\n"
                             "  ATTRANGE ATTINDEX 0 GRP 1 BldTow(PO) +10%\n  SINGLE_ATTPAUSE ATTINDEX 0 BldTow(PO) 30\n"
-                            "  BUILD GRP 1 BldTow(PO) -50%\n[END]\n";
+                            "  BUILD GRP 1 BldTow(PO) -50%\n  RAZBROS GRP 1 BldTow(PO) -35%\n  EFFECT_FOOD 150\n  EFFECT_WOOD +10%\n[END]\n";
     const auto ups = oc2::assets::parseNationUpgrades(nds);
     UnitDesc tower = UnitDesc::parse("NAME Tow\nBUILDING\nLIFE 2000\nUSERLC 0 H\n#STANDLO 1 2 0 0 0 1\n");
     tower.typeName = "BldTow(PO)";
@@ -1652,7 +1652,8 @@ TEST_CASE("Улучшения: жизнь, дальность, пауза, щи�
     CHECK(w.maxLife(w.units()[t]) == 4500 && w.units()[t].life == 4500);
     CHECK(w.attackMax(w.units()[t], 0) == 440 && w.attackPause(w.units()[t], 0) == 30 && w.buildStages(0, tower) == 5);
     CHECK(w.maxLife(w.units()[other]) == 2000 && w.buildStages(1, tower) == 10); // у другого игрока без изменений
-    CHECK(w.modsOf(w.units()[t])->shield == 80);
+    CHECK(w.modsOf(w.units()[t])->shield == 80 && w.modsOf(w.units()[t])->razbrosPct == 65);
+    CHECK(w.gatherPct[0][3] == 150 && w.gatherPct[0][0] == 110 && w.gatherPct[0][1] == 100 && w.gatherPct[1][3] == 100);
 }
 
 TEST_CASE("Завоевание Европы: данные секторов, звания и ход кампании") {

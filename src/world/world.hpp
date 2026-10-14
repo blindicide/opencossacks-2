@@ -233,14 +233,20 @@ public:
     std::array<std::unordered_set<std::string>, 8> researched;
     // Эффекты исследованных улучшений по игрокам и типам (typeName): строки [UPGRADE] LIFE, SHIELD,
     // ATTRANGE, SINGLE_ATTPAUSE, BUILD. Проценты накапливаются множителями; смысл «200%» без знака
-    // (двукратная жизнь) и вычитания щита из урона — допущения. Остальные строки (COST, EFFECT_*,
-    // HEALING, RAZBROS, DAMAGE, ENABLE) пока не применяются.
+    // (двукратная жизнь) и вычитания щита из урона — допущения. RAZBROS — множитель разброса. ENABLE
+    // работает через [ACCESSCONTROL]. Остальные строки (COST, EFFECT_*, HEALING, DAMAGE) пока не применяются.
     struct Mods {
-        int lifeAdd = 0, lifePct = 100, shield = 0, buildPct = 100;
+        int lifeAdd = 0, lifePct = 100, shield = 0, buildPct = 100, razbrosPct = 100;
         std::array<int, assets::UnitDesc::kWeapons> pause, rangePct;
         Mods() { pause.fill(-1); rangePct.fill(100); }
     };
     std::array<std::unordered_map<std::string, Mods>, 8> mods;
+    // Выработка добытчиков по игрокам и ресурсам, % (EFFECT_FOOD/WOOD/STONE улучшений).
+    std::array<std::array<int, 6>, 8> gatherPct = [] {
+        std::array<std::array<int, 6>, 8> a{};
+        for (auto& row : a) row.fill(100);
+        return a;
+    }();
     const Mods* modsOf(const Unit& u) const;
     int maxLife(const Unit& u) const;
     int attackMax(const Unit& u, int weapon) const;

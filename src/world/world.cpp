@@ -687,7 +687,8 @@ int World::random(int n) {
 // Попадание — по ближайшему врагу к этой точке в пределах его радиуса и kHitRadius
 // (снарядов с собственным столкновением ещё нет — своё допущение).
 std::pair<int, int> World::aimPoint(const Unit& u, const Unit& t) {
-    const int razbros = u.desc->razbros;
+    const Mods* m = modsOf(u);
+    const int razbros = m ? u.desc->razbros * m->razbrosPct / 100 : u.desc->razbros;
     if (razbros <= 0 || t.building()) return {t.x(), t.y()};
     const int dx = std::abs(t.x() - u.x()), dy = std::abs(t.y() - u.y());
     const int d = ((std::max(dx, dy) + dx + dy) / 2) >> 5;
@@ -760,6 +761,14 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
     };
     auto factor = [](const Val& v) { return v.sign ? 100 + v.n : v.n; };
     for (const auto& w : up.effects) {
+        if (w.size() == 2 && (w[0] == "EFFECT_FOOD" || w[0] == "EFFECT_WOOD" || w[0] == "EFFECT_STONE")) {
+            // «150» — выработка 150 %, «+10%» — на 10 % больше; ресурсы 3 FOOD, 0 WOOD, 2 STONE
+            const Val v = parse(w[1]);
+            const std::size_t r = w[0] == "EFFECT_FOOD" ? 3 : w[0] == "EFFECT_WOOD" ? 0 : 2;
+            int& pct = gatherPct[p][r];
+            pct = v.sign ? pct * factor(v) / 100 : v.n;
+            continue;
+        }
         if (w.size() < 3) continue;
         const std::string& op = w[0];
         std::vector<std::string> types;
@@ -769,7 +778,7 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
             if (w.size() < 5 || w[1] != "ATTINDEX") continue;
             attIndex = std::atoi(w[2].c_str());
             for (std::size_t i = 3; i < valueAt; ++i) types.push_back(w[i]);
-        } else if (op == "LIFE" || op == "SHIELD" || op == "BUILD" || op == "ATTRANGE") {
+        } else if (op == "LIFE" || op == "SHIELD" || op == "BUILD" || op == "ATTRANGE" || op == "RAZBROS") {
             std::size_t g = 1;
             if (op == "ATTRANGE") {
                 if (w.size() < 6 || w[1] != "ATTINDEX") continue;
@@ -794,6 +803,8 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
                 m.shield += v.n;
             } else if (op == "BUILD") {
                 m.buildPct = m.buildPct * (v.pct ? factor(v) : 100) / 100;
+            } else if (op == "RAZBROS") {
+                m.razbrosPct = m.razbrosPct * (v.pct ? factor(v) : 100) / 100;
             } else if (op == "ATTRANGE") {
                 m.rangePct[std::size_t(attIndex)] = m.rangePct[std::size_t(attIndex)] * (v.pct ? factor(v) : 100) / 100;
             } else {
@@ -1202,7 +1213,7 @@ void World::step() {
                 workDone(u.source);
                 if (--u.workLeft <= 0 || sources[u.source].resource != u.gatherResource) {
                     const int r = u.gatherResource;
-                    u.carry = u.desc->portion[std::size_t(r)];
+                    u.carry = u.desc->portion[std::size_t(r)] * gatherPct[std::size_t(u.player & 7)][std::size_t(r)] / 100;
                     u.gather = Unit::Gather::ToBase;
                     u.base.reset();
                     updateGather(index);
