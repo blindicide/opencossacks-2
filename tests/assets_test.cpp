@@ -1085,6 +1085,21 @@ TEST_CASE("Мир: снаряд летит — урон при падении, �
     CHECK(w.projectiles.empty() && w.units()[b].life == 90);
 }
 
+TEST_CASE("Мир: IMMORTAL не гибнет, UNBEATABLEWHENFREE без хозяина не страдает") {
+    using namespace oc2::world;
+    const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"
+                                             "@MOTION_L 9 0 0 3\n#ATTACK1 9 4 0 0 0 1 0 2 0 3\n"
+                                             "DAMAGE 1 60\nATTACK_RADIUS 1 0 300\nATTACK_PAUSE 1 5\n");
+    const UnitDesc rock = UnitDesc::parse("NAME R\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 R\n@REST 9 0 0 3\nIMMORTAL\nUNBEATABLEWHENFREE\n");
+    CHECK(rock.immortal && rock.unbeatableWhenFree && !shooter.immortal);
+    World w;
+    const std::size_t a = w.addUnit(shooter, 0, 100, 100, 0);
+    const std::size_t b = w.addUnit(rock, 1, 200, 100, 0);
+    w.orderAttack(a, b);
+    for (int i = 0; i < 120; ++i) w.step();
+    CHECK(w.units()[b].alive() && w.units()[b].life == 1);
+}
+
 TEST_CASE("Мир: бой — выстрел, перезарядка, смерть") {
     using namespace oc2::world;
     const UnitDesc shooter = UnitDesc::parse("NAME S\nGEOMETRY 1 10 40\nLIFE 100\nUSERLC 0 S\n@REST 9 0 0 3\n"

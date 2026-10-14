@@ -168,6 +168,10 @@ UnitDesc UnitDesc::parse(std::string_view text) {
             d.farm = intAt(w, 1, "места");
         } else if (key == "NOFARM") {
             d.noFarm = true;
+        } else if (key == "IMMORTAL") {
+            d.immortal = true;
+        } else if (key == "UNBEATABLEWHENFREE") {
+            d.unbeatableWhenFree = true;
         } else if (key == "PEASANT") {
             d.peasant = true;
         } else if (key == "PRICE") {

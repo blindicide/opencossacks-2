@@ -811,6 +811,8 @@ void World::finishResearch(int player, const assets::UpgradeDef& up) {
 
 void World::hit(Unit& t, int damage, const Unit* by) {
     if (!t.alive()) return;
+    if (t.desc->unbeatableWhenFree && t.player == 7) return; // ничья шахта или дом не горит
+    if (t.desc->immortal) damage = std::min(damage, std::max(0, t.life - 1)); // бессмертные не разрушаются
     if (by && humanTeam >= 0 && t.player != 7 && team[std::size_t(t.player & 7)] == humanTeam &&
         enemies(t.player, by->player))
         lastAlert = {t.x(), t.y(), std::int64_t(steps_)};

@@ -82,6 +82,8 @@ struct UnitDesc {
     std::array<int, kResources> workCycles{};  // TAKERESSTAGES РЕС id циклы x — циклов работы на ходку
     std::uint8_t resourceBase = 0;             // RESOURCEBASE n РЕС… — какие ресурсы принимает (биты)
     bool peasant = false;                      // PEASANT
+    bool immortal = false;                     // IMMORTAL — здание не разрушается (жизнь не опускается ниже 1)
+    bool unbeatableWhenFree = false;           // UNBEATABLEWHENFREE — без хозяина (игрок 7) урона не получает
     // SPRITEOBJECT + EXSPRITES ID …: «юнит» — посев объектов complex.lst (поле у мельницы).
     bool spriteObject = false;
     std::string exSprite;
