@@ -190,6 +190,8 @@ public:
     bool orderProduce(std::size_t building, const assets::UnitDesc& unit);
     // Доступен ли игроку тип desc: есть все требуемые [ACCESSCONTROL] готовые здания или исследованные улучшения.
     bool available(const assets::UnitDesc& desc, int player) const;
+    // Типы, запрещённые сценарием миссии (SetUnitEnableState −1): имена typeName по игрокам.
+    std::array<std::unordered_set<std::string>, 8> blocked;
     // Улучшения, исследованные игроком (по именам из [UPGRADE]).
     std::array<std::unordered_set<std::string>, 8> researched;
     // Исследовать улучшение в здании: списывает цену, ставит таймер. false — нельзя (занято, уже есть, нет денег).

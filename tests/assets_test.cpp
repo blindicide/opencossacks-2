@@ -33,6 +33,7 @@
 #include "check.hpp"
 #include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
+#include "world/mission_script.hpp"
 #include "world/world.hpp"
 
 #include <bzlib.h>
@@ -1397,4 +1398,63 @@ TEST_CASE("Настройки: запись и чтение") {
     b.load(path);
     CHECK(b.soundVolume == 10 && b.musicVolume == 100 && !b.musicOn && b.arcade && b.showHint);
     std::filesystem::remove(path);
+}
+
+TEST_CASE("Сценарий миссии: правила, задачи, итог и фильм") {
+    using oc2::world::MissionScript;
+    const std::string xml = R"(<>
+<vvMAP_ST><V_VALUES>
+ <vvTRIGER><Name>Start</Name><Value>true</Value></vvTRIGER>
+ <vvTRIGER><Name>Done</Name><Value>false</Value></vvTRIGER>
+ <vvINTEGER><Name>N</Name><Value>0</Value></vvINTEGER>
+ <vvTASKS_CII><Name>Tasks</Name><TASK><vvTEXT_EX><Name>T1</Name><TextID>#T1</TextID></vvTEXT_EX></TASK></vvTASKS_CII>
+</V_VALUES></vvMAP_ST>
+<lvCMainScript>
+ <MAIN_INIT><lvCCondForOper><Condition></Condition><Operation>
+  <lvCSetRessource><Nation>0</Nation><Food>1</Food><Wood>10</Wood><Stown>2</Stown><Gold>3</Gold><Iron>4</Iron><Coal>5</Coal></lvCSetRessource>
+ </Operation></lvCCondForOper></MAIN_INIT>
+ <MAIN_SCRIPTS>
+  <lvCCondForOper><Condition><lvCGetValue><Value><ClassName>vvTRIGER</ClassName><RefName>Start</RefName></Value></lvCGetValue></Condition>
+   <Operation>
+    <lvCSetValue><TypeID>Triger</TypeID><ValueTG><ClassName>vvTRIGER</ClassName><RefName>Start</RefName></ValueTG><SetTG>false</SetTG></lvCSetValue>
+    <lvCAddRessource><Nat>0</Nat><RessType>Wood</RessType><Value>500</Value></lvCAddRessource>
+    <lvCAddElemTHE_CII><add_TASK>true</add_TASK><TASK>T1</TASK></lvCAddElemTHE_CII>
+   </Operation></lvCCondForOper>
+  <lvCCondForOper><Condition><lvCCompare>
+    <COND1><lvCFunctional><Function><lvCGetResource><parNat>0</parNat><parID>Wood</parID></lvCGetResource></Function></lvCFunctional></COND1>
+    <OPER>more equal</OPER>
+    <COND2><lvCFunctional><Function><lvCInt><lvI>500</lvI></lvCInt></Function></lvCFunctional></COND2>
+   </lvCCompare></Condition>
+   <Operation><lvCShowVictory><TextID>#V</TextID><Nat>255</Nat></lvCShowVictory></Operation></lvCCondForOper>
+ </MAIN_SCRIPTS>
+</lvCMainScript>
+<lvCFilm><Name>F</Name><StartCondition></StartCondition>
+ <PrepareOperation><lvCSetValue><TypeID>Integer</TypeID><ValueIN><ClassName>vvINTEGER</ClassName><RefName>N</RefName></ValueIN><SetIN>5</SetIN></lvCSetValue></PrepareOperation>
+ <STEP_CON_OPR><lvCCondForOper><Condition></Condition><Operation>
+  <lvCAddToInt><IntValue><ClassName>vvINTEGER</ClassName><RefName>N</RefName></IntValue><IntAdd>1</IntAdd></lvCAddToInt></Operation></lvCCondForOper></STEP_CON_OPR>
+ <StopCondition><lvCCompare>
+    <COND1><lvCFunctional><Function><lvCGetValue><Value><ClassName>vvINTEGER</ClassName><RefName>N</RefName></Value></lvCGetValue></Function></lvCFunctional></COND1>
+    <OPER>more equal</OPER>
+    <COND2><lvCFunctional><Function><lvCInt><lvI>7</lvI></lvCInt></Function></lvCFunctional></COND2>
+ </lvCCompare></StopCondition>
+ <DestroyOperation><lvCSetValue><TypeID>Triger</TypeID><ValueTG><ClassName>vvTRIGER</ClassName><RefName>Done</RefName></ValueTG><SetTG>true</SetTG></lvCSetValue></DestroyOperation>
+</lvCFilm>
+</>)";
+    oc2::world::World w;
+    MissionScript::Env env;
+    env.world = &w;
+    auto s = MissionScript::fromXml(xml, "", env);
+    CHECK(s != nullptr && s->hasRules());
+    s->step();
+    // MAIN_INIT задал ресурсы, правило прибавило 500 дерева и добавило задачу, ещё в тот же шаг фильм подготовился.
+    CHECK(w.resources[0][0] == 510 && w.resources[0][1] == 3 && w.resources[0][2] == 2 && w.resources[0][3] == 1);
+    CHECK(s->tasks().size() == 1 && s->tasks()[0] == "#T1");
+    CHECK(s->var("Start") == 0 && s->filmRunning());
+    // Правила идут по порядку в одном шаге, поэтому итог (дерево ≥ 500) наступает сразу.
+    CHECK(s->ending && s->ending->victory && s->ending->textId == "#V");
+    s->step(); // фильм: N 5 → 6
+    s->step(); // N = 7 → стоп на следующем шаге
+    CHECK(s->var("Done") == 0);
+    s->step();
+    CHECK(s->var("Done") == 1 && !s->filmRunning());
 }

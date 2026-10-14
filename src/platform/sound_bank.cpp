@@ -116,6 +116,14 @@ void SoundBank::updateMusic() {
     });
 }
 
+int SoundBank::playVoice(const std::string& file, bool startNow) {
+    const Audio::Buffer buf = load(file);
+    if (!buf || buf->empty()) return 0;
+    if (startNow) audio_.play(buf, 1.0f, 0.0f);
+    const double seconds = double(buf->size() / 2) / double(Audio::kRate);
+    return int(seconds / 0.040) + 1;
+}
+
 void SoundBank::playMusic(const std::string& file, bool loop) {
     if (!audio_.available()) return;
     if (auto buf = load(file)) audio_.playMusic(buf, 1.0f, loop);

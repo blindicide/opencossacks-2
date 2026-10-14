@@ -58,6 +58,7 @@ add_library(oc2_world STATIC
     src/world/lock_map.cpp
     src/world/market.cpp
     src/world/strategic_ai.cpp
+    src/world/mission_script.cpp
     src/world/settlements.cpp
     src/world/unit_catalog.cpp
     src/world/world.cpp

@@ -175,6 +175,7 @@ void World::nextStage(std::size_t index) {
 }
 
 bool World::available(const assets::UnitDesc& desc, int player) const {
+    if (blocked[std::size_t(player & 7)].count(desc.typeName)) return false;
     for (const std::string& need : desc.needs) {
         if (researched[std::size_t(player & 7)].count(need)) continue;
         const bool built = std::any_of(units_.begin(), units_.end(), [&](const Unit& u) {

@@ -38,6 +38,7 @@
 #include "assets/mission_options.hpp"
 #include "assets/sprite_list.hpp"
 #include "render/map_objects.hpp"
+#include "world/mission_script.hpp"
 #include "world/settlements.hpp"
 #include "world/strategic_ai.hpp"
 #include "world/unit_catalog.hpp"
@@ -136,6 +137,7 @@ struct Options {
     bool mute = false;  // без звука
     bool selectOwn = false; // проверка: выбрать своих юнитов и встать камерой на первого
     bool esc = false; // проверка: на первом кадре нажать Esc (меню игры)
+    bool skipFilm = false; // проверка сценария: пропускать диалоги
     bool win = false;   // проверка итога: враги убиты сразу // одно нажатие левой кнопкой в точке --mouse на втором кадре  // приказ игроку: идти в точку (для проверок)
     std::string menu = "Main";
     fs::path map;
@@ -194,6 +196,8 @@ std::optional<Options> parseArgs(int argc, char** argv) {
             o.esc = true;
         } else if (a == "--select-own") {
             o.selectOwn = true;
+        } else if (a == "--skip-film") {
+            o.skipFilm = true;
         } else if (a == "--win") {
             o.win = true;
         } else if (a == "--mute") {
@@ -523,6 +527,13 @@ struct MapView {
             if (world.units()[i].selected && world.units()[i].player == player) world.orderBuild(i, *b);
     }
     int player = 0;         // за кого играем: приказы слушают только его юниты
+    // Сценарий миссии (правила из карты). Есть правила — ИИ запускает сам сценарий.
+    std::unique_ptr<oc2::world::MissionScript> script;
+    static inline int difficulty = 1; // сложность миссии 0..2 (GetDiff)
+    fs::path dataDir;
+    // Плашка ShowMessageII: текст и оставшиеся шаги.
+    std::string bannerText;
+    int bannerLeft = 0;
     oc2::platform::SoundBank* sounds = nullptr; // для SELECT_SOUND и ORDER_SOUND
     double stepTime = 0.0; // накопленное время до следующего шага симуляции
     oc2::render::MapCamera camera;
@@ -603,12 +614,14 @@ struct MapView {
         }
         world.team = mission.teams();
         world.humanTeam = world.team[std::size_t(player)];
+        dataDir = data;
         std::size_t missing = 0;
+        std::vector<std::optional<std::size_t>> mapUnits;
         for (const oc2::assets::MapUnit& u : map.units()) {
             if (const oc2::assets::UnitDesc* desc = units->find(u.type))
-                world.addUnit(*desc, mission.singleOwner(u.player), u.x, u.y, u.direction);
+                mapUnits.push_back(world.addUnit(*desc, mission.singleOwner(u.player), u.x, u.y, u.direction));
             else
-                ++missing;
+                mapUnits.emplace_back(), ++missing;
         }
         if (missing) std::printf("юниты карты: не найдено типов для %zu из %zu\n", missing, map.units().size());
         // Источники ресурсов: деревья (Treelist) и камни с рудами (stonlist), раздел [SOURCES] их .rsr.
@@ -659,7 +672,21 @@ struct MapView {
         }
         settlements = std::make_unique<oc2::world::Settlements>(world, *units, data);
         std::printf("поселений: %zu\n", settlements->list().size());
-        startAi(data, false);
+        {
+            oc2::world::MissionScript::Env env;
+            env.world = &world;
+            env.catalog = units.get();
+            env.settlements = settlements.get();
+            env.mapUnits = std::move(mapUnits);
+            env.difficulty = difficulty;
+            env.voiceSteps = [this](const std::string& file) { return sounds ? sounds->playVoice(file, false) : 0; };
+            script = oc2::world::MissionScript::create(map, std::move(env));
+            if (script && !script->hasRules()) script.reset();
+        }
+        if (script)
+            std::printf("сценарий миссии: правила и фильмы из карты\n");
+        else
+            startAi(data, false);
         width = map.worldX(map.vertsInLine() - 1);
         height = float(map.rows() - 1) * oc2::assets::Map3d::kCell / 2.0f;
         std::printf("%s: сетка %d×%d, треугольников %zu, объектов %zu, юнитов %zu, источников ресурсов %zu\n",
@@ -668,8 +695,8 @@ struct MapView {
     }
 
     // Стратегический ИИ игрокам 0..6 с юнитами (кроме нашего, если не self), по сценарию их нации.
-    void startAi(const fs::path& data, bool self) {
-        ais.clear();
+    void startAi(const fs::path& data, bool self, int only = -1) {
+        if (only < 0) ais.clear();
         if (!world.market)
             if (auto f = oc2::assets::findCaseInsensitive(data, "economy.txt")) try {
                     const std::vector<std::uint8_t> b = readFile(*f);
@@ -679,6 +706,7 @@ struct MapView {
                     std::printf("economy.txt: %s\n", e.what());
                 }
         for (int p = 0; p < 7; ++p) {
+            if (only >= 0 && p != only) continue;
             if (p == player && !self) continue;
             const std::string code = oc2::world::playerNation(world, *units, p);
             if (code.empty()) continue;
@@ -698,6 +726,28 @@ struct MapView {
         world.step();
         if (settlements) settlements->step();
         for (auto& ai : ais) ai->update();
+        if (script) runScript();
+    }
+
+    // Шаг сценария миссии и применение его событий.
+    void runScript() {
+        script->step();
+        if (script->myNation) {
+            player = *script->myNation;
+            world.humanTeam = world.team[std::size_t(player & 7)];
+            script->myNation.reset();
+        }
+        for (const auto& a : script->aiStarts) startAi(dataDir, false, a.player);
+        script->aiStarts.clear();
+        if (sounds)
+            for (const std::string& v : script->voices) sounds->playVoice(v);
+        script->voices.clear();
+        for (const auto& m : script->messages) {
+            bannerText = m.textId;
+            bannerLeft = 25 * 8;
+        }
+        script->messages.clear();
+        if (bannerLeft > 0) --bannerLeft;
     }
 
     void centerOn(VkExtent2D e) {
@@ -1081,6 +1131,37 @@ void drawPanelHint(Screen& screen, const oc2::assets::UnitDesc* unitDesc, const 
                       oc2::ui::Align::Left, v);
 }
 
+// Сценарий миссии на экране: список задач слева сверху, плашка сообщения, диалог внизу (портреты не рисуем).
+void drawMissionHud(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
+    if (!view.script) return;
+    const oc2::ui::Font* font = screen.fonts->findTagged("S");
+    if (!font) return;
+    const oc2::ui::View& v = screen.hudView;
+    const auto box = [&](const std::string& utf8, float x, float y, int width, std::uint32_t border, std::uint32_t fill) {
+        const std::string cp = oc2::assets::utf8ToCp1251(utf8);
+        const auto size = screen.text->measure(*font, cp, width, oc2::ui::Align::Left);
+        const float w = float(size.width + 16) * v.scale, h = float(size.height + 12) * v.scale;
+        sprites.fillRect(x - 1.0f, y - 1.0f, w + 2.0f, h + 2.0f, border);
+        sprites.fillRect(x, y, w, h, fill);
+        screen.text->draw(*font, cp, int((x + 8.0f * v.scale) / v.scale), int((y + 6.0f * v.scale) / v.scale), width,
+                          oc2::ui::Align::Left, v);
+        return h;
+    };
+    float y = 8.0f;
+    for (const std::string& id : view.script->tasks())
+        y += box(screen.texts.lookup(id), 8.0f, y, 260, 0xFF5A4630, 0xDDE8DCB8) + 4.0f;
+    if (view.bannerLeft > 0 && !view.bannerText.empty())
+        box(screen.texts.lookup(view.bannerText), float(e.width) / 2.0f - 200.0f * v.scale, 8.0f, 400, 0xFF5A4630, 0xEEE8DCB8);
+    const auto& d = view.script->dialog();
+    if (d.visible && !d.text.empty()) {
+        std::string text = d.text;
+        const std::string speaker = d.speaker.empty() ? "" : screen.texts.lookup(d.speaker) + ": ";
+        box(speaker + screen.texts.lookup(text), float(e.width) / 2.0f - 400.0f * v.scale, float(e.height) - 140.0f * v.scale, 800,
+            0xFF5A4630, 0xEEE8DCB8);
+    }
+    if (view.script->blackScreen() > 0.0f) sprites.fillRect(0.0f, 0.0f, float(e.width), float(e.height), 0xFF000000);
+}
+
 // Сводка выбранных юнитов правее мини-карты: имя («UNITSMD\\ИМЯ.MD» из mdlist), здоровье и число.
 void drawSelectionInfo(Screen& screen, const MapView& view, VkExtent2D e, oc2::render::SpriteRenderer& sprites) {
     const oc2::ui::Font* font = screen.fonts->findTagged("S");
@@ -1229,11 +1310,19 @@ int main(int argc, char** argv) {
             if (opts->simulate > 0) {
                 const auto steps = std::uint64_t(opts->simulate) * 25;
                 for (std::uint64_t k = 0; k < steps; ++k) {
+                    if (opts->skipFilm && mapView->script && k % 4 == 0) mapView->script->skipDialog();
                     mapView->stepWorld();
                     mapView->world.soundEvents.clear();
                     mapView->world.shotEvents.clear();
                 }
                 const auto& w = mapView->world;
+                if (const auto& sc = mapView->script) {
+                    std::printf("сценарий через %d с: задач %zu, диалог %s, фильм %s, итог %s\n", opts->simulate, sc->tasks().size(),
+                                sc->dialog().visible ? "виден" : "нет", sc->filmRunning() ? "идёт" : "нет",
+                                sc->ending ? (sc->ending->victory ? "победа" : "поражение") : "нет");
+                    for (const auto& t : sc->tasks()) std::printf("  задача %s\n", t.c_str());
+                    std::printf("  MovieInt=%g FreeTrigger=%g\n", sc->var("MovieInt"), sc->var("FreeTrigger"));
+                }
                 for (const auto& ai : mapView->ais) {
                     const int p = ai->player();
                     std::map<std::string, std::pair<int, int>> kinds; // тип → (готово, строится)
@@ -1402,7 +1491,10 @@ int main(int argc, char** argv) {
                 const bool resultOpen = !menus.empty() && ((mapView->ended && menus.currentName() == "EndGameMessage") ||
                                                            menus.currentName() == "F10game");
                 const bool gameMenu = resultOpen && menus.currentName() == "F10game";
-                for (std::uint32_t key : window.pressedKeys) mapView->handleKey(key, e);
+                for (std::uint32_t key : window.pressedKeys) {
+                    mapView->handleKey(key, e);
+                    if (key == SDLK_SPACE && mapView->script) mapView->script->skipDialog(); // пропуск диалога
+                }
                 if (window.wheel != 0.0f && !resultOpen)
                     mapView->handleKey(window.wheel > 0 ? SDLK_PLUS : SDLK_MINUS, e);
                 if (!resultOpen) mapView->scroll(dt, window, e);
@@ -1420,7 +1512,12 @@ int main(int argc, char** argv) {
                 if (!mapView->ended && !resultOpen) mapView->advance(dt);
                 mapView->playSounds(sounds.get(), e);
                 // Итог: раз в секунду симуляции проверяется, осталась ли одна команда.
-                if (!mapView->ended && mapView->world.stepCount() % 25 == 0)
+                if (!mapView->ended && mapView->script && mapView->script->ending) {
+                    mapView->ended = true;
+                    mapView->dragStart.reset();
+                    menus.setGameResult(mapView->script->ending->victory);
+                    menus.open("EndGameMessage");
+                } else if (!mapView->ended && !mapView->script && mapView->world.stepCount() % 25 == 0)
                     if (auto winner = mapView->world.winningTeam()) {
                         mapView->ended = true;
                         mapView->dragStart.reset();
@@ -1439,6 +1536,7 @@ int main(int argc, char** argv) {
                 if (hud) hud->draw(screen->hudView);
                 // Подсказка кнопки панели: «UNITSMD\ИМЯ.MD.HINT» из Text/mdlist.txt и цена.
                 drawSelectionInfo(*screen, *mapView, e, sprites);
+                drawMissionHud(*screen, *mapView, e, sprites);
                 if (auto b = mapView->hoveredButton(window.mouseX, window.mouseY, e); b && !b->leave && (b->desc || b->upgrade))
                     drawPanelHint(*screen, b->desc, b->upgrade, window.mouseX, window.mouseY, sprites);
                 if (resultOpen) {
