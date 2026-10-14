@@ -47,6 +47,7 @@ struct Unit {
     int weapon = -1;                   // оружие текущей атаки
     bool damageDone = false;           // урон этой атаки уже нанесён
     std::array<int, assets::UnitDesc::kWeapons> reload{}; // шаги до готовности оружия
+    int goalX = 0, goalY = 0;          // куда считался путь к цели
     int repathIn = 0;                  // шаги до пересчёта пути к цели
     bool dying = false, dead = false;
 

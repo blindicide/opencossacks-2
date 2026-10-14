@@ -678,8 +678,17 @@ void World::updateCombat(std::size_t index) {
         return;
     }
     if (--u.repathIn <= 0) {
-        pathTo(u, t.x(), t.y());
-        u.repathIn = 25; // цель движется — путь пересчитывается раз в секунду
+        // Путь пересчитывается раз в секунду, но только если цель ушла от прежней точки
+        // или юнит встал; недостижимая цель — повтор не чаще раза в 5 с (A* по всей карте дорог).
+        const int moved = std::abs(t.x() - u.goalX) + std::abs(t.y() - u.goalY);
+        if (!u.moving || moved > 150) {
+            pathTo(u, t.x(), t.y());
+            u.goalX = t.x();
+            u.goalY = t.y();
+            u.repathIn = u.moving ? 25 : 125;
+        } else {
+            u.repathIn = 25;
+        }
     }
 }
 
